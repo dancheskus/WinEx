@@ -804,6 +804,41 @@ final class FileTableView: NSTableView {
     var onZoom: ((Int) -> Void)?
     private var zoom = ZoomGesture()
 
+    /// Explorer's Details view: dragging from empty space or from the Date/Type/Size columns draws a
+    /// selection rectangle; pressing on a name selects it and can drag the file.
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        let onName = row >= 0 && column(at: point) == 0
+        guard !onName, event.clickCount == 1 else { return super.mouseDown(with: event) }
+
+        // On a row: a plain click still selects it (and double-click opens) — only a drag draws the rectangle
+        if row >= 0 && !isDragBeginning(from: event) {
+            return super.mouseDown(with: event)
+        }
+        window?.makeFirstResponder(self)
+        let additive = !event.modifierFlags.intersection([.command, .shift]).isEmpty
+        let base = additive ? selectedRowIndexes : IndexSet()
+        selectRowIndexes(base, byExtendingSelection: false)
+        RubberBand.track(in: self, from: point) { rect in
+            let rows = self.rows(in: rect)
+            selectRowIndexes(base.union(IndexSet(integersIn: rows.lowerBound..<rows.upperBound)), byExtendingSelection: false)
+        }
+    }
+
+    /// Waits for the mouse to either move a few points (a drag) or be released (a click).
+    /// Consumed small moves are harmless; a mouse-up is left in the queue for `super`.
+    private func isDragBeginning(from event: NSEvent) -> Bool {
+        let start = event.locationInWindow
+        while let next = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantFuture,
+                                         inMode: .eventTracking, dequeue: false) {
+            if next.type == .leftMouseUp { return false }
+            if hypot(next.locationInWindow.x - start.x, next.locationInWindow.y - start.y) >= 4 { return true }
+            _ = NSApp.nextEvent(matching: .leftMouseDragged, until: nil, inMode: .eventTracking, dequeue: true)
+        }
+        return false
+    }
+
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard modifiers.isEmpty else { return super.keyDown(with: event) }

@@ -338,11 +338,18 @@ final class FileCollectionView: NSCollectionView {
         let modifiers = event.modifierFlags.intersection([.shift, .command])
 
         guard let index = indexPathForItem(at: point)?.item else {
-            // Empty space: built-in rubber-band selection
+            // Empty space: selection rectangle (⌘/⇧ add to the current selection)
             mouseDownIndex = nil
-            super.mouseDown(with: event)
-            if selectionIndexPaths.isEmpty { anchor = nil; lead = nil }
-            onSelectionChange?()
+            let base = modifiers.isEmpty ? IndexSet() : selectedIndexes
+            apply(base, lead: lead ?? 0)
+            RubberBand.track(in: self, from: point) { rect in
+                let hit = (0..<count).filter { i in
+                    layoutAttributesForItem(at: IndexPath(item: i, section: 0))?.frame.intersects(rect) ?? false
+                }
+                apply(base.union(IndexSet(hit)), lead: hit.last ?? lead ?? 0)
+            }
+            let selection = selectedIndexes
+            anchor = selection.isEmpty ? nil : (anchor ?? selection.first)
             return
         }
 
