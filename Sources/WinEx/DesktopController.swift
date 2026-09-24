@@ -1,5 +1,6 @@
 import AppKit
 import Quartz
+import QuickLookThumbnailing
 
 /// Draws desktop icons in place of Finder (Finder's desktop is off in replacement mode).
 /// Double-clicking a folder opens it in WinEx; icons can be moved, arranged and sorted like on Windows.
@@ -63,6 +64,15 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private lazy var layout = DesktopLayout(desktop: desktopURL, screenSize: window?.frame.size ?? NSScreen.screens.first?.frame.size ?? .zero)
     /// Desktop widgets (Notification Center windows above the icons); icons are kept out of them, like Finder does.
     private var widgetRects: [NSRect] = []
+    /// Paths of volumes shown on the desktop (Finder's "Show these items on the desktop").
+    private var volumePaths = Set<String>()
+    /// "Show Items: On Desktop" off in System Settings.
+    private var systemHidesIcons = SystemDesktop.hidesDesktopItems
+    private var settingsTimer: Timer?
+    private var thumbnails: [String: NSImage] = [:]
+    private var requestedThumbnails = Set<String>()
+    /// A plain click on empty desktop reveals the desktop like clicking the wallpaper.
+    private var emptyClickCandidate = false
     private var items: [FileItem] = []
     /// Icon centers in view coordinates, parallel to `items`.
     private var centers: [CGPoint] = []
@@ -98,6 +108,24 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         registerForDraggedTypes([.fileURL])
         reload()
         watcher = DirectoryWatcher(url: desktopURL) { [weak self] in self?.reload() }
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
+            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reload() }
+            }
+        }
+        // System Settings has no change notification for these; poll cheaply
+        settingsTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let hides = SystemDesktop.hidesDesktopItems
+                if hides != self.systemHidesIcons {
+                    self.systemHidesIcons = hides
+                    self.selection = []
+                    self.needsDisplay = true
+                }
+            }
+        }
         NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.needsDisplay = true }
         }
@@ -106,7 +134,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func stop() {
         endRename()
         watcher = nil
+        settingsTimer?.invalidate()
+        settingsTimer = nil
     }
+
+    private var iconsVisible: Bool { layout.showIcons && !systemHidesIcons }
 
     // MARK: - Items and layout
 
@@ -114,18 +146,25 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let selectedNames = Set(selection.map { name(of: $0) })
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: desktopURL, includingPropertiesForKeys: FileItem.keys, options: [.skipsHiddenFiles])) ?? []
-        items = urls.map(FileItem.init).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        layout.prune(keeping: Set(items.map { $0.url.lastPathComponent }))
+        let volumes = SystemDesktop.desktopVolumes()
+        volumePaths = Set(volumes.map(\.path))
+        items = volumes.map(FileItem.init) + urls.map(FileItem.init).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        layout.prune(keeping: Set(items.indices.map(name(of:))))
         selection = Set(items.indices.filter { selectedNames.contains(name(of: $0)) })
         relayout()
     }
 
+    /// Layout key of an item: the file name for desktop files, the full path for volumes.
     private func name(of index: Int) -> String {
-        items[index].url.lastPathComponent
+        isVolume(index) ? items[index].url.path : items[index].url.lastPathComponent
     }
 
     private func index(named name: String) -> Int? {
-        items.firstIndex { $0.url.lastPathComponent == name }
+        items.indices.first { self.name(of: $0) == name }
+    }
+
+    private func isVolume(_ index: Int) -> Bool {
+        volumePaths.contains(items[index].url.path)
     }
 
     /// Places every icon: stored positions, free grid cells for new files, or a sorted grid with auto-arrange.
@@ -191,7 +230,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func index(at point: NSPoint) -> Int? {
-        guard layout.showIcons else { return nil }
+        guard iconsVisible else { return nil }
         // Topmost (last drawn) first
         return items.indices.reversed().first { hitRect($0).contains(point) }
     }
@@ -335,14 +374,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         NSColor(white: 0, alpha: 0.005).setFill()
         dirtyRect.fill(using: .copy)
 
-        if layout.showIcons {
+        if iconsVisible {
             let attributes = labelAttributes()
             let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
             for (i, item) in items.enumerated() where hitRect(i).insetBy(dx: -4, dy: -4).intersects(dirtyRect) {
                 let iconRect = iconRect(at: centers[i])
                 let labelRect = labelRect(at: centers[i])
                 let isRenaming = renamingName == name(of: i)
-                let label = NSAttributedString(string: item.name, attributes: attributes)
+                let label = labelText(for: item, attributes: attributes)
 
                 if selection.contains(i) || dropTarget == i {
                     NSColor.white.withAlphaComponent(dropTarget == i ? 0.35 : 0.2).setFill()
@@ -356,8 +395,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                     NSBezierPath(roundedRect: highlight, xRadius: 4, yRadius: 4).fill()
                 }
                 let alpha = FileClipboard.shared.isCut(item.url) ? FileListViewController.cutAlpha : 1
-                item.icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: alpha,
-                               respectFlipped: true, hints: nil)
+                image(for: i).draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: alpha,
+                                   respectFlipped: true, hints: nil)
                 if !isRenaming { label.draw(with: labelRect, options: options) }
             }
         }
@@ -368,6 +407,41 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             NSColor.selectedContentBackgroundColor.withAlphaComponent(0.8).setStroke()
             NSBezierPath(rect: rubberBand.insetBy(dx: 0.5, dy: 0.5)).stroke()
         }
+    }
+
+    /// Name with Finder's colored tag dots in front of it.
+    private func labelText(for item: FileItem, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
+        let text = NSMutableAttributedString()
+        for color in item.tagColors {
+            var dot = attributes
+            dot[.foregroundColor] = color
+            text.append(NSAttributedString(string: "●", attributes: dot))
+        }
+        if text.length > 0 { text.append(NSAttributedString(string: " ", attributes: attributes)) }
+        text.append(NSAttributedString(string: item.name, attributes: attributes))
+        return text
+    }
+
+    /// Previews for pictures, PDFs, documents… like Finder's "Show icon preview"; icons for folders and apps.
+    private func image(for index: Int) -> NSImage {
+        let item = items[index]
+        guard !item.isFolder, !isVolume(index), item.url.pathExtension != "app" else { return item.icon }
+        let side = iconSide
+        let key = "\(Int(side))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.url.path)"
+        if let cached = thumbnails[key] { return cached }
+        if !requestedThumbnails.contains(key) {
+            requestedThumbnails.insert(key)
+            let request = QLThumbnailGenerator.Request(fileAt: item.url, size: CGSize(width: side, height: side),
+                                                       scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
+            QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
+                guard let image = representation?.nsImage else { return }
+                DispatchQueue.main.async {
+                    self?.thumbnails[key] = image
+                    self?.needsDisplay = true
+                }
+            }
+        }
+        return item.icon
     }
 
     // MARK: - Mouse
@@ -396,6 +470,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             rubberBandBase = toggles ? selection : []
             selection = rubberBandBase
             rubberBand = NSRect(origin: point, size: .zero)
+            emptyClickCandidate = !toggles && event.clickCount == 1
         }
         needsDisplay = true
     }
@@ -406,7 +481,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             let rect = NSRect(x: min(point.x, mouseDownPoint.x), y: min(point.y, mouseDownPoint.y),
                               width: abs(point.x - mouseDownPoint.x), height: abs(point.y - mouseDownPoint.y))
             rubberBand = rect
-            selection = rubberBandBase.union(items.indices.filter { layout.showIcons && hitRect($0).intersects(rect) })
+            selection = rubberBandBase.union(items.indices.filter { iconsVisible && hitRect($0).intersects(rect) })
+            if rect.width > 3 || rect.height > 3 { emptyClickCandidate = false }
             needsDisplay = true
             return
         }
@@ -427,6 +503,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     override func mouseUp(with event: NSEvent) {
         if !dragStarted, let i = collapseOnMouseUp { selection = [i] }
+        // Clicking the wallpaper moves windows aside (and back), as System Settings asks
+        if emptyClickCandidate && rubberBand != nil && SystemDesktop.clickRevealsDesktop {
+            SystemDesktop.toggleShowDesktop()
+        }
+        emptyClickCandidate = false
         rubberBand = nil
         mouseDownIndex = nil
         collapseOnMouseUp = nil
@@ -440,8 +521,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        // Dropped on the Trash in the Dock
-        if operation == .delete { FileOps.trash(draggedNames.map { desktopURL.appendingPathComponent($0) }) }
+        // Dropped on the Trash in the Dock: files go to the Trash, volumes are ejected (like Finder)
+        if operation == .delete { removeItems(draggedNames.compactMap(index(named:))) }
         draggedNames = []
     }
 
@@ -516,7 +597,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         case (36, []), (76, []): openSelection()
         case (51, [.command]): trashSelection()
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
-        case (120, []): if let i = selection.sorted().first { beginRename(i) }   // F2
+        case (120, []): renameAction(nil)                                             // F2
         case (53, []): selection = []; needsDisplay = true                           // Esc
         case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }                    // Space
         case (123, []), (124, []), (125, []), (126, []): moveSelection(keyCode: event.keyCode)
@@ -536,6 +617,17 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             item.target = self
             item.tag = tag
             if let state { item.state = state ? .on : .off }
+        }
+
+        if let i = index(at: point), isVolume(i) {
+            if !selection.contains(i) { selection = [i]; needsDisplay = true }
+            add("Открыть", #selector(openSelectionAction(_:)))
+            if let openWith = OpenWithMenu.item(for: selectedURLs) { menu.addItem(openWith) }
+            menu.addItem(.separator())
+            add("Копировать путь", #selector(copyPathAction(_:)))
+            menu.addItem(.separator())
+            add("Извлечь «\(items[i].name)»", #selector(trashAction(_:)))
+            return menu
         }
 
         if let i = index(at: point) {
@@ -602,18 +694,28 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func trashSelection() {
-        let urls = selectedURLs
-        guard !urls.isEmpty else { return }
-        FileOps.trash(urls)
+        guard !selection.isEmpty else { return }
+        removeItems(Array(selection))
         selection = []
     }
+
+    /// Files go to the Trash; volumes are ejected.
+    private func removeItems(_ indexes: [Int]) {
+        let volumes = indexes.filter(isVolume).map { items[$0].url }
+        let files = indexes.filter { !isVolume($0) }.map { items[$0].url }
+        if !files.isEmpty { FileOps.trash(files) }
+        volumes.forEach(SystemDesktop.eject)
+    }
+
+    /// Selected desktop files (volumes can't be cut or renamed).
+    private var selectedFileURLs: [URL] { selection.sorted().filter { !isVolume($0) }.map { items[$0].url } }
 
     @objc private func openSelectionAction(_ sender: Any?) { openSelection() }
     @objc private func quickLookAction(_ sender: Any?) { QuickLook.toggle(for: self) }
 
     /// Arrow keys pick the nearest icon in that direction (icons are freely placed, so by geometry).
     private func moveSelection(keyCode: UInt16) {
-        guard layout.showIcons, !items.isEmpty else { return }
+        guard iconsVisible, !items.isEmpty else { return }
         guard let current = selection.sorted().first else {
             selection = [0]
             needsDisplay = true
@@ -677,12 +779,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     @objc private func openDesktopAction(_ sender: Any?) { AppDelegate.shared.openWindow(at: desktopURL) }
 
     // ⌘X / ⌘C / ⌘V arrive here through the main menu when the desktop is focused
-    @objc func cut(_ sender: Any?) { FileClipboard.shared.cut(selectedURLs) }
+    @objc func cut(_ sender: Any?) { FileClipboard.shared.cut(selectedFileURLs) }
     @objc func copy(_ sender: Any?) { FileClipboard.shared.copy(selectedURLs) }
     @objc func paste(_ sender: Any?) { FileClipboard.shared.paste(into: desktopURL) }
 
     @objc private func renameAction(_ sender: Any?) {
-        if let i = selection.sorted().first { beginRename(i) }
+        if let i = selection.sorted().first(where: { !isVolume($0) }) { beginRename(i) }
     }
 
     @objc private func openWallpaperSettings(_ sender: Any?) {
@@ -694,6 +796,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     @objc private func setIconSize(_ sender: NSMenuItem) {
         guard let size = DesktopIconSize(rawValue: sender.tag), size != layout.iconSize else { return }
         layout.iconSize = size
+        thumbnails = [:]
+        requestedThumbnails = []
         if layout.autoArrange { arrange(by: layout.sortKey) } else if layout.alignToGrid { snapAllToGrid() }
         needsDisplay = true
     }

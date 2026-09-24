@@ -30,7 +30,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     init(tabs: [ExplorerTab]) {
         precondition(!tabs.isEmpty)
         self.tabs = tabs
-        let window = NSWindow(
+        let window = ExplorerWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
@@ -38,6 +38,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         window.titleVisibility = .hidden
         window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
+        // The tab strip lives in the title bar area. If the window server may move the window, it
+        // grabs every drag there (tabs included) before AppKit sees it — so we move the window ourselves.
+        window.isMovable = false
         window.minSize = NSSize(width: 640, height: 360)
         // Tab strip color; the selected tab and the nav bar use controlBackgroundColor
         window.backgroundColor = NSColor(name: nil) { appearance in
@@ -128,6 +131,17 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         [tabBar, navBar, topSeparator, splitView, bottomSeparator, statusBar].forEach(content.addSubview)
+        // Title bar strip left of the tabs (under the traffic lights) still drags / zooms the window
+        let dragArea = WindowDragArea()
+        (window as? ExplorerWindow)?.titleBarViews = [tabBar, dragArea]
+        dragArea.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(dragArea, positioned: .below, relativeTo: tabBar)
+        NSLayoutConstraint.activate([
+            dragArea.topAnchor.constraint(equalTo: content.topAnchor),
+            dragArea.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            dragArea.trailingAnchor.constraint(equalTo: tabBar.leadingAnchor),
+            dragArea.heightAnchor.constraint(equalToConstant: TabBarView.height),
+        ])
 
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: content.topAnchor),
@@ -470,5 +484,39 @@ final class AddressField: NSTextField {
             editor.selectAll(nil)
         }
         return true
+    }
+}
+
+/// Clicks in the title bar area normally go to the (invisible) title bar view, not to the tab strip
+/// drawn there. This window hands them to our title bar views directly; traffic lights keep theirs.
+final class ExplorerWindow: NSWindow {
+    var titleBarViews: [NSView] = []
+
+    override func sendEvent(_ event: NSEvent) {
+        let routed: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]
+        guard routed.contains(event.type), let target = titleBarTarget(for: event) else {
+            return super.sendEvent(event)
+        }
+        switch event.type {
+        case .leftMouseDown: target.mouseDown(with: event)
+        case .rightMouseDown: target.rightMouseDown(with: event)
+        case .otherMouseDown: target.otherMouseDown(with: event)
+        default: target.otherMouseUp(with: event)
+        }
+    }
+
+    private func titleBarTarget(for event: NSEvent) -> NSView? {
+        let point = event.locationInWindow
+        // Leave the close / minimize / zoom buttons alone
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            if let button = standardWindowButton(kind), !button.isHidden,
+               button.convert(button.bounds, to: nil).contains(point) { return nil }
+        }
+        for view in titleBarViews where !view.isHidden {
+            guard let superview = view.superview else { continue }
+            let local = superview.convert(point, from: nil)
+            if view.frame.contains(local) { return view.hitTest(local) ?? view }
+        }
+        return nil
     }
 }

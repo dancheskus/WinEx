@@ -34,7 +34,7 @@ extension URL {
 final class FileItem {
     static let keys: [URLResourceKey] = [
         .isDirectoryKey, .isPackageKey, .contentModificationDateKey,
-        .localizedTypeDescriptionKey, .fileSizeKey, .localizedNameKey,
+        .localizedTypeDescriptionKey, .fileSizeKey, .localizedNameKey, .tagNamesKey,
     ]
 
     let url: URL
@@ -43,6 +43,7 @@ final class FileItem {
     let modified: Date?
     let typeDescription: String
     let size: Int?
+    let tagNames: [String]
 
     init(url: URL) {
         self.url = url
@@ -54,7 +55,29 @@ final class FileItem {
         modified = values?.contentModificationDate
         typeDescription = values?.localizedTypeDescription ?? ""
         size = isDirectory ? nil : values?.fileSize
+        tagNames = values?.tagNames ?? []
     }
+
+    /// Colors of the item's Finder tags. Each tag is stored as "name\n<color index>" in the
+    /// `com.apple.metadata:_kMDItemUserTags` attribute, so renamed/localized/custom tags keep their color.
+    lazy var tagColors: [NSColor] = {
+        guard !tagNames.isEmpty else { return [] }
+        let attribute = "com.apple.metadata:_kMDItemUserTags"
+        let data: Data? = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return nil }
+            let size = getxattr(path, attribute, nil, 0, 0, 0)
+            guard size > 0 else { return nil }
+            var buffer = Data(count: size)
+            let read = buffer.withUnsafeMutableBytes { getxattr(path, attribute, $0.baseAddress, size, 0, 0) }
+            return read > 0 ? buffer : nil
+        }
+        guard let data, let tags = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] else { return [] }
+        let colors = NSWorkspace.shared.fileLabelColors
+        return tags.compactMap { tag in
+            guard let index = tag.split(separator: "\n").last.flatMap({ Int($0) }), index > 0, index < colors.count else { return nil }
+            return colors[index]
+        }
+    }()
 
     lazy var icon: NSImage = NSWorkspace.shared.icon(forFile: url.path)
 

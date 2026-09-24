@@ -121,7 +121,7 @@ final class TabBarView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         guard let index = itemViews.firstIndex(where: { $0.frame.contains(point) }) else {
             // Empty strip behaves like a title bar
-            if event.clickCount == 2 { window.performZoom(nil) } else { window.performDrag(with: event) }
+            WindowDragArea.handle(event, in: window)
             return
         }
         controller.selectTab(at: index)
@@ -256,6 +256,9 @@ final class TabItemView: NSView {
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    /// Tabs sit in the title bar area; non-opaque views there default to "drag the window",
+    /// and the window server would move the window before we ever see the drag.
+    override var mouseDownCanMoveWindow: Bool { false }
 
     @objc private func close(_ sender: Any?) { onClose?() }
 
@@ -286,6 +289,40 @@ final class TabItemView: NSView {
         } else {
             NSColor.separatorColor.setFill()
             NSRect(x: bounds.maxX - 1, y: 9, width: 1, height: bounds.height - 18).fill(using: .sourceOver)
+        }
+    }
+}
+
+/// Title bar behaviour for windows that aren't movable by the window server:
+/// drag moves the window, double-click zooms (or minimizes, per System Settings).
+final class WindowDragArea: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        Self.handle(event, in: window)
+    }
+
+    static func handle(_ event: NSEvent, in window: NSWindow) {
+        if event.clickCount == 2 {
+            let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
+            if action == "Minimize" { window.performMiniaturize(nil) } else if action != "None" { window.performZoom(nil) }
+            return
+        }
+        let start = NSEvent.mouseLocation
+        let origin = window.frame.origin
+        while let next = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantFuture,
+                                         inMode: .eventTracking, dequeue: true) {
+            if next.type == .leftMouseUp { break }
+            let mouse = NSEvent.mouseLocation
+            var frame = window.frame
+            frame.origin = NSPoint(x: origin.x + mouse.x - start.x, y: origin.y + mouse.y - start.y)
+            // Keep the title bar below the menu bar, like the system does
+            if let screen = window.screen ?? NSScreen.main {
+                frame.origin.y = min(frame.origin.y, screen.visibleFrame.maxY - frame.height)
+            }
+            window.setFrameOrigin(frame.origin)
         }
     }
 }
