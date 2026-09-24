@@ -52,6 +52,13 @@ final class DesktopController {
 }
 
 final class DesktopWindow: NSWindow {
+    override var undoManager: UndoManager? { FileUndo.manager(for: self) }
+    @objc func undo(_ sender: Any?) { FileUndo.manager(for: self).undo() }
+    @objc func redo(_ sender: Any?) { FileUndo.manager(for: self).redo() }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        FileUndo.validate(menuItem, in: self) ?? super.validateMenuItem(menuItem)
+    }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }
@@ -901,6 +908,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard let template = sender.representedObject as? NewItemTemplate else { return }
         do {
             let url = try template.create(in: desktopURL)
+            FileUndo.recordCreate(url)
             let spot = placement(near: menuPoint ?? firstFreeCell(occupied: centers), occupied: centers)
             setPlacement(spot, forName: url.lastPathComponent)
             layout.save()
@@ -960,6 +968,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         do {
             try FileManager.default.moveItem(at: desktopURL.appendingPathComponent(oldName),
                                              to: desktopURL.appendingPathComponent(newName))
+            FileUndo.recordRename(from: desktopURL.appendingPathComponent(oldName), to: desktopURL.appendingPathComponent(newName))
             layout.renamePosition(from: oldName, to: newName)
             reload()
             if let i = index(named: newName) { selection = [i] }

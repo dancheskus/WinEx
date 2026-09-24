@@ -43,6 +43,8 @@ enum Places {
     static func putBack(_ urls: [URL]) -> [URL] {
         let locations = putBackLocations()
         var failed: [URL] = []
+        var moved: [(from: URL, to: URL)] = []
+        defer { MainActor.assumeIsolated { FileUndo.recordMove(moved) } }
         for url in urls {
             guard let original = locations[url.lastPathComponent] else { failed.append(url); continue }
             let folder = original.deletingLastPathComponent()
@@ -51,6 +53,7 @@ enum Places {
             do {
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 try FileManager.default.moveItem(at: url, to: destination)
+                moved.append((url, destination))
             } catch {
                 failed.append(url)
             }

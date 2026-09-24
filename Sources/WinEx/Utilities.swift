@@ -156,6 +156,14 @@ enum FileOps {
         DispatchQueue.global(qos: .userInitiated).async {
             let fm = FileManager.default
             let target = directory.standardizedFileURL.path
+            var done: [(from: URL, to: URL)] = []
+            defer {
+                // One undo step for the whole batch
+                let pairs = done
+                DispatchQueue.main.async {
+                    if copy { FileUndo.recordCopy(pairs) } else { FileUndo.recordMove(pairs) }
+                }
+            }
             for source in urls {
                 let sourcePath = source.standardizedFileURL.path
                 do {
@@ -165,9 +173,13 @@ enum FileOps {
                         ])
                     }
                     if copy {
-                        try fm.copyItem(at: source, to: uniqueDestination(for: source.lastPathComponent, in: directory))
+                        let destination = uniqueDestination(for: source.lastPathComponent, in: directory)
+                        try fm.copyItem(at: source, to: destination)
+                        done.append((source, destination))
                     } else if source.deletingLastPathComponent().standardizedFileURL.path != target {
-                        try fm.moveItem(at: source, to: uniqueDestination(for: source.lastPathComponent, in: directory))
+                        let destination = uniqueDestination(for: source.lastPathComponent, in: directory)
+                        try fm.moveItem(at: source, to: destination)
+                        done.append((source, destination))
                     }
                 } catch {
                     DispatchQueue.main.async { NSAlert(error: error).runModal() }
@@ -194,8 +206,11 @@ enum FileOps {
         // Files may already be gone (e.g. the Dock trashed them after a drag)
         let urls = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
         guard !urls.isEmpty else { return }
-        NSWorkspace.shared.recycle(urls) { _, error in
-            if let error { DispatchQueue.main.async { NSAlert(error: error).runModal() } }
+        NSWorkspace.shared.recycle(urls) { moved, error in
+            DispatchQueue.main.async {
+                FileUndo.recordTrash(moved)
+                if let error { NSAlert(error: error).runModal() }
+            }
         }
     }
 }

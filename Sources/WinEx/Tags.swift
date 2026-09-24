@@ -67,6 +67,8 @@ enum FileTags {
 
     /// Adds or removes one tag on every file.
     static func toggle(_ tag: Tag, on urls: [URL], add: Bool) {
+        let before = Dictionary(uniqueKeysWithValues: urls.map { ($0, tags(of: $0)) })
+        defer { MainActor.assumeIsolated { FileUndo.recordTags(before: before) } }
         for url in urls {
             var current = tags(of: url).filter { $0.name != tag.name }
             if add { current.append(tag) }

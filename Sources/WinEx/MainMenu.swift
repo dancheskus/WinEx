@@ -66,6 +66,10 @@ enum MainMenu {
             }(),
         ])
         submenu("Правка", [
+            // ⌘Z / ⇧⌘Z: text while editing a name, otherwise file operations (the window's undo manager)
+            item("Отменить", Selector(("undo:")), "z"),
+            item("Повторить", Selector(("redo:")), "Z"),  // capital Z = ⇧⌘Z, as in Apple's menus
+            .separator(),
             item("Вырезать", #selector(NSText.cut(_:)), "x"),
             item("Копировать", #selector(NSText.copy(_:)), "c"),
             item("Вставить", #selector(NSText.paste(_:)), "v"),

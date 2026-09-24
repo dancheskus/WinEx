@@ -284,6 +284,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         let removed = shown.subtracting(names)
         guard !added.isEmpty || !removed.isEmpty else { return }
         let known = tagsAtOpen.flatMap { $0 }
+        let before = Dictionary(uniqueKeysWithValues: urls.map { ($0, FileTags.tags(of: $0)) })
+        defer { FileUndo.recordTags(before: before) }
         for (index, url) in urls.enumerated() {
             var tags = FileTags.tags(of: url).filter { !removed.contains($0.name) }
             for name in added where !tags.contains(where: { $0.name == name }) {

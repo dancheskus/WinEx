@@ -273,7 +273,9 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
     }
 
     private func saveTags() {
+        let before = [folder: FileTags.tags(of: folder)]
         do { try FileTags.setTags(tags, on: folder) } catch { NSAlert(error: error).runModal() }
+        FileUndo.recordTags(before: before)
         refresh()
         NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
     }

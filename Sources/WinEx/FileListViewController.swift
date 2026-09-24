@@ -492,6 +492,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let url = FileOps.newFolderURL(in: directory)
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            FileUndo.recordCreate(url)
         } catch {
             NSAlert(error: error).runModal()
             return
@@ -539,6 +540,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         if !newName.isEmpty, !newName.contains("/"), destination.path != url.path {
             do {
                 try FileManager.default.moveItem(at: url, to: destination)
+                FileUndo.recordRename(from: url, to: destination)
             } catch {
                 NSAlert(error: error).runModal()
             }
@@ -716,6 +718,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         guard let template = sender.representedObject as? NewItemTemplate, let directory else { return }
         do {
             let url = try template.create(in: directory)
+            FileUndo.recordCreate(url)
             reload()
             // Match by name: the listing may spell the folder differently (/tmp vs /private/tmp)
             if let index = items.firstIndex(where: { $0.url.lastPathComponent == url.lastPathComponent }) {

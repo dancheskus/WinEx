@@ -519,6 +519,16 @@ final class AddressField: NSTextField {
 final class ExplorerWindow: NSWindow {
     var titleBarViews: [NSView] = []
 
+    /// One file-operation history for all windows and the desktop. NSWindow's own undo:/redo:
+    /// use its internal manager, so they are answered here explicitly (text fields handle their own first).
+    override var undoManager: UndoManager? { FileUndo.manager(for: self) }
+    @objc func undo(_ sender: Any?) { FileUndo.manager(for: self).undo() }
+    @objc func redo(_ sender: Any?) { FileUndo.manager(for: self).redo() }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        FileUndo.validate(menuItem, in: self) ?? super.validateMenuItem(menuItem)
+    }
+
     override func sendEvent(_ event: NSEvent) {
         let routed: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]
         guard routed.contains(event.type), let target = titleBarTarget(for: event) else {
