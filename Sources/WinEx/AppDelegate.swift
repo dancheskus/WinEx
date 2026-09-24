@@ -1,0 +1,197 @@
+import AppKit
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    static var shared: AppDelegate { NSApp.delegate as! AppDelegate }
+
+    private(set) var windowControllers: [ExplorerWindowController] = []
+    private var statusItem: NSStatusItem!
+    private var settingsController: SettingsWindowController?
+    private var desktop: DesktopController?
+    private var openedByEvent = false
+
+    // MARK: - Lifecycle
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = MainMenu.build()
+        // "Reveal in file viewer" ('misc'/'mvis') — sent to the NSFileViewer app
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleRevealEvent(_:withReply:)),
+            forEventClass: fourCC("misc"), andEventID: fourCC("mvis"))
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        setupStatusItem()
+        if Settings.replaceFinder { enableFinderReplacement() }
+        if !openedByEvent { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard FinderReplacement.isApplied else { return .terminateNow }
+        desktop?.hide()
+        FinderReplacement.restore { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    // MARK: - Opening folders from the outside
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        openedByEvent = true
+        for url in urls {
+            if url.isBrowsableDirectory { openWindow(at: url) } else { reveal(url) }
+        }
+    }
+
+    @objc private func handleRevealEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        openedByEvent = true
+        guard let direct = event.paramDescriptor(forKeyword: fourCC("----")) else { return }
+        var urls: [URL] = []
+        if direct.descriptorType == fourCC("list") {
+            for i in stride(from: 1, through: direct.numberOfItems, by: 1) {
+                if let url = direct.atIndex(i).flatMap(Self.fileURL) { urls.append(url) }
+            }
+        } else if let url = Self.fileURL(direct) {
+            urls.append(url)
+        }
+        // One window per parent folder, with all revealed items selected
+        for (parent, items) in Dictionary(grouping: urls, by: { $0.deletingLastPathComponent() }) {
+            openWindow(at: parent, select: items)
+        }
+    }
+
+    private static func fileURL(_ descriptor: NSAppleEventDescriptor) -> URL? {
+        descriptor.coerce(toDescriptorType: fourCC("furl"))?.fileURLValue
+    }
+
+    // MARK: - Windows
+
+    @discardableResult
+    func openWindow(at url: URL, select: [URL] = []) -> ExplorerWindowController {
+        let tab = ExplorerTab(url: url)
+        tab.pendingSelection = select
+        return openWindow(with: [tab])
+    }
+
+    @discardableResult
+    func openWindow(with tabs: [ExplorerTab], origin: NSPoint? = nil) -> ExplorerWindowController {
+        let controller = ExplorerWindowController(tabs: tabs)
+        guard let window = controller.window else { return controller }
+        if let origin {
+            window.setFrameOrigin(origin)
+        } else if let last = windowControllers.last?.window {
+            window.setFrameTopLeftPoint(last.cascadeTopLeft(from: NSPoint(x: last.frame.minX, y: last.frame.maxY)))
+        } else {
+            window.center()
+        }
+        windowControllers.append(controller)
+        NSApp.activate()
+        controller.showWindow(nil)
+        return controller
+    }
+
+    func windowControllerDidClose(_ controller: ExplorerWindowController) {
+        windowControllers.removeAll { $0 === controller }
+    }
+
+    /// Folders open in a new WinEx window, everything else in its default app.
+    func open(_ url: URL) {
+        if url.isBrowsableDirectory { openWindow(at: url) } else { NSWorkspace.shared.open(url) }
+    }
+
+    func reveal(_ url: URL) {
+        openWindow(at: url.deletingLastPathComponent(), select: [url])
+    }
+
+    /// Called when a window that was dragged by its tab is dropped. If it lands on another
+    /// window's tab bar, its tabs are merged into that window (like Chrome).
+    func windowDragEnded(_ window: NSWindow, at screenPoint: NSPoint) {
+        guard let source = windowControllers.first(where: { $0.window === window }) else { return }
+        let target = NSApp.orderedWindows.lazy
+            .filter { $0 !== window && $0.isVisible }
+            .compactMap { w in self.windowControllers.first { $0.window === w } }
+            .first { $0.tabBar.screenFrame.insetBy(dx: 0, dy: -8).contains(screenPoint) }
+        guard let target else { return }
+        let index = target.tabBar.insertionIndex(forScreenPoint: screenPoint)
+        let tabs = source.tabs
+        source.window?.close()
+        target.insertTabs(tabs, at: index)
+        target.window?.makeKeyAndOrderFront(nil)
+    }
+
+    // MARK: - Menu bar item
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.button?.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "WinEx")
+
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Новое окно", action: #selector(newWindow(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Рабочий стол", action: #selector(openDesktopFolder(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Загрузки", action: #selector(openDownloadsFolder(_:)), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Настройки…", action: #selector(showSettings(_:)), keyEquivalent: "").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Выйти из WinEx (вернуть Finder)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        statusItem.menu = menu
+    }
+
+    // MARK: - Actions
+
+    @objc func newWindow(_ sender: Any?) {
+        openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    @objc private func openDesktopFolder(_ sender: Any?) {
+        openWindow(at: FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0])
+    }
+
+    @objc private func openDownloadsFolder(_ sender: Any?) {
+        openWindow(at: FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
+    }
+
+    @objc func showSettings(_ sender: Any?) {
+        if settingsController == nil { settingsController = SettingsWindowController() }
+        settingsController?.sync()
+        NSApp.activate()
+        settingsController?.showWindow(nil)
+        settingsController?.window?.makeKeyAndOrderFront(nil)
+    }
+
+    @objc func toggleHiddenFiles(_ sender: Any?) {
+        setShowHidden(!Settings.showHidden)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleHiddenFiles(_:)) {
+            menuItem.state = Settings.showHidden ? .on : .off
+        }
+        return true
+    }
+
+    // MARK: - Settings
+
+    func setReplaceFinder(_ on: Bool) {
+        Settings.replaceFinder = on
+        if on {
+            enableFinderReplacement()
+        } else {
+            desktop?.hide()
+            desktop = nil
+            FinderReplacement.restore {}
+        }
+    }
+
+    func setShowHidden(_ on: Bool) {
+        Settings.showHidden = on
+        NotificationCenter.default.post(name: .showHiddenChanged, object: nil)
+        settingsController?.sync()
+    }
+
+    private func enableFinderReplacement() {
+        FinderReplacement.apply()
+        if desktop == nil { desktop = DesktopController() }
+        desktop?.show()
+    }
+}

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>dev.winex.WinEx</string>
+    <key>CFBundleName</key>
+    <string>WinEx</string>
+    <key>CFBundleDisplayName</key>
+    <string>WinEx</string>
+    <key>CFBundleExecutable</key>
+    <string>WinEx</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>26.0</string>
+    <!-- No Dock icon; the app lives in the menu bar -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <!-- Lets LaunchServices use WinEx as the handler for folders -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Folder</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.folder</string>
+            </array>
+        </dict>
+    </array>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>WinEx показывает содержимое рабочего стола.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>WinEx показывает содержимое папки «Документы».</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>WinEx показывает содержимое папки «Загрузки».</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>WinEx показывает содержимое внешних дисков.</string>
+    <key>NSNetworkVolumesUsageDescription</key>
+    <string>WinEx показывает содержимое сетевых дисков.</string>
+</dict>
+</plist>

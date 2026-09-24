@@ -1,0 +1,142 @@
+import AppKit
+
+enum Settings {
+    private static let defaults = UserDefaults.standard
+
+    static var replaceFinder: Bool {
+        get { defaults.bool(forKey: "replaceFinder") }
+        set { defaults.set(newValue, forKey: "replaceFinder") }
+    }
+
+    static var showHidden: Bool {
+        get { defaults.bool(forKey: "showHidden") }
+        set { defaults.set(newValue, forKey: "showHidden") }
+    }
+}
+
+extension Notification.Name {
+    static let showHiddenChanged = Notification.Name("WinExShowHiddenChanged")
+}
+
+extension URL {
+    /// A directory we can browse into (app bundles and other packages are opened instead).
+    var isBrowsableDirectory: Bool {
+        let values = try? resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        return (values?.isDirectory ?? false) && !(values?.isPackage ?? false)
+    }
+
+    var displayName: String {
+        FileManager.default.displayName(atPath: path)
+    }
+}
+
+/// One entry of a directory listing.
+final class FileItem {
+    static let keys: [URLResourceKey] = [
+        .isDirectoryKey, .isPackageKey, .contentModificationDateKey,
+        .localizedTypeDescriptionKey, .fileSizeKey, .localizedNameKey,
+    ]
+
+    let url: URL
+    let name: String
+    let isFolder: Bool
+    let modified: Date?
+    let typeDescription: String
+    let size: Int?
+
+    init(url: URL) {
+        self.url = url
+        let values = try? url.resourceValues(forKeys: Set(Self.keys))
+        let isDirectory = values?.isDirectory ?? false
+        isFolder = isDirectory && !(values?.isPackage ?? false)
+        // Localized names for folders ("Загрузки"), real names for files so extensions stay visible
+        name = isFolder ? (values?.localizedName ?? url.lastPathComponent) : url.lastPathComponent
+        modified = values?.contentModificationDate
+        typeDescription = values?.localizedTypeDescription ?? ""
+        size = isDirectory ? nil : values?.fileSize
+    }
+
+    lazy var icon: NSImage = NSWorkspace.shared.icon(forFile: url.path)
+}
+
+/// Calls `onChange` whenever the contents of a directory change.
+@MainActor
+final class DirectoryWatcher {
+    private let source: DispatchSourceFileSystemObject
+
+    init?(url: URL, onChange: @escaping @MainActor () -> Void) {
+        let fd = open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return nil }
+        source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+        source.setEventHandler { MainActor.assumeIsolated { onChange() } }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+    }
+
+    deinit { source.cancel() }
+}
+
+enum FileOps {
+    /// "name.ext" → "name - копия.ext", "name - копия (2).ext", … until the name is free.
+    static func uniqueDestination(for name: String, in directory: URL) -> URL {
+        let fm = FileManager.default
+        var candidate = directory.appendingPathComponent(name)
+        guard fm.fileExists(atPath: candidate.path) else { return candidate }
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var n = 1
+        repeat {
+            let suffix = n == 1 ? " - копия" : " - копия (\(n))"
+            candidate = directory.appendingPathComponent(base + suffix + (ext.isEmpty ? "" : "." + ext))
+            n += 1
+        } while fm.fileExists(atPath: candidate.path)
+        return candidate
+    }
+
+    /// "Новая папка", "Новая папка (2)", …
+    static func newFolderURL(in directory: URL) -> URL {
+        let fm = FileManager.default
+        var candidate = directory.appendingPathComponent("Новая папка")
+        var n = 2
+        while fm.fileExists(atPath: candidate.path) {
+            candidate = directory.appendingPathComponent("Новая папка (\(n))")
+            n += 1
+        }
+        return candidate
+    }
+
+    static func copyPaths(_ urls: [URL]) {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
+    }
+
+    static func trash(_ urls: [URL]) {
+        NSWorkspace.shared.recycle(urls) { _, error in
+            if let error { DispatchQueue.main.async { NSAlert(error: error).runModal() } }
+        }
+    }
+}
+
+/// Russian plural: plural(5, "элемент", "элемента", "элементов") → "элементов"
+func plural(_ n: Int, _ one: String, _ few: String, _ many: String) -> String {
+    let mod10 = n % 10, mod100 = n % 100
+    if mod10 == 1 && mod100 != 11 { return one }
+    if (2...4).contains(mod10) && !(12...14).contains(mod100) { return few }
+    return many
+}
+
+func fourCC(_ s: String) -> UInt32 {
+    s.utf8.reduce(0) { ($0 << 8) | UInt32($1) }
+}
+
+/// Plain view filled with a (dynamic) color.
+final class ColorView: NSView {
+    var color: NSColor = .clear { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        color.setFill()
+        dirtyRect.fill()
+    }
+}
