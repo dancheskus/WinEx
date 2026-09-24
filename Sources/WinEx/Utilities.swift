@@ -8,6 +8,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "replaceFinder") }
     }
 
+    /// Windows keys: Return opens, F2 renames, Backspace goes up. Off (default): Finder keys —
+    /// Return renames, ⌘↓ / ⌘O open, ⌘↑ goes up.
+    static var windowsKeys: Bool {
+        get { defaults.bool(forKey: "windowsKeys") }
+        set { defaults.set(newValue, forKey: "windowsKeys") }
+    }
+
     static var showHidden: Bool {
         get { defaults.bool(forKey: "showHidden") }
         set { defaults.set(newValue, forKey: "showHidden") }
@@ -16,6 +23,7 @@ enum Settings {
 
 extension Notification.Name {
     static let showHiddenChanged = Notification.Name("WinExShowHiddenChanged")
+    static let keyboardSettingsChanged = Notification.Name("WinExKeyboardSettingsChanged")
 }
 
 extension URL {

@@ -601,13 +601,15 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         switch (event.keyCode, modifiers) {
-        case (36, []), (76, []): openSelection()
+        case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameAction(nil) }
         case (51, [.command]): trashSelection()
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
-        case (120, []): renameAction(nil)                                             // F2
+        case (120, []) where Settings.windowsKeys: renameAction(nil)                  // F2
+        case (125, [.command]): openSelection()                                       // ⌘↓ (Finder)
         case (53, []): selection = []; needsDisplay = true                           // Esc
         case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }                    // Space
-        case (123, []), (124, []), (125, []), (126, []): moveSelection(keyCode: event.keyCode)
+        case (123, []), (124, []), (125, []), (126, []): moveSelection(keyCode: event.keyCode, extend: false)
+        case (123, [.shift]), (124, [.shift]), (125, [.shift]), (126, [.shift]): moveSelection(keyCode: event.keyCode, extend: true)
         default: super.keyDown(with: event)
         }
     }
@@ -738,10 +740,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     @objc private func quickLookAction(_ sender: Any?) { QuickLook.toggle(for: self) }
 
     /// Arrow keys pick the nearest icon in that direction (icons are freely placed, so by geometry).
-    private func moveSelection(keyCode: UInt16) {
+    /// With ⇧ the next icon is added to the selection (the keyboard focus moves on from it).
+    private func moveSelection(keyCode: UInt16, extend: Bool) {
         guard iconsVisible, !items.isEmpty else { return }
-        guard let current = selection.sorted().first else {
+        guard let current = keyboardLead.flatMap({ selection.contains($0) ? $0 : nil }) ?? selection.sorted().first else {
             selection = [0]
+            keyboardLead = 0
             needsDisplay = true
             return
         }
@@ -758,9 +762,13 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard let next = candidates.min(by: {
             hypot(centers[$0].x - from.x, centers[$0].y - from.y) < hypot(centers[$1].x - from.x, centers[$1].y - from.y)
         }) else { return }
-        selection = [next]
+        if extend { selection.insert(next) } else { selection = [next] }
+        keyboardLead = next
         needsDisplay = true
     }
+
+    /// Icon the arrow keys move from (the last one reached with the keyboard).
+    private var keyboardLead: Int?
 
     // MARK: - Quick Look (space)
 

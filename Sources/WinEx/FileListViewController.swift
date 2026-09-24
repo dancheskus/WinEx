@@ -128,6 +128,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             self.delegate?.fileListGoUp(self)
         }
         tableView.onZoom = { [weak self] step in self?.zoom(step) }
+        tableView.onRename = { [weak self] in self?.renameSelected(nil) }
         tableView.onQuickLook = { [weak self] in if let self { QuickLook.toggle(for: self) } }
 
         tableScrollView.documentView = tableView
@@ -150,6 +151,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             self.delegate?.fileListGoUp(self)
         }
         collectionView.onZoom = { [weak self] step in self?.zoom(step) }
+        collectionView.onRename = { [weak self] in self?.renameSelected(nil) }
         collectionView.onQuickLook = { [weak self] in if let self { QuickLook.toggle(for: self) } }
         collectionView.onSelectionChange = { [weak self] in self?.updateStatus() }
         collectionView.itemName = { [weak self] index in self?.items[index].name ?? "" }
@@ -201,7 +203,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             collectionView.reloadData()
         }
         setSelection(selection, scrollTo: selection.first)
-        if hadFocus { view.window?.makeFirstResponder(focusView) }
+        // Keep the keyboard in the visible view (the hidden one may hold focus after a folder's own view kicks in)
+        let hiddenHasFocus = view.window?.firstResponder === focusView(for: viewMode == .details ? .largeIcons : .details)
+        if hadFocus || hiddenHasFocus { view.window?.makeFirstResponder(focusView) }
+        if let window = view.window, window.initialFirstResponder === tableView || window.initialFirstResponder === collectionView {
+            window.initialFirstResponder = focusView
+        }
 
         // A view picked by the user sticks to this folder; restoring a folder's own view saves nothing
         if !isRestoringFolderView, let directory { ViewMode.remember(viewMode, forFolder: directory) }
@@ -243,8 +250,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         readDirectory()
         refilter(keepSelection: false)
         showFolderView()
-        let paths = Set(select.map(\.path))
-        let indexes = IndexSet(items.indices.filter { paths.contains(items[$0].url.path) })
+        // Compare resolved paths: /tmp/x and /private/tmp/x are the same item
+        let paths = Set(select.map { $0.resolvingSymlinksInPath().path })
+        let indexes = IndexSet(items.indices.filter { paths.contains(items[$0].url.resolvingSymlinksInPath().path) })
         setSelection(indexes, scrollTo: indexes.first ?? 0)
     }
 
@@ -851,6 +859,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 /// Explorer-style keys: Return opens, Backspace goes up a level. ⌘+wheel / pinch changes the view.
 final class FileTableView: NSTableView {
     var onQuickLook: (() -> Void)?
+    var onRename: (() -> Void)?
     var onOpen: (() -> Void)?
     var onGoUp: (() -> Void)?
     var onZoom: ((Int) -> Void)?
@@ -895,8 +904,9 @@ final class FileTableView: NSTableView {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard modifiers.isEmpty else { return super.keyDown(with: event) }
         switch event.keyCode {
-        case 36, 76: onOpen?()   // Return, Enter
-        case 51: onGoUp?()       // Backspace
+        case 36, 76:             // Return, Enter: open (Windows) or rename (Finder)
+            if Settings.windowsKeys { onOpen?() } else { onRename?() }
+        case 51 where Settings.windowsKeys: onGoUp?()   // Backspace
         case 49: onQuickLook?()  // Space
         default: super.keyDown(with: event)
         }

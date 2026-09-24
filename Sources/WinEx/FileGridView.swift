@@ -300,6 +300,7 @@ final class GridItemView: NSView {
 ///  - dragging on empty space draws a selection rectangle.
 final class FileCollectionView: NSCollectionView {
     var onQuickLook: (() -> Void)?
+    var onRename: (() -> Void)?
     var onOpen: (() -> Void)?
     var onGoUp: (() -> Void)?
     var onZoom: ((Int) -> Void)?
@@ -515,8 +516,8 @@ final class FileCollectionView: NSCollectionView {
     override func keyDown(with event: NSEvent) {
         let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
         if modifiers.isEmpty && (event.keyCode == 36 || event.keyCode == 76) {   // Return, Enter
-            onOpen?()
-        } else if modifiers.isEmpty && event.keyCode == 51 {                     // Backspace
+            if Settings.windowsKeys { onOpen?() } else if !selectedIndexes.isEmpty { onRename?() }
+        } else if modifiers.isEmpty && event.keyCode == 51 && Settings.windowsKeys {  // Backspace
             onGoUp?()
         } else if modifiers.isEmpty && event.keyCode == 49 && !isTypingName {    // Space
             onQuickLook?()

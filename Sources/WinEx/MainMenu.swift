@@ -3,8 +3,20 @@ import AppKit
 /// The menu is never shown (WinEx is an LSUIElement app), but it still provides
 /// keyboard shortcuts and routes Cut/Copy/Paste to the focused view.
 enum MainMenu {
+    /// "Переименовать": F2 only with Windows keys (Finder renames with Return).
+    private static let renameItem = NSMenuItem(title: "Переименовать", action: #selector(FileListViewController.renameSelected(_:)), keyEquivalent: "")
+
+    static func updateRenameShortcut() {
+        renameItem.keyEquivalent = Settings.windowsKeys ? String(Character(UnicodeScalar(NSF2FunctionKey)!)) : ""
+        renameItem.keyEquivalentModifierMask = []
+    }
+
     static func build() -> NSMenu {
         let main = NSMenu()
+        updateRenameShortcut()
+        NotificationCenter.default.addObserver(forName: .keyboardSettingsChanged, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { updateRenameShortcut() }
+        }
 
         func submenu(_ title: String, _ items: [NSMenuItem]) {
             let item = NSMenuItem()
@@ -34,8 +46,14 @@ enum MainMenu {
             item("Закрыть вкладку", #selector(ExplorerWindowController.closeCurrentTab(_:)), "w"),
             .separator(),
             item("Открыть", #selector(FileListViewController.openSelected(_:)), key(NSDownArrowFunctionKey)),
+            {
+                let alternate = item("Открыть", #selector(FileListViewController.openSelected(_:)), "o")
+                alternate.isHidden = true
+                alternate.allowsKeyEquivalentWhenHidden = true
+                return alternate
+            }(),
             item("Новая папка", #selector(FileListViewController.newFolder(_:)), "n", [.command, .shift]),
-            item("Переименовать", #selector(FileListViewController.renameSelected(_:)), key(NSF2FunctionKey), []),
+            renameItem,
             item("Переместить в корзину", #selector(FileListViewController.moveToTrash(_:)), key(NSBackspaceCharacter)),
             .separator(),
             item("Свойства", #selector(FileListViewController.showProperties(_:)), "i"),
