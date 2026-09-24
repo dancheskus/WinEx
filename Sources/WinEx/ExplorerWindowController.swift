@@ -18,7 +18,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let upButton = ExplorerWindowController.navButton("arrow.up", "Вверх (⌘↑)")
     private let refreshButton = ExplorerWindowController.navButton("arrow.clockwise", "Обновить (⌘R)")
     private let settingsButton = ExplorerWindowController.navButton("gearshape", "Настройки")
-    private let pathField = NSTextField()
+    private let pathField = AddressField()
     private let searchField = NSSearchField()
     private let splitView = NSSplitView()
     private let sidebar = SidebarViewController()
@@ -168,7 +168,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private func showSelectedTab() {
         let tab = selectedTab
-        if pathField.currentEditor() == nil { pathField.stringValue = tab.url.path }
+        // Leaving the address bar mid-edit (tab switch, sidebar click…) drops the edit and its selection
+        if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.tableView) }
+        pathField.stringValue = tab.url.path
         searchField.stringValue = ""
         searchField.placeholderString = "Поиск: \(tab.title)"
         fileList.load(tab.url, select: tab.pendingSelection)
@@ -384,5 +386,20 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     func windowWillClose(_ notification: Notification) {
         fileList.stopWatching()
         AppDelegate.shared.windowControllerDidClose(self)
+    }
+}
+
+/// Address bar: the first click selects the whole path, like a browser's address bar.
+/// Clicks while already editing place the caret as usual.
+final class AddressField: NSTextField {
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        // The click that focused us is still being tracked by the field editor and will place
+        // the caret; select everything once it's done, unless the user dragged out a selection.
+        DispatchQueue.main.async { [weak self] in
+            guard let editor = self?.currentEditor(), editor.selectedRange.length == 0 else { return }
+            editor.selectAll(nil)
+        }
+        return true
     }
 }
