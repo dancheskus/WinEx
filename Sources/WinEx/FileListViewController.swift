@@ -75,6 +75,13 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         NotificationCenter.default.addObserver(forName: .showHiddenChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
         }
+        NotificationCenter.default.addObserver(forName: NSControl.textDidEndEditingNotification, object: nil, queue: .main) { [weak self] _ in
+            // Catch up on changes that arrived during a rename (after the field has resigned)
+            DispatchQueue.main.async {
+                guard let self, self.reloadAfterEditing else { return }
+                self.reload()
+            }
+        }
         NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateCutAppearance() }
         }
@@ -103,7 +110,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tableView.target = self
         tableView.doubleAction = #selector(doubleClicked(_:))
         tableView.menu = menu
-        tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: false)
+        tableView.setDraggingSourceOperationMask([.copy, .move, .generic, .delete], forLocal: false)
+        tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
+        tableView.registerForDraggedTypes([.fileURL])
         tableView.onOpen = { [weak self] in self?.openSelected(nil) }
         tableView.onGoUp = { [weak self] in
             guard let self else { return }
@@ -144,6 +153,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                                              width: iconSize, height: iconSize), contents: file.icon)
                 return item
             }
+        }
+
+        collectionView.registerForDraggedTypes([.fileURL])
+        collectionView.dropTarget = { [weak self] point in
+            guard let self, let directory = self.directory else { return nil }
+            if let index = self.collectionView.indexPathForItem(at: point)?.item, self.items[index].isFolder {
+                return (self.items[index].url, index)
+            }
+            return (directory, nil)
         }
 
         gridScrollView.documentView = collectionView
@@ -201,10 +219,23 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         setSelection(indexes, scrollTo: indexes.first ?? 0)
     }
 
-    /// Re-reads the current folder, keeping the selection.
+    /// Re-reads the current folder, keeping the selection. Postponed while a name is being edited
+    /// (a reload would end the edit — e.g. the watcher firing right after "New ▸ …").
     func reload() {
+        guard !isEditingName else {
+            reloadAfterEditing = true
+            return
+        }
+        reloadAfterEditing = false
         readDirectory()
         refilter(keepSelection: true)
+    }
+
+    private var reloadAfterEditing = false
+
+    private var isEditingName: Bool {
+        guard let editor = view.window?.firstResponder as? NSTextView, let field = editor.delegate as? NSView else { return false }
+        return field.isDescendant(of: focusView)
     }
 
     func stopWatching() {
@@ -347,7 +378,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             return
         }
         reload()
-        if let index = items.firstIndex(where: { $0.url.path == url.path }) {
+        if let index = items.firstIndex(where: { $0.url.lastPathComponent == url.lastPathComponent }) {
             setSelection(IndexSet(integer: index), scrollTo: index)
             beginRename(at: index)
         }
@@ -362,7 +393,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let file = items[index]
         if viewMode == .details {
             tableView.editColumn(0, row: index, with: nil, select: true)
-            tableView.currentEditor()?.selectedRange = FileOps.baseNameRange(of: file.name, isFolder: file.isFolder)
+            // The table selects the whole name once editing starts; narrow it to the name without extension
+            // (view-based tables edit in the cell's text field, so use the window's field editor)
+            DispatchQueue.main.async { [weak self] in
+                (self?.view.window?.firstResponder as? NSTextView)?.setSelectedRange(
+                    FileOps.baseNameRange(of: file.name, isFolder: file.isFolder))
+            }
         } else {
             collectionView.scrollToItem(index)
             collectionView.layoutSubtreeIfNeeded()
@@ -390,7 +426,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
         // Reload either way so a rejected name reverts on screen
         reload()
-        if let index = items.firstIndex(where: { $0.url.path == destination.path || $0.url.path == url.path }) {
+        if let index = items.firstIndex(where: { [destination.lastPathComponent, url.lastPathComponent].contains($0.url.lastPathComponent) }) {
             setSelection(IndexSet(integer: index), scrollTo: index)
         }
     }
@@ -430,6 +466,32 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         reload()
     }
 
+    @objc private func sortByKey(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: tableView.sortDescriptors.first?.ascending ?? true)]
+    }
+
+    @objc private func sortOrder(_ sender: NSMenuItem) {
+        let key = tableView.sortDescriptors.first?.key ?? "name"
+        tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: sender.tag == 1)]
+    }
+
+    /// "Создать ▸ …": creates the item and starts renaming it, like Explorer.
+    @objc private func createNewItem(_ sender: NSMenuItem) {
+        guard let template = sender.representedObject as? NewItemTemplate, let directory else { return }
+        do {
+            let url = try template.create(in: directory)
+            reload()
+            // Match by name: the listing may spell the folder differently (/tmp vs /private/tmp)
+            if let index = items.firstIndex(where: { $0.url.lastPathComponent == url.lastPathComponent }) {
+                setSelection(IndexSet(integer: index), scrollTo: index)
+                beginRename(at: index)
+            }
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+    }
+
     @objc private func changeViewMode(_ sender: NSMenuItem) {
         if let mode = ViewMode(rawValue: sender.tag) { viewMode = mode }
     }
@@ -458,6 +520,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
         if clickedIndex >= 0 {
             add("Открыть", #selector(openSelected(_:)))
+            if let openWith = OpenWithMenu.item(for: targetURLs) { menu.addItem(openWith) }
             if targetRows.contains(where: { items[$0].isFolder }) {
                 add("Открыть в новой вкладке", #selector(openInNewTab(_:)))
                 add("Открыть в новом окне", #selector(openInNewWindow(_:)))
@@ -479,12 +542,30 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             }
             viewItem.submenu = viewMenu
             menu.addItem(viewItem)
+
+            let sortMenu = NSMenu()
+            let current = tableView.sortDescriptors.first
+            for (key, title) in [("name", "Имя"), ("date", "Дата изменения"), ("type", "Тип"), ("size", "Размер")] {
+                let item = sortMenu.addItem(withTitle: title, action: #selector(sortByKey(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = key
+                item.state = (current?.key ?? "name") == key ? .on : .off
+            }
+            sortMenu.addItem(.separator())
+            for (ascending, title) in [(true, "По возрастанию"), (false, "По убыванию")] {
+                let item = sortMenu.addItem(withTitle: title, action: #selector(sortOrder(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = ascending ? 1 : 0
+                item.state = (current?.ascending ?? true) == ascending ? .on : .off
+            }
+            menu.addItem(withTitle: "Сортировка", action: nil, keyEquivalent: "").submenu = sortMenu
+            add("Обновить", #selector(refresh(_:)))
             menu.addItem(.separator())
-            add("Новая папка", #selector(newFolder(_:)))
             add("Вставить", #selector(paste(_:)))
             menu.addItem(.separator())
+            menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
+            menu.addItem(.separator())
             add("Копировать путь к папке", #selector(copyPath(_:)))
-            add("Обновить", #selector(refresh(_:)))
         }
     }
 
@@ -503,6 +584,35 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         items[row].url as NSURL
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
+                   proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
+        // Onto a folder row: into that folder; anywhere else: into the current folder
+        if dropOperation == .on, items.indices.contains(row), items[row].isFolder {
+            let operation = FileDrop.operation(for: info, into: items[row].url)
+            if operation != [] { return operation }
+        }
+        guard let directory else { return [] }
+        tableView.setDropRow(-1, dropOperation: .on)
+        return FileDrop.operation(for: info, into: directory)
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
+                   dropOperation: NSTableView.DropOperation) -> Bool {
+        if row >= 0, dropOperation == .on, items.indices.contains(row), items[row].isFolder {
+            return FileDrop.perform(info, into: items[row].url)
+        }
+        guard let directory else { return false }
+        return FileDrop.perform(info, into: directory)
+    }
+
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
+                   endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        // Dropped on the Trash in the Dock
+        if operation == .delete {
+            FileOps.trash(session.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+        }
     }
 
     // MARK: - NSTableViewDelegate

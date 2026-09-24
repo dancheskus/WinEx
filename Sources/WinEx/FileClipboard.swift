@@ -51,27 +51,7 @@ final class FileClipboard {
             pasteboard.clearContents()
             setCut([])
         }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let fm = FileManager.default
-            for source in urls {
-                do {
-                    if move {
-                        // Pasting into the folder the files came from does nothing
-                        guard source.deletingLastPathComponent().standardizedFileURL.path != directory.standardizedFileURL.path else { continue }
-                        if directory.standardizedFileURL.path.hasPrefix(source.standardizedFileURL.path + "/") {
-                            throw CocoaError(.fileWriteNoPermission, userInfo: [
-                                NSLocalizedDescriptionKey: "Нельзя переместить папку «\(source.lastPathComponent)» в саму себя.",
-                            ])
-                        }
-                        try fm.moveItem(at: source, to: FileOps.uniqueDestination(for: source.lastPathComponent, in: directory))
-                    } else {
-                        try fm.copyItem(at: source, to: FileOps.uniqueDestination(for: source.lastPathComponent, in: directory))
-                    }
-                } catch {
-                    DispatchQueue.main.async { NSAlert(error: error).runModal() }
-                }
-            }
-        }
+        FileOps.transfer(urls, to: directory, copy: !move)
     }
 
     private func write(_ urls: [URL]) {

@@ -98,16 +98,48 @@ enum FileOps {
         return candidate
     }
 
-    /// "Новая папка", "Новая папка (2)", …
-    static func newFolderURL(in directory: URL) -> URL {
+    /// "Новая папка", "Новая папка (2)", … (extension kept: "Новый текстовый документ (2).txt").
+    static func newItemURL(named name: String, in directory: URL) -> URL {
         let fm = FileManager.default
-        var candidate = directory.appendingPathComponent("Новая папка")
+        var candidate = directory.appendingPathComponent(name)
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
         var n = 2
         while fm.fileExists(atPath: candidate.path) {
-            candidate = directory.appendingPathComponent("Новая папка (\(n))")
+            candidate = directory.appendingPathComponent("\(base) (\(n))" + (ext.isEmpty ? "" : "." + ext))
             n += 1
         }
         return candidate
+    }
+
+    static func newFolderURL(in directory: URL) -> URL {
+        newItemURL(named: "Новая папка", in: directory)
+    }
+
+    /// Moves or copies files into `directory` in the background. Moves into the folder the files
+    /// already live in are skipped; name clashes get "- копия" names.
+    static func transfer(_ urls: [URL], to directory: URL, copy: Bool) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let fm = FileManager.default
+            let target = directory.standardizedFileURL.path
+            for source in urls {
+                let sourcePath = source.standardizedFileURL.path
+                do {
+                    if target == sourcePath || target.hasPrefix(sourcePath + "/") {
+                        throw CocoaError(.fileWriteNoPermission, userInfo: [
+                            NSLocalizedDescriptionKey: "Нельзя поместить папку «\(source.lastPathComponent)» в саму себя.",
+                        ])
+                    }
+                    if copy {
+                        try fm.copyItem(at: source, to: uniqueDestination(for: source.lastPathComponent, in: directory))
+                    } else if source.deletingLastPathComponent().standardizedFileURL.path != target {
+                        try fm.moveItem(at: source, to: uniqueDestination(for: source.lastPathComponent, in: directory))
+                    }
+                } catch {
+                    DispatchQueue.main.async { NSAlert(error: error).runModal() }
+                }
+            }
+        }
     }
 
     /// Range to preselect when renaming: the name without its extension, like Explorer.
@@ -125,6 +157,9 @@ enum FileOps {
     }
 
     static func trash(_ urls: [URL]) {
+        // Files may already be gone (e.g. the Dock trashed them after a drag)
+        let urls = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !urls.isEmpty else { return }
         NSWorkspace.shared.recycle(urls) { _, error in
             if let error { DispatchQueue.main.async { NSAlert(error: error).runModal() } }
         }

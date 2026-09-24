@@ -237,6 +237,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
 /// Item background: Explorer-style highlight of the whole cell.
 final class GridItemView: NSView {
     var isSelected = false { didSet { needsDisplay = true } }
+    var isDropTarget = false { didSet { needsDisplay = true } }
     var isRenaming = false
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -246,9 +247,9 @@ final class GridItemView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard isSelected else { return }
+        guard isSelected || isDropTarget else { return }
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4)
-        NSColor.selectedContentBackgroundColor.withAlphaComponent(0.3).setFill()
+        NSColor.selectedContentBackgroundColor.withAlphaComponent(isDropTarget ? 0.5 : 0.3).setFill()
         path.fill()
         NSColor.selectedContentBackgroundColor.withAlphaComponent(0.7).setStroke()
         path.lineWidth = 1
@@ -271,6 +272,16 @@ final class FileCollectionView: NSCollectionView {
     var onSelectionChange: (() -> Void)?
     var itemName: ((Int) -> String)?
     var draggingItems: ((IndexSet) -> [NSDraggingItem])?
+    /// Where files dropped at a point go: a folder item (with its index, to highlight) or the current folder.
+    var dropTarget: ((NSPoint) -> (url: URL, index: Int?)?)?
+    private var highlightedDropIndex: Int? {
+        didSet {
+            guard highlightedDropIndex != oldValue else { return }
+            for index in [oldValue, highlightedDropIndex].compactMap({ $0 }) {
+                (item(at: IndexPath(item: index, section: 0))?.view as? GridItemView)?.isDropTarget = index == highlightedDropIndex
+            }
+        }
+    }
 
     /// Item under the last right click, -1 if none (like NSTableView.clickedRow).
     private(set) var clickedIndex = -1
@@ -383,8 +394,52 @@ final class FileCollectionView: NSCollectionView {
 
     override func draggingSession(_ session: NSDraggingSession,
                                   sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        [.copy, .move, .generic]
+        context == .outsideApplication ? [.copy, .move, .generic, .delete] : [.copy, .move, .generic]
     }
+
+    override func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        // Dropped on the Trash in the Dock
+        if operation == .delete {
+            FileOps.trash(session.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+        }
+    }
+
+    // MARK: Drop destination (own handling instead of the stock insertion gaps)
+
+    private func dropDestination(for sender: NSDraggingInfo) -> (url: URL, operation: NSDragOperation)? {
+        let point = convert(sender.draggingLocation, from: nil)
+        guard let target = dropTarget?(point) else { return nil }
+        let operation = FileDrop.operation(for: sender, into: target.url)
+        if operation == [], target.index != nil, let fallback = dropTarget?(NSPoint(x: -1, y: -1)) {
+            // Can't drop onto that folder (e.g. it is being dragged): use the current folder
+            highlightedDropIndex = nil
+            return (fallback.url, FileDrop.operation(for: sender, into: fallback.url))
+        }
+        highlightedDropIndex = operation == [] ? nil : target.index
+        return (target.url, operation)
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dropDestination(for: sender)?.operation ?? []
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dropDestination(for: sender)?.operation ?? []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        highlightedDropIndex = nil
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool { true }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        defer { highlightedDropIndex = nil }
+        guard let destination = dropDestination(for: sender), destination.operation != [] else { return false }
+        return FileDrop.perform(sender, into: destination.url)
+    }
+
+    override func concludeDragOperation(_ sender: NSDraggingInfo?) {}
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
