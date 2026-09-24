@@ -186,6 +186,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.tag = mode.rawValue
             item.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: nil)
         }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Применить ко всем папкам", action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
 
         // Two quick toggles in the status bar, like Explorer's bottom-right corner
         viewModeToggle.segmentCount = 2
@@ -205,7 +207,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let titleItem = viewModeButton.menu?.items.first
         titleItem?.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: mode.title)
         titleItem?.title = ""
-        for item in viewModeButton.menu?.items.dropFirst() ?? [] {
+        for item in viewModeButton.menu?.items.dropFirst() ?? [] where item.action == #selector(selectViewMode(_:)) {
             item.state = item.tag == mode.rawValue ? .on : .off
         }
         viewModeToggle.selectedSegment = mode == .details ? 0 : (mode == .largeIcons ? 1 : -1)
@@ -214,6 +216,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     @objc func selectViewMode(_ sender: Any?) {
         guard let tag = (sender as? NSMenuItem)?.tag, let mode = ViewMode(rawValue: tag) else { return }
         fileList.viewMode = mode
+    }
+
+    @objc private func applyViewModeToAllFolders(_ sender: Any?) {
+        fileList.applyViewModeToAllFolders()
     }
 
     @objc private func viewModeToggleChanged(_ sender: NSSegmentedControl) {

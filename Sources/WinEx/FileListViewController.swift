@@ -84,6 +84,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 self.reload()
             }
         }
+        NotificationCenter.default.addObserver(forName: .folderViewDefaultsChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showFolderView() }
+        }
         NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateCutAppearance() }
         }
@@ -196,12 +199,29 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         setSelection(selection, scrollTo: selection.first)
         if hadFocus { view.window?.makeFirstResponder(focusView) }
 
-        ViewMode.saved = viewMode
+        // A view picked by the user sticks to this folder; restoring a folder's own view saves nothing
+        if !isRestoringFolderView, let directory { ViewMode.remember(viewMode, forFolder: directory) }
         delegate?.fileList(self, didChangeViewMode: viewMode)
     }
 
     private func focusView(for mode: ViewMode) -> NSView {
         mode == .details ? tableView : collectionView
+    }
+
+    private var isRestoringFolderView = false
+
+    /// Switches to the view remembered for the current folder.
+    private func showFolderView() {
+        guard let directory else { return }
+        let mode = ViewMode.forFolder(directory)
+        guard mode != viewMode else { return }
+        isRestoringFolderView = true
+        viewMode = mode
+        isRestoringFolderView = false
+    }
+
+    func applyViewModeToAllFolders() {
+        ViewMode.applyToAllFolders(viewMode)
     }
 
     /// ⌘+wheel / pinch: step through `ViewMode.zoomOrder`.
@@ -218,6 +238,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
         readDirectory()
         refilter(keepSelection: false)
+        showFolderView()
         let paths = Set(select.map(\.path))
         let indexes = IndexSet(items.indices.filter { paths.contains(items[$0].url.path) })
         setSelection(indexes, scrollTo: indexes.first ?? 0)
@@ -548,6 +569,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
     }
 
+    @objc private func applyToAllFolders(_ sender: Any?) {
+        applyViewModeToAllFolders()
+    }
+
     @objc private func changeViewMode(_ sender: NSMenuItem) {
         if let mode = ViewMode(rawValue: sender.tag) { viewMode = mode }
     }
@@ -597,6 +622,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 item.target = self
                 item.tag = mode.rawValue
             }
+            viewMenu.addItem(.separator())
+            viewMenu.addItem(withTitle: "Применить ко всем папкам", action: #selector(applyToAllFolders(_:)), keyEquivalent: "").target = self
             viewItem.submenu = viewMenu
             menu.addItem(viewItem)
 

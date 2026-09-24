@@ -31,9 +31,31 @@ enum ViewMode: Int, CaseIterable {
     /// Ctrl+wheel order in Explorer: from the densest view to the biggest icons.
     static let zoomOrder: [ViewMode] = [.details, .list, .smallIcons, .mediumIcons, .largeIcons, .extraLargeIcons]
 
+    /// View for folders that have none of their own ("Apply to all folders" sets it).
     static var saved: ViewMode {
         get { ViewMode(rawValue: UserDefaults.standard.object(forKey: "viewMode") as? Int ?? -1) ?? .details }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: "viewMode") }
+    }
+
+    private static let folderModesKey = "folderViewModes"
+
+    /// The view remembered for `folder`, like Explorer does per folder.
+    static func forFolder(_ folder: URL) -> ViewMode {
+        let modes = UserDefaults.standard.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]
+        return modes[folder.standardizedFileURL.path].flatMap(ViewMode.init(rawValue:)) ?? saved
+    }
+
+    static func remember(_ mode: ViewMode, forFolder folder: URL) {
+        var modes = UserDefaults.standard.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]
+        modes[folder.standardizedFileURL.path] = mode == saved ? nil : mode.rawValue
+        UserDefaults.standard.set(modes, forKey: folderModesKey)
+    }
+
+    /// "Apply to all folders": `mode` becomes the default and per-folder choices are forgotten.
+    static func applyToAllFolders(_ mode: ViewMode) {
+        saved = mode
+        UserDefaults.standard.removeObject(forKey: folderModesKey)
+        NotificationCenter.default.post(name: .folderViewDefaultsChanged, object: nil)
     }
 
     var iconSize: CGFloat {
@@ -574,4 +596,9 @@ final class FileCollectionView: NSCollectionView {
             }
         }
     }
+}
+
+extension Notification.Name {
+    /// "Apply to all folders" was used; open windows switch to the new default view.
+    static let folderViewDefaultsChanged = Notification.Name("WinExFolderViewDefaultsChanged")
 }
