@@ -9,10 +9,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var settingsController: SettingsWindowController?
     private var desktop: DesktopController?
     private var openedByEvent = false
+    private var launchedAtLogin = false
 
     // MARK: - Lifecycle
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Read now: the launch Apple event is only "current" during launch
+        launchedAtLogin = LoginItem.launchedAtLogin()
         NSApp.mainMenu = MainMenu.build()
         // "Reveal in file viewer" ('misc'/'mvis') — sent to the NSFileViewer app
         NSAppleEventManager.shared().setEventHandler(
@@ -24,7 +27,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         setupStatusItem()
 
         if Settings.replaceFinder { enableFinderReplacement() }
-        if !openedByEvent { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
+        // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
+        if !openedByEvent && !launchedAtLogin { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
