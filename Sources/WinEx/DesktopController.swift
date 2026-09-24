@@ -807,13 +807,17 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: QLPreviewItem!) -> NSRect {
         guard let window, let url = item?.previewItemURL, let i = items.firstIndex(where: { $0.url.path == url.path }) else { return .zero }
-        return window.convertToScreen(convert(iconRect(at: centers[i]), to: nil))
+        // The same rect and picture the desktop draws (preview, not the generic icon, in its own proportions)
+        let drawn = Self.aspectFit(image(for: i).size, in: iconRect(at: centers[i]))
+        return window.convertToScreen(convert(drawn, to: nil))
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, transitionImageFor item: QLPreviewItem!,
                       contentRect: UnsafeMutablePointer<NSRect>!) -> Any! {
-        guard let url = item?.previewItemURL else { return nil }
-        return items.first { $0.url.path == url.path }?.icon
+        guard let url = item?.previewItemURL, let i = items.firstIndex(where: { $0.url.path == url.path }) else { return nil }
+        let image = image(for: i)
+        contentRect?.pointee = NSRect(origin: .zero, size: image.size)
+        return image
     }
     @objc private func copyPathAction(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
     @objc private func trashAction(_ sender: Any?) { trashSelection() }
@@ -939,4 +943,5 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
     }
 }
+
 

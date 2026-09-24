@@ -592,12 +592,17 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: QLPreviewItem!) -> NSRect {
         guard let iconView = iconView(for: item), let window = iconView.window,
               iconView.visibleRect.width > 0 else { return .zero }
-        return window.convertToScreen(iconView.convert(iconView.bounds, to: nil))
+        // Where the picture is actually drawn: previews aren't square, and the image view fits them
+        // proportionally — handing over the whole square would stretch the zoom animation.
+        let drawn = iconView.image.map { DesktopView.aspectFit($0.size, in: iconView.bounds) } ?? iconView.bounds
+        return window.convertToScreen(iconView.convert(drawn, to: nil))
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, transitionImageFor item: QLPreviewItem!,
                       contentRect: UnsafeMutablePointer<NSRect>!) -> Any! {
-        iconView(for: item)?.image
+        guard let image = iconView(for: item)?.image else { return nil }
+        contentRect?.pointee = NSRect(origin: .zero, size: image.size)
+        return image
     }
 
     private func iconView(for item: QLPreviewItem?) -> NSImageView? {
