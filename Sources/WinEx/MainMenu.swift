@@ -46,7 +46,13 @@ enum MainMenu {
             .separator(),
             item("Копировать путь", #selector(FileListViewController.copyPath(_:)), "c", [.command, .option]),
         ])
-        submenu("Вид", [
+        let viewModes = ViewMode.allCases.map { mode -> NSMenuItem in
+            let item = item(mode.title, #selector(ExplorerWindowController.selectViewMode(_:)), "\(mode.rawValue + 1)")
+            item.tag = mode.rawValue
+            return item
+        }
+        submenu("Вид", viewModes + [
+            .separator(),
             item("Показывать скрытые файлы", #selector(AppDelegate.toggleHiddenFiles(_:)), ".", [.command, .shift]),
             item("Обновить", #selector(ExplorerWindowController.refresh(_:)), "r"),
         ])

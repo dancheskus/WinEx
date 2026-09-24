@@ -19,6 +19,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let refreshButton = ExplorerWindowController.navButton("arrow.clockwise", "Обновить (⌘R)")
     private let settingsButton = ExplorerWindowController.navButton("gearshape", "Настройки")
     private let pathField = AddressField()
+    private let viewModeButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    private let viewModeToggle = NSSegmentedControl()
     private let searchField = NSSearchField()
     private let splitView = NSSplitView()
     private let sidebar = SidebarViewController()
@@ -88,7 +90,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         searchField.sendsSearchStringImmediately = true
         searchField.widthAnchor.constraint(equalToConstant: 200).isActive = true
 
-        let navStack = NSStackView(views: [backButton, forwardButton, upButton, pathField, refreshButton, searchField, settingsButton])
+        setUpViewModeControls()
+
+        let navStack = NSStackView(views: [backButton, forwardButton, upButton, pathField, refreshButton, searchField, viewModeButton, settingsButton])
         navStack.orientation = .horizontal
         navStack.spacing = 4
         navStack.setCustomSpacing(10, after: upButton)
@@ -115,11 +119,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let statusBar = ColorView()
         statusBar.color = .controlBackgroundColor
         statusBar.addSubview(statusLabel)
+        statusBar.addSubview(viewModeToggle)
 
         let topSeparator = NSBox(); topSeparator.boxType = .separator
         let bottomSeparator = NSBox(); bottomSeparator.boxType = .separator
 
-        for view in [tabBar, navBar, navStack, topSeparator, splitView, bottomSeparator, statusBar, statusLabel] as [NSView] {
+        for view in [tabBar, navBar, navStack, topSeparator, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         [tabBar, navBar, topSeparator, splitView, bottomSeparator, statusBar].forEach(content.addSubview)
@@ -157,11 +162,62 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             statusBar.heightAnchor.constraint(equalToConstant: 24),
             statusLabel.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 12),
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            viewModeToggle.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -8),
+            viewModeToggle.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
         ])
 
         window.layoutIfNeeded()
         splitView.setPosition(210, ofDividerAt: 0)
-        window.initialFirstResponder = fileList.tableView
+        window.initialFirstResponder = fileList.focusView
+    }
+
+    // MARK: - View mode controls
+
+    private func setUpViewModeControls() {
+        // Pull-down with every view (Explorer's "View" button)
+        viewModeButton.bezelStyle = .accessoryBarAction
+        viewModeButton.isBordered = false
+        viewModeButton.toolTip = "Вид"
+        let menu = viewModeButton.menu!
+        menu.addItem(NSMenuItem())  // title item of a pull-down: shows the current view's icon
+        for mode in ViewMode.allCases {
+            let item = menu.addItem(withTitle: mode.title, action: #selector(selectViewMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = mode.rawValue
+            item.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: nil)
+        }
+
+        // Two quick toggles in the status bar, like Explorer's bottom-right corner
+        viewModeToggle.segmentCount = 2
+        viewModeToggle.trackingMode = .selectOne
+        viewModeToggle.segmentStyle = .texturedRounded
+        viewModeToggle.controlSize = .small
+        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.details.symbol, accessibilityDescription: "Таблица"), forSegment: 0)
+        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.largeIcons.symbol, accessibilityDescription: "Крупные значки"), forSegment: 1)
+        viewModeToggle.setToolTip("Таблица", forSegment: 0)
+        viewModeToggle.setToolTip("Крупные значки", forSegment: 1)
+        viewModeToggle.target = self
+        viewModeToggle.action = #selector(viewModeToggleChanged(_:))
+    }
+
+    private func updateViewModeControls() {
+        let mode = fileList.viewMode
+        let titleItem = viewModeButton.menu?.items.first
+        titleItem?.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: mode.title)
+        titleItem?.title = ""
+        for item in viewModeButton.menu?.items.dropFirst() ?? [] {
+            item.state = item.tag == mode.rawValue ? .on : .off
+        }
+        viewModeToggle.selectedSegment = mode == .details ? 0 : (mode == .largeIcons ? 1 : -1)
+    }
+
+    @objc func selectViewMode(_ sender: Any?) {
+        guard let tag = (sender as? NSMenuItem)?.tag, let mode = ViewMode(rawValue: tag) else { return }
+        fileList.viewMode = mode
+    }
+
+    @objc private func viewModeToggleChanged(_ sender: NSSegmentedControl) {
+        fileList.viewMode = sender.selectedSegment == 0 ? .details : .largeIcons
     }
 
     // MARK: - Showing the current tab
@@ -169,7 +225,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private func showSelectedTab() {
         let tab = selectedTab
         // Leaving the address bar mid-edit (tab switch, sidebar click…) drops the edit and its selection
-        if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.tableView) }
+        if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.focusView) }
         pathField.stringValue = tab.url.path
         searchField.stringValue = ""
         searchField.placeholderString = "Поиск: \(tab.title)"
@@ -299,6 +355,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         case #selector(goForward(_:)): return selectedTab.canGoForward
         case #selector(goUp(_:)): return selectedTab.canGoUp
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)): return tabs.count > 1
+        case #selector(selectViewMode(_:)):
+            menuItem.state = menuItem.tag == fileList.viewMode.rawValue ? .on : .off
+            return true
         default: return true
         }
     }
@@ -313,7 +372,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             pathField.stringValue = selectedTab.url.path
-            window?.makeFirstResponder(fileList.tableView)
+            window?.makeFirstResponder(fileList.focusView)
             return true
         default:
             return false
@@ -339,7 +398,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             return
         }
         let url = URL(fileURLWithPath: path)
-        window?.makeFirstResponder(fileList.tableView)
+        window?.makeFirstResponder(fileList.focusView)
         if url.isBrowsableDirectory {
             navigate(to: url)
         } else {
@@ -369,6 +428,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     func fileList(_ list: FileListViewController, didUpdateStatus status: String) {
         statusLabel.stringValue = status
+    }
+
+    func fileList(_ list: FileListViewController, didChangeViewMode mode: ViewMode) {
+        updateViewModeControls()
     }
 
     // MARK: - NSSplitViewDelegate

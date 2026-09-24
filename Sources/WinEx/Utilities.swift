@@ -57,6 +57,10 @@ final class FileItem {
     }
 
     lazy var icon: NSImage = NSWorkspace.shared.icon(forFile: url.path)
+
+    var sizeDescription: String? {
+        size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+    }
 }
 
 /// Calls `onChange` whenever the contents of a directory change.
@@ -104,6 +108,14 @@ enum FileOps {
             n += 1
         }
         return candidate
+    }
+
+    /// Range to preselect when renaming: the name without its extension, like Explorer.
+    static func baseNameRange(of name: String, isFolder: Bool) -> NSRange {
+        let ns = name as NSString
+        let ext = ns.pathExtension
+        guard !isFolder, !ext.isEmpty else { return NSRange(location: 0, length: ns.length) }
+        return NSRange(location: 0, length: ns.length - (ext as NSString).length - 1)
     }
 
     static func copyPaths(_ urls: [URL]) {
