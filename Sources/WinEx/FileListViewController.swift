@@ -75,6 +75,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         NotificationCenter.default.addObserver(forName: .showHiddenChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
         }
+        NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateCutAppearance() }
+        }
     }
 
     private func setUpTable(menu: NSMenu) {
@@ -392,33 +395,36 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
     }
 
+    @objc func cut(_ sender: Any?) {
+        FileClipboard.shared.cut(targetURLs)
+    }
+
     @objc func copy(_ sender: Any?) {
-        let urls = targetURLs
-        guard !urls.isEmpty else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.writeObjects(urls as [NSURL])
+        FileClipboard.shared.copy(targetURLs)
     }
 
     @objc func paste(_ sender: Any?) {
         guard let directory else { return }
-        let urls = NSPasteboard.general.readObjects(
-            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        guard !urls.isEmpty else {
-            NSSound.beep()
-            return
-        }
-        DispatchQueue.global(qos: .userInitiated).async {
-            for source in urls {
-                let destination = FileOps.uniqueDestination(for: source.lastPathComponent, in: directory)
-                do {
-                    try FileManager.default.copyItem(at: source, to: destination)
-                } catch {
-                    DispatchQueue.main.async { NSAlert(error: error).runModal() }
-                }
+        FileClipboard.shared.paste(into: directory)
+    }
+
+    /// Dims cut items (and un-dims them when the cut is cancelled) without reloading.
+    private func updateCutAppearance() {
+        let clipboard = FileClipboard.shared
+        if viewMode == .details {
+            let visible = tableView.rows(in: tableView.visibleRect)
+            for row in visible.lowerBound..<visible.upperBound where items.indices.contains(row) {
+                let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView
+                cell?.imageView?.alphaValue = clipboard.isCut(items[row].url) ? Self.cutAlpha : 1
+            }
+        } else {
+            for indexPath in collectionView.indexPathsForVisibleItems() where items.indices.contains(indexPath.item) {
+                (collectionView.item(at: indexPath) as? FileGridItem)?.setCut(clipboard.isCut(items[indexPath.item].url))
             }
         }
     }
+
+    static let cutAlpha: CGFloat = 0.4
 
     @objc private func refresh(_ sender: Any?) {
         reload()
@@ -430,11 +436,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
-        case #selector(copy(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
+        case #selector(cut(_:)), #selector(copy(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
              #selector(renameSelected(_:)), #selector(openInNewTab(_:)), #selector(openInNewWindow(_:)):
             return !targetRows.isEmpty
         case #selector(paste(_:)):
-            return NSPasteboard.general.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
+            return FileClipboard.shared.canPaste
         case #selector(changeViewMode(_:)):
             menuItem.state = menuItem.tag == viewMode.rawValue ? .on : .off
             return true
@@ -457,6 +463,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 add("Открыть в новом окне", #selector(openInNewWindow(_:)))
             }
             menu.addItem(.separator())
+            add("Вырезать", #selector(cut(_:)))
             add("Копировать", #selector(copy(_:)))
             add("Копировать путь", #selector(copyPath(_:)))
             menu.addItem(.separator())
@@ -508,6 +515,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         switch column {
         case "name":
             cell.imageView?.image = item.icon
+            cell.imageView?.alphaValue = FileClipboard.shared.isCut(item.url) ? Self.cutAlpha : 1
             cell.textField?.stringValue = item.name
         case "date":
             cell.textField?.stringValue = item.modified.map(Self.dateFormatter.string(from:)) ?? ""
@@ -576,6 +584,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let item = collectionView.makeItem(withIdentifier: FileGridItem.identifier, for: indexPath) as! FileGridItem
         let file = items[indexPath.item]
         item.configure(with: file, mode: viewMode, image: image(for: file))
+        item.setCut(FileClipboard.shared.isCut(file.url))
         return item
     }
 

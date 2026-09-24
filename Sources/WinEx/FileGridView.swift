@@ -170,6 +170,11 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         iconView.image = image
     }
 
+    /// Cut files look faded until they are pasted or the cut is cancelled.
+    func setCut(_ isCut: Bool) {
+        iconView.alphaValue = isCut ? FileListViewController.cutAlpha : 1
+    }
+
     override func viewDidLayout() {
         super.viewDidLayout()
         let bounds = view.bounds

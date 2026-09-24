@@ -73,6 +73,9 @@ final class DesktopView: NSView, NSDraggingSource {
     func start() {
         reload()
         watcher = DirectoryWatcher(url: desktopURL) { [weak self] in self?.reload() }
+        NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.needsDisplay = true }
+        }
     }
 
     func stop() {
@@ -151,7 +154,8 @@ final class DesktopView: NSView, NSDraggingSource {
                 NSColor.selectedContentBackgroundColor.setFill()
                 NSBezierPath(roundedRect: highlight, xRadius: 4, yRadius: 4).fill()
             }
-            item.icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1,
+            let alpha = FileClipboard.shared.isCut(item.url) ? FileListViewController.cutAlpha : 1
+            item.icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: alpha,
                            respectFlipped: true, hints: nil)
             label.draw(with: labelRect, options: options)
         }
@@ -219,6 +223,8 @@ final class DesktopView: NSView, NSDraggingSource {
         if let i = index(at: point) {
             if !selection.contains(i) { selection = [i]; needsDisplay = true }
             add("Открыть", #selector(openSelectionAction(_:)))
+            add("Вырезать", #selector(cut(_:)))
+            add("Копировать", #selector(copy(_:)))
             add("Копировать путь", #selector(copyPathAction(_:)))
             menu.addItem(.separator())
             add("Переместить в корзину", #selector(trashAction(_:)))
@@ -226,6 +232,7 @@ final class DesktopView: NSView, NSDraggingSource {
             selection = []
             needsDisplay = true
             add("Новая папка", #selector(newFolderAction(_:)))
+            if FileClipboard.shared.canPaste { add("Вставить", #selector(paste(_:))) }
             add("Открыть «Рабочий стол» в WinEx", #selector(openDesktopAction(_:)))
             menu.addItem(.separator())
             menu.addItem(withTitle: "Настройки WinEx…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: "")
@@ -249,6 +256,10 @@ final class DesktopView: NSView, NSDraggingSource {
 
     @objc private func openSelectionAction(_ sender: Any?) { openSelection() }
     @objc private func copyPathAction(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
+    // ⌘X / ⌘C / ⌘V arrive here through the main menu when the desktop is focused
+    @objc func cut(_ sender: Any?) { FileClipboard.shared.cut(selectedURLs) }
+    @objc func copy(_ sender: Any?) { FileClipboard.shared.copy(selectedURLs) }
+    @objc func paste(_ sender: Any?) { FileClipboard.shared.paste(into: desktopURL) }
     @objc private func trashAction(_ sender: Any?) { trashSelection() }
     @objc private func openDesktopAction(_ sender: Any?) { AppDelegate.shared.openWindow(at: desktopURL) }
 
