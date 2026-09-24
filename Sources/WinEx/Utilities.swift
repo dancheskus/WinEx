@@ -53,6 +53,18 @@ final class FileItem {
     let size: Int?
     let tagNames: [String]
 
+    /// A non-file item (a network server): fixed name and icon, opened by URL.
+    init(virtual name: String, url: URL, icon: NSImage, kind: String) {
+        self.url = url
+        self.name = name
+        isFolder = true
+        modified = nil
+        typeDescription = kind
+        size = nil
+        tagNames = []
+        self.icon = icon
+    }
+
     init(url: URL) {
         self.url = url
         let values = try? url.resourceValues(forKeys: Set(Self.keys))

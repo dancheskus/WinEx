@@ -89,6 +89,11 @@ enum MainMenu {
             item("Вверх", #selector(ExplorerWindowController.goUp(_:)), key(NSUpArrowFunctionKey)),
             item("Перейти к пути…", #selector(ExplorerWindowController.focusPathField(_:)), "l"),
             .separator(),
+            item("Сеть", #selector(ExplorerWindowController.goToNetwork(_:)), "k", [.command, .shift]),
+            item("AirDrop", #selector(ExplorerWindowController.openAirDrop(_:)), "r", [.command, .shift]),
+            item("Корзина", #selector(ExplorerWindowController.goToTrash(_:)), ""),
+            item("Подключиться к серверу…", #selector(ExplorerWindowController.connectToServer(_:)), "k"),
+            .separator(),
             item("Следующая вкладка", #selector(ExplorerWindowController.selectNextTab(_:)), "]", [.command, .shift]),
             item("Предыдущая вкладка", #selector(ExplorerWindowController.selectPreviousTab(_:)), "[", [.command, .shift]),
         ])

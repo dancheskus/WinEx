@@ -14,6 +14,11 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         let symbol: String
         /// Tag entries show a colored dot instead of a symbol.
         let tagColor: Int?
+        /// Removable and network volumes get an eject button.
+        var ejectable = false
+        /// Entries that do something instead of navigating (AirDrop).
+        var action: (() -> Void)?
+        var toolTip: String?
         init(title: String, url: URL, symbol: String, tagColor: Int? = nil) {
             self.title = title; self.url = url; self.symbol = symbol; self.tagColor = tagColor
         }
@@ -84,23 +89,38 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             folder(.moviesDirectory, "film"),
             Item(title: "Программы", url: URL(fileURLWithPath: "/Applications"), symbol: "square.grid.3x3"),
         ]
+        // "Места", like Finder: iCloud Drive, disks and shares, AirDrop, the network, the Trash
+        var places: [Item] = []
         let iCloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         if fm.fileExists(atPath: iCloud.path) {
-            quick.append(Item(title: "iCloud Drive", url: iCloud, symbol: "icloud"))
+            places.append(Item(title: "iCloud Drive", url: iCloud, symbol: "icloud"))
         }
-
-        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey]
-        let volumes = (fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [])
-            .map { url -> Item in
-                let values = try? url.resourceValues(forKeys: Set(keys))
-                let isInternal = values?.volumeIsInternal ?? true
-                return Item(title: values?.volumeLocalizedName ?? url.lastPathComponent, url: url,
-                            symbol: isInternal ? "internaldrive" : "externaldrive")
+        let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey,
+                                      .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]
+        for url in fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [] {
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            let name = values?.volumeLocalizedName ?? url.lastPathComponent
+            let item: Item
+            if values?.volumeIsLocal == false {
+                let server = Places.serverName(ofVolume: url)
+                item = Item(title: server.map { "\(name) на \($0)" } ?? name, url: url, symbol: "externaldrive.connected.to.line.below")
+                item.toolTip = (try? url.resourceValues(forKeys: [.volumeURLForRemountingKey]))?.volumeURLForRemounting?.absoluteString
+            } else {
+                item = Item(title: name, url: url, symbol: values?.volumeIsInternal ?? true ? "internaldrive" : "externaldrive")
             }
+            item.ejectable = !(values?.volumeIsRootFileSystem ?? false)
+                && (values?.volumeIsLocal == false || values?.volumeIsEjectable == true || values?.volumeIsRemovable == true)
+            places.append(item)
+        }
+        let airDrop = Item(title: "AirDrop", url: URL(string: "x-winex-airdrop://airdrop")!, symbol: "airplayaudio")
+        airDrop.action = { Places.openAirDrop() }
+        places.append(airDrop)
+        places.append(Item(title: "Сеть", url: Places.networkURL, symbol: "network"))
+        places.append(Item(title: "Корзина", url: Places.trashURL, symbol: "trash"))
 
         sections = [
             Section(title: "Быстрый доступ", items: quick.compactMap { $0 }),
-            Section(title: "Этот Mac", items: volumes),
+            Section(title: "Места", items: places),
             // Finder's favorite tags; clicking one lists every file with it
             Section(title: "Теги", items: FileTags.favorites.map {
                 Item(title: $0.name, url: ExplorerTab.tagURL($0.name), symbol: "tag", tagColor: $0.color)
@@ -176,9 +196,22 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         if item.tagColor == nil { image.contentTintColor = .controlAccentColor }
         let label = NSTextField(labelWithString: item.title)
         label.lineBreakMode = .byTruncatingTail
+        cell.toolTip = item.toolTip
         for view in [image, label] {
             view.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(view)
+        }
+        // Eject button for removable disks and network shares, like Finder
+        var trailing = cell.trailingAnchor
+        if item.ejectable {
+            let eject = SidebarEjectButton(volume: item.url)
+            eject.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(eject)
+            NSLayoutConstraint.activate([
+                eject.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                eject.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            ])
+            trailing = eject.leadingAnchor
         }
         cell.imageView = image
         cell.textField = label
@@ -187,7 +220,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             image.widthAnchor.constraint(equalToConstant: 18),
             label.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 6),
-            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -2),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailing, constant: -2),
             label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         return cell
@@ -195,6 +228,34 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
         guard !suppressSelection, let item = outlineView.item(atRow: outlineView.selectedRow) as? Item else { return }
+        if let action = item.action {
+            action()
+            if let currentURL { highlight(currentURL) }
+            return
+        }
         onSelect?(item.url)
+    }
+}
+
+/// "⏏" next to a removable disk or a network share.
+private final class SidebarEjectButton: NSButton {
+    private let volume: URL
+
+    init(volume: URL) {
+        self.volume = volume
+        super.init(frame: .zero)
+        image = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "Извлечь")?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .regular))
+        isBordered = false
+        contentTintColor = .secondaryLabelColor
+        toolTip = "Извлечь"
+        target = self
+        action = #selector(eject(_:))
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func eject(_ sender: Any?) {
+        Places.unmount(volume)
     }
 }

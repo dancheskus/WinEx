@@ -87,6 +87,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         NotificationCenter.default.addObserver(forName: .folderViewDefaultsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.showFolderView() }
         }
+        NotificationCenter.default.addObserver(forName: NetworkBrowser.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if self?.showingNetwork == true { self?.reload() } }
+        }
         NotificationCenter.default.addObserver(forName: .fileTagsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reload() }
         }
@@ -246,6 +249,17 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func load(_ url: URL, select: [URL]) {
         stopTagQuery()
+        if Places.isNetwork(url) {
+            // "Сеть": servers found by Bonjour; double-click mounts one
+            directory = nil
+            watcher = nil
+            showingNetwork = true
+            NetworkBrowser.shared.start()
+            readDirectory()
+            refilter(keepSelection: false)
+            return
+        }
+        showingNetwork = false
         if let tag = ExplorerTab.tagName(of: url) {
             // A tag location: every file with the tag, found by Spotlight (updates live)
             directory = nil
@@ -327,7 +341,19 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         watcher = nil
     }
 
+    private var showingNetwork = false
+
     private func readDirectory() {
+        if showingNetwork {
+            let icon = NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
+                .map { symbol in NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+                    symbol.withSymbolConfiguration(.init(pointSize: 40, weight: .light))?.draw(in: DesktopView.aspectFit(symbol.size, in: rect.insetBy(dx: 8, dy: 8)))
+                    return true
+                } } ?? NSImage()
+            allItems = NetworkBrowser.shared.servers.map { FileItem(virtual: $0.name, url: $0.url, icon: icon, kind: "Сервер (\($0.url.scheme?.uppercased() ?? ""))") }
+            errorMessage = nil
+            return
+        }
         if tagQuery != nil {
             allItems = tagResults.map(FileItem.init)
             errorMessage = nil
@@ -343,7 +369,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             errorMessage = nil
         } catch {
             allItems = []
-            errorMessage = error.localizedDescription
+            errorMessage = Places.isTrash(directory)
+                ? "WinEx нужен «Полный доступ к диску», чтобы показать Корзину (правый клик → открыть настройки)"
+                : error.localizedDescription
         }
     }
 
@@ -619,6 +647,41 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         PropertiesWindowController.show(for: urls.isEmpty ? [directory].compactMap { $0 } : urls)
     }
 
+    // MARK: - Trash, sharing
+
+    @objc private func putBackFromTrash(_ sender: Any?) {
+        let failed = Places.putBack(targetURLs)
+        if !failed.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Не удалось вернуть: \(failed.map(\.lastPathComponent).joined(separator: ", "))"
+            alert.informativeText = "Для этих объектов не сохранилось исходное расположение."
+            alert.runModal()
+        }
+    }
+
+    @objc private func deleteForever(_ sender: Any?) {
+        Places.deleteForever(targetURLs, emptying: false)
+    }
+
+    @objc private func emptyTrash(_ sender: Any?) {
+        Places.deleteForever(allItems.map(\.url), emptying: true)
+    }
+
+    @objc private func openFullDiskAccess(_ sender: Any?) {
+        Places.openFullDiskAccessSettings()
+    }
+
+    /// "Поделиться…": the system share picker (AirDrop, Messages, Mail…) next to the item.
+    @objc private func share(_ sender: Any?) {
+        guard let index = targetRows.first else { return }
+        let picker = NSSharingServicePicker(items: targetURLs)
+        if viewMode == .details {
+            picker.show(relativeTo: tableView.rect(ofRow: index), of: tableView, preferredEdge: .maxY)
+        } else if let frame = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame {
+            picker.show(relativeTo: frame, of: collectionView, preferredEdge: .maxY)
+        }
+    }
+
     @objc private func customizeFolder(_ sender: Any?) {
         guard let index = targetRows.first ?? selectedIndexes.first, items.indices.contains(index) else { return }
         let anchor: NSView, rect: NSRect
@@ -694,6 +757,23 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         func add(_ title: String, _ action: Selector) {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
+        if clickedIndex >= 0 && showingNetwork {
+            add("Подключиться", #selector(openSelected(_:)))
+            return
+        }
+        if clickedIndex >= 0 && Places.isTrash(directory) {
+            add("Вернуть", #selector(putBackFromTrash(_:)))
+            add("Удалить навсегда", #selector(deleteForever(_:)))
+            menu.addItem(.separator())
+            add("Быстрый просмотр", #selector(quickLook(_:)))
+            add("Свойства", #selector(showProperties(_:)))
+            return
+        }
+        if clickedIndex < 0 && Places.isTrash(directory) {
+            add("Очистить Корзину", #selector(emptyTrash(_:)))
+            if errorMessage != nil { add("Открыть настройки «Полный доступ к диску»…", #selector(openFullDiskAccess(_:))) }
+            return
+        }
         if clickedIndex >= 0 {
             // Finder's row of tag colors on top
             menu.addItem(TagRowMenuView.menuItem(for: targetURLs))
@@ -712,6 +792,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(.separator())
             add("Переименовать", #selector(renameSelected(_:)))
             add("Переместить в корзину", #selector(moveToTrash(_:)))
+            add("Поделиться…", #selector(share(_:)))
             menu.addItem(.separator())
             menu.addItem(FileTags.menuItem(for: targetURLs, target: self, action: #selector(toggleTag(_:))))
             if targetRows.count == 1, let row = targetRows.first, items[row].isFolder {

@@ -248,7 +248,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let tab = selectedTab
         // Leaving the address bar mid-edit (tab switch, sidebar click…) drops the edit and its selection
         if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.focusView) }
-        pathField.stringValue = ExplorerTab.tagName(of: tab.url).map { "Теги: \($0)" } ?? tab.url.path
+        pathField.stringValue = locationText(tab.url)
         searchField.stringValue = ""
         searchField.placeholderString = "Поиск: \(tab.title)"
         fileList.load(tab.url, select: tab.pendingSelection)
@@ -261,8 +261,25 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         tabBar.reload()
     }
 
+    /// What the address bar shows: a path, or the name of a virtual location.
+    private func locationText(_ url: URL) -> String {
+        if Places.isNetwork(url) { return "Сеть" }
+        if let tag = ExplorerTab.tagName(of: url) { return "Теги: \(tag)" }
+        return url.path
+    }
+
+    @objc func connectToServer(_ sender: Any?) {
+        NetworkMounter.askAndMount { [weak self] mounted in
+            if let mounted { self?.navigate(to: mounted) }
+        }
+    }
+
+    @objc func goToNetwork(_ sender: Any?) { navigate(to: Places.networkURL) }
+    @objc func goToTrash(_ sender: Any?) { navigate(to: Places.trashURL) }
+    @objc func openAirDrop(_ sender: Any?) { Places.openAirDrop() }
+
     func navigate(to url: URL) {
-        guard url.isBrowsableDirectory || ExplorerTab.tagName(of: url) != nil else {
+        guard url.isBrowsableDirectory || ExplorerTab.tagName(of: url) != nil || Places.isNetwork(url) else {
             NSWorkspace.shared.open(url)
             return
         }
@@ -393,7 +410,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             commitPath()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
-            pathField.stringValue = ExplorerTab.tagName(of: selectedTab.url).map { "Теги: \($0)" } ?? selectedTab.url.path
+            pathField.stringValue = locationText(selectedTab.url)
             window?.makeFirstResponder(fileList.focusView)
             return true
         default:
@@ -403,7 +420,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     func controlTextDidEndEditing(_ obj: Notification) {
         guard (obj.object as? NSTextField) === pathField else { return }
-        pathField.stringValue = ExplorerTab.tagName(of: selectedTab.url).map { "Теги: \($0)" } ?? selectedTab.url.path
+        pathField.stringValue = locationText(selectedTab.url)
     }
 
     /// Accepts "/path", "~/path" and "file:///path". A file path reveals the file in its folder.
@@ -433,6 +450,14 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     // MARK: - FileListDelegate
 
     func fileList(_ list: FileListViewController, open url: URL, in target: FileListViewController.OpenTarget) {
+        // A server in "Сеть": mount it (system login / share picker), then show the share
+        if Places.isServer(url) {
+            NetworkMounter.mount(url) { [weak self] mounted in
+                guard let self, let mounted else { return }
+                self.fileList(list, open: mounted, in: target)
+            }
+            return
+        }
         guard url.isBrowsableDirectory else {
             NSWorkspace.shared.open(url)
             return

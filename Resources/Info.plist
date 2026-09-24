@@ -54,6 +54,13 @@
     <string>WinEx показывает содержимое папки «Загрузки».</string>
     <key>NSRemovableVolumesUsageDescription</key>
     <string>WinEx показывает содержимое внешних дисков.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>WinEx ищет в локальной сети файловые серверы (NAS, другие компьютеры) для раздела «Сеть».</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_smb._tcp</string>
+        <string>_afpovertcp._tcp</string>
+    </array>
     <key>NSNetworkVolumesUsageDescription</key>
     <string>WinEx показывает содержимое сетевых дисков.</string>
 </dict>

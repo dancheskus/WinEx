@@ -655,6 +655,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             menu.addItem(.separator())
             add("Переименовать", #selector(renameAction(_:)))
             add("Переместить в корзину", #selector(trashAction(_:)))
+            add("Поделиться…", #selector(shareAction(_:)))
             menu.addItem(.separator())
             menu.addItem(FileTags.menuItem(for: selectedFileURLs, target: self, action: #selector(toggleTag(_:))))
             if selection.count == 1, items[i].isFolder {
@@ -735,6 +736,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// ⌘I / ⌥↩ reach here through the main menu when the desktop is focused.
     @objc func showProperties(_ sender: Any?) {
         PropertiesWindowController.show(for: selectedURLs.isEmpty ? [desktopURL] : selectedURLs)
+    }
+
+    @objc private func shareAction(_ sender: Any?) {
+        guard let i = selection.sorted().first else { return }
+        NSSharingServicePicker(items: selectedFileURLs).show(relativeTo: iconRect(at: centers[i]), of: self, preferredEdge: .maxY)
     }
 
     @objc private func customizeFolder(_ sender: Any?) {

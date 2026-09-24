@@ -14,7 +14,7 @@ final class ExplorerTab {
         self.url = url.standardizedFileURL
     }
 
-    var title: String { Self.tagName(of: url) ?? url.displayName }
+    var title: String { Places.isNetwork(url) ? "Сеть" : Self.tagName(of: url) ?? url.displayName }
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
     var canGoUp: Bool { url.isFileURL && url.path != "/" }

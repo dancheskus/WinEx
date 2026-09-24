@@ -173,7 +173,7 @@ enum FinderDesktopLayout {
         return result
     }
 
-    private struct DSStore {
+    struct DSStore {
         struct Malformed: Error {}
         let bytes: [UInt8]
 
@@ -191,7 +191,9 @@ enum FinderDesktopLayout {
             return Array(bytes[offset..<offset + length])
         }
 
-        func forEachRecord(_ body: (String, String, [UInt8]) -> Void) throws {
+        /// Calls `body` for blob records and `strings` for Unicode string records (name, structure id, value).
+        func forEachRecord(_ body: (String, String, [UInt8]) -> Void,
+                           strings: ((String, String, String) -> Void)? = nil) throws {
             // Header: 00 00 00 01 'Bud1' rootOffset rootSize …  (offsets are relative to byte 4)
             guard bytes.count > 36, try slice(4, 4) == Array("Bud1".utf8) else { throw Malformed() }
             var cursor = try u32(8) + 4
@@ -239,7 +241,15 @@ enum FinderDesktopLayout {
                     let length = try u32(offset)
                     body(name, structure, try slice(offset + 4, length))
                     offset += 4 + length
-                case "ustr": offset += try 4 + u32(offset) * 2
+                case "ustr":
+                    let length = try u32(offset)
+                    if let strings {
+                        let raw = try slice(offset + 4, length * 2)
+                        strings(name, structure, String(decoding: stride(from: 0, to: raw.count, by: 2).map {
+                            UInt16(raw[$0]) << 8 | UInt16(raw[$0 + 1])
+                        }, as: UTF16.self))
+                    }
+                    offset += 4 + length * 2
                 default: throw Malformed()
                 }
                 return offset
