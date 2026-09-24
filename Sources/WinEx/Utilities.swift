@@ -131,12 +131,23 @@ func fourCC(_ s: String) -> UInt32 {
     s.utf8.reduce(0) { ($0 << 8) | UInt32($1) }
 }
 
-/// Plain view filled with a (dynamic) color.
+/// Plain view filled with a (dynamic) color. Uses its own layer: drawing with `NSRect.fill()`
+/// (copy compositing) wipes sibling views when AppKit draws several views into one layer.
 final class ColorView: NSView {
     var color: NSColor = .clear { didSet { needsDisplay = true } }
 
-    override func draw(_ dirtyRect: NSRect) {
-        color.setFill()
-        dirtyRect.fill()
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = color.cgColor
+        }
     }
 }

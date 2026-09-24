@@ -1,12 +1,14 @@
 import AppKit
-import UniformTypeIdentifiers
 
 /// Switches the system between "Finder" mode and "WinEx replaces Finder" mode.
 ///
 /// Replacement mode:
 ///  - `NSFileViewer` → WinEx, so "Show in Finder" in most apps reveals files in WinEx;
-///  - WinEx becomes the default app for `public.folder`, so opening a folder lands here;
 ///  - Finder stops drawing the desktop (WinEx draws its own, see `DesktopController`).
+///
+/// Becoming the default app for folders is not possible: on macOS 26+ LaunchServices rejects
+/// changing the `public.folder` handler with paramErr (-50), so `open <folder>` from other
+/// apps still goes to Finder.
 @MainActor
 enum FinderReplacement {
     private(set) static var isApplied = false
@@ -19,31 +21,16 @@ enum FinderReplacement {
             return
         }
         run("/usr/bin/defaults", "write", "-g", "NSFileViewer", "-string", bundleID)
-        NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpen: .folder) { error in
-            if let error { NSLog("WinEx: could not become folder handler: \(error)") }
-        }
         run("/usr/bin/defaults", "write", "com.apple.finder", "CreateDesktop", "-bool", "false")
         restartFinder()
         isApplied = true
     }
 
-    static func restore(completion: @escaping @MainActor () -> Void) {
+    static func restore() {
         run("/usr/bin/defaults", "delete", "-g", "NSFileViewer")
         run("/usr/bin/defaults", "delete", "com.apple.finder", "CreateDesktop")
         restartFinder()
         isApplied = false
-
-        var finished = false
-        let finish: @MainActor () -> Void = {
-            guard !finished else { return }
-            finished = true
-            completion()
-        }
-        NSWorkspace.shared.setDefaultApplication(at: finderURL, toOpen: .folder) { _ in
-            DispatchQueue.main.async { finish() }
-        }
-        // Never block quitting on LaunchServices
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { finish() }
     }
 
     /// Finder rereads CreateDesktop only on launch. Killing it makes launchd start it again;

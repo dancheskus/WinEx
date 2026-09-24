@@ -17,9 +17,9 @@ final class SettingsWindowController: NSWindowController {
         hiddenCheckbox.action = #selector(toggleHidden(_:))
 
         let explanation = NSTextField(wrappingLabelWithString: """
-            • Папки с рабочего стола и из других приложений открываются в WinEx.
-            • «Показать в Finder» в большинстве приложений показывает файл в WinEx.
-            • Рабочий стол рисует WinEx, рабочий стол Finder скрывается.
+            • Рабочий стол рисует WinEx: папки с рабочего стола открываются в WinEx.
+            • «Показать в Finder» в других приложениях показывает файл в WinEx.
+            • Папки, которые другие приложения открывают напрямую, по-прежнему открываются в Finder — macOS не даёт сменить программу для папок.
             • При выходе из WinEx (строка меню → «Выйти») всё возвращается Finder.
             """)
         explanation.font = .systemFont(ofSize: 12)

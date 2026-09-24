@@ -22,15 +22,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
+
         if Settings.replaceFinder { enableFinderReplacement() }
         if !openedByEvent { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
     }
 
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard FinderReplacement.isApplied else { return .terminateNow }
+    func applicationWillTerminate(_ notification: Notification) {
+        guard FinderReplacement.isApplied else { return }
         desktop?.hide()
-        FinderReplacement.restore { NSApp.reply(toApplicationShouldTerminate: true) }
-        return .terminateLater
+        FinderReplacement.restore()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -179,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else {
             desktop?.hide()
             desktop = nil
-            FinderReplacement.restore {}
+            FinderReplacement.restore()
         }
     }
 

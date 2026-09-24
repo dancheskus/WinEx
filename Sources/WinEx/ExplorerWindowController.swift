@@ -37,6 +37,11 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 640, height: 360)
+        // Tab strip color; the selected tab and the nav bar use controlBackgroundColor
+        window.backgroundColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? NSColor(white: 0.07, alpha: 1) : NSColor(white: 0.85, alpha: 1)
+        }
         super.init(window: window)
         window.delegate = self
         buildUI()

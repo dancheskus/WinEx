@@ -31,6 +31,7 @@ final class TabBarView: NSView {
 
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     var screenFrame: NSRect {
         guard let window else { return .zero }
@@ -124,7 +125,7 @@ final class TabBarView: NSView {
             return
         }
         controller.selectTab(at: index)
-        trackDrag(ofTabAt: index, startPoint: point)
+        trackDrag(ofTabAt: index, startPoint: point, startMouse: Self.screenLocation(of: event))
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -135,11 +136,16 @@ final class TabBarView: NSView {
         }
     }
 
+    /// Mouse position of an event in screen coordinates.
+    private static func screenLocation(of event: NSEvent) -> NSPoint {
+        guard let window = event.window else { return event.locationInWindow }
+        return window.convertPoint(toScreen: event.locationInWindow)
+    }
+
     /// Runs a local event loop until mouse up. Handles reordering inside the strip,
     /// tearing a tab off into a new window, and moving that window around.
-    private func trackDrag(ofTabAt startIndex: Int, startPoint: NSPoint) {
+    private func trackDrag(ofTabAt startIndex: Int, startPoint: NSPoint, startMouse: NSPoint) {
         guard let window, let controller else { return }
-        let startMouse = NSEvent.mouseLocation
         let grabOffsetX = startPoint.x - itemViews[startIndex].frame.minX
         var index = startIndex
         var dragging = false
@@ -147,11 +153,13 @@ final class TabBarView: NSView {
         // window when it has a single tab (dragging the only tab drags the window).
         var floatingWindow: NSWindow?
         var windowGrabOffset = NSPoint.zero
+        var lastMouse = startMouse
 
         while let event = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp],
                                           until: .distantFuture, inMode: .eventTracking, dequeue: true) {
+            let mouse = Self.screenLocation(of: event)
+            lastMouse = mouse
             if event.type == .leftMouseUp { break }
-            let mouse = NSEvent.mouseLocation
 
             if !dragging {
                 guard hypot(mouse.x - startMouse.x, mouse.y - startMouse.y) >= 4 else { continue }
@@ -200,7 +208,7 @@ final class TabBarView: NSView {
 
         dragState = nil
         if let floating = floatingWindow {
-            AppDelegate.shared.windowDragEnded(floating, at: NSEvent.mouseLocation)
+            AppDelegate.shared.windowDragEnded(floating, at: lastMouse)
         }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
@@ -247,6 +255,7 @@ final class TabItemView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     @objc private func close(_ sender: Any?) { onClose?() }
 
@@ -276,7 +285,7 @@ final class TabItemView: NSView {
             path.fill()
         } else {
             NSColor.separatorColor.setFill()
-            NSRect(x: bounds.maxX - 1, y: 9, width: 1, height: bounds.height - 18).fill()
+            NSRect(x: bounds.maxX - 1, y: 9, width: 1, height: bounds.height - 18).fill(using: .sourceOver)
         }
     }
 }

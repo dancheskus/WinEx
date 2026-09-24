@@ -131,7 +131,7 @@ final class DesktopView: NSView, NSDraggingSource {
     override func draw(_ dirtyRect: NSRect) {
         // Almost-transparent fill so clicks on empty desktop reach us (for deselection / context menu)
         NSColor(white: 0, alpha: 0.005).setFill()
-        dirtyRect.fill()
+        dirtyRect.fill(using: .copy)
 
         let attributes = labelAttributes()
         let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]

@@ -26,8 +26,11 @@ open build/WinEx.app
 
 При включении:
 - `defaults write -g NSFileViewer dev.winex.WinEx` — «Показать в Finder» в других приложениях открывает WinEx;
-- WinEx становится обработчиком `public.folder`;
 - `defaults write com.apple.finder CreateDesktop -bool false` + перезапуск Finder — рабочий стол рисует WinEx.
+
+Сделать WinEx программой по умолчанию для папок нельзя: на macOS 26+ LaunchServices отвечает
+`paramErr (-50)` на смену обработчика `public.folder`. Поэтому папки, которые другие приложения
+открывают напрямую (`open ~/Documents`), по-прежнему открываются в Finder.
 
 При выходе из WinEx всё откатывается. Если WinEx упал и рабочий стол пропал:
 
