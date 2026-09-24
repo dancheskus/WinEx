@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import QuickLookThumbnailing
 
 protocol FileListDelegate: AnyObject {
@@ -11,7 +12,8 @@ protocol FileListDelegate: AnyObject {
 /// Contents of the current folder. Shows the same items either as a table ("Details")
 /// or in a collection view (icons, list, tiles); selection and actions work on both.
 final class FileListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate,
-    NSCollectionViewDataSource, NSCollectionViewDelegate, NSMenuDelegate, NSMenuItemValidation {
+    NSCollectionViewDataSource, NSCollectionViewDelegate, NSMenuDelegate, NSMenuItemValidation,
+    QLPreviewPanelDataSource, QLPreviewPanelDelegate {
 
     enum OpenTarget { case current, newTab, newWindow }
 
@@ -119,6 +121,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             self.delegate?.fileListGoUp(self)
         }
         tableView.onZoom = { [weak self] step in self?.zoom(step) }
+        tableView.onQuickLook = { [weak self] in if let self { QuickLook.toggle(for: self) } }
 
         tableScrollView.documentView = tableView
         tableScrollView.hasVerticalScroller = true
@@ -140,6 +143,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             self.delegate?.fileListGoUp(self)
         }
         collectionView.onZoom = { [weak self] step in self?.zoom(step) }
+        collectionView.onQuickLook = { [weak self] in if let self { QuickLook.toggle(for: self) } }
         collectionView.onSelectionChange = { [weak self] in self?.updateStatus() }
         collectionView.itemName = { [weak self] index in self?.items[index].name ?? "" }
         collectionView.draggingItems = { [weak self] indexes in
@@ -294,6 +298,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         if selected > 0 { status += "    Выбрано: \(selected)" }
         if let errorMessage { status = "Нет доступа: \(errorMessage)" }
         delegate?.fileList(self, didUpdateStatus: status)
+        QuickLook.selectionChanged(in: self)
     }
 
     // MARK: - Selection (shared by table and grid)
@@ -466,6 +471,57 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         reload()
     }
 
+    @objc private func quickLook(_ sender: Any?) {
+        // A right-clicked item that isn't selected becomes the selection, so the panel shows it
+        if clickedIndex >= 0 && !selectedIndexes.contains(clickedIndex) { setSelection(IndexSet(integer: clickedIndex)) }
+        QuickLook.toggle(for: self)
+    }
+
+    // MARK: - Quick Look (space)
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { QuickLook.accepts(self) }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = self
+        panel.delegate = self
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        QuickLook.detach(panel, from: self)
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        selectedURLs.count
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        selectedURLs[index] as NSURL
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+        QuickLook.forward(event, to: focusView, panel: panel)
+    }
+
+    /// The panel zooms out of (and back into) the file's icon.
+    func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: QLPreviewItem!) -> NSRect {
+        guard let iconView = iconView(for: item), let window = iconView.window,
+              iconView.visibleRect.width > 0 else { return .zero }
+        return window.convertToScreen(iconView.convert(iconView.bounds, to: nil))
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, transitionImageFor item: QLPreviewItem!,
+                      contentRect: UnsafeMutablePointer<NSRect>!) -> Any! {
+        iconView(for: item)?.image
+    }
+
+    private func iconView(for item: QLPreviewItem?) -> NSImageView? {
+        guard let url = item?.previewItemURL, let index = items.firstIndex(where: { $0.url.path == url.path }) else { return nil }
+        if viewMode == .details {
+            return (tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? NSTableCellView)?.imageView
+        }
+        return collectionView.item(at: IndexPath(item: index, section: 0))?.imageView
+    }
+
     @objc private func sortByKey(_ sender: NSMenuItem) {
         guard let key = sender.representedObject as? String else { return }
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: tableView.sortDescriptors.first?.ascending ?? true)]
@@ -520,6 +576,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
         if clickedIndex >= 0 {
             add("Открыть", #selector(openSelected(_:)))
+            add("Быстрый просмотр", #selector(quickLook(_:)))
             if let openWith = OpenWithMenu.item(for: targetURLs) { menu.addItem(openWith) }
             if targetRows.contains(where: { items[$0].isFolder }) {
                 add("Открыть в новой вкладке", #selector(openInNewTab(_:)))
@@ -741,6 +798,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
 /// Explorer-style keys: Return opens, Backspace goes up a level. ⌘+wheel / pinch changes the view.
 final class FileTableView: NSTableView {
+    var onQuickLook: (() -> Void)?
     var onOpen: (() -> Void)?
     var onGoUp: (() -> Void)?
     var onZoom: ((Int) -> Void)?
@@ -752,6 +810,7 @@ final class FileTableView: NSTableView {
         switch event.keyCode {
         case 36, 76: onOpen?()   // Return, Enter
         case 51: onGoUp?()       // Backspace
+        case 49: onQuickLook?()  // Space
         default: super.keyDown(with: event)
         }
     }

@@ -266,6 +266,7 @@ final class GridItemView: NSView {
 ///  - arrows move, ⇧+arrows extend from the anchor, Home/End jump;
 ///  - dragging on empty space draws a selection rectangle.
 final class FileCollectionView: NSCollectionView {
+    var onQuickLook: (() -> Void)?
     var onOpen: (() -> Void)?
     var onGoUp: (() -> Void)?
     var onZoom: ((Int) -> Void)?
@@ -477,6 +478,8 @@ final class FileCollectionView: NSCollectionView {
             onOpen?()
         } else if modifiers.isEmpty && event.keyCode == 51 {                     // Backspace
             onGoUp?()
+        } else if modifiers.isEmpty && event.keyCode == 49 && !isTypingName {    // Space
+            onQuickLook?()
         } else if modifiers.isSubset(of: [.shift]), let target = navigationTarget(for: event.keyCode) {
             moveFocus(to: target, extend: modifiers.contains(.shift))
         } else if modifiers.isSubset(of: [.shift]), let chars = event.characters, isTypeSelect(chars) {
@@ -534,6 +537,11 @@ final class FileCollectionView: NSCollectionView {
             apply([target], lead: target)
         }
         scrollToItem(target)
+    }
+
+    /// A space right after typed letters is part of a name being type-selected, not Quick Look.
+    private var isTypingName: Bool {
+        !typeSelectBuffer.isEmpty && Date().timeIntervalSince(typeSelectTime) < 1
     }
 
     private func isTypeSelect(_ chars: String) -> Bool {

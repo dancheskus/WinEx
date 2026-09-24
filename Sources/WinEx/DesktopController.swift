@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 /// Draws desktop icons in place of Finder (Finder's desktop is off in replacement mode).
 /// Double-clicking a folder opens it in WinEx; icons can be moved, arranged and sorted like on Windows.
@@ -53,7 +54,8 @@ final class DesktopWindow: NSWindow {
     override var canBecomeMain: Bool { false }
 }
 
-final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuItemValidation {
+final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuItemValidation,
+    QLPreviewPanelDataSource, QLPreviewPanelDelegate {
     /// Screen area not covered by the menu bar and Dock (view coordinates, y from the top).
     var iconArea: NSRect = .zero { didSet { if iconArea != oldValue { relayout() } } }
 
@@ -64,7 +66,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private var items: [FileItem] = []
     /// Icon centers in view coordinates, parallel to `items`.
     private var centers: [CGPoint] = []
-    private var selection = Set<Int>()
+    private var selection = Set<Int>() {
+        didSet { if selection != oldValue { QuickLook.selectionChanged(in: self) } }
+    }
     private var watcher: DirectoryWatcher?
 
     // Mouse tracking
@@ -514,6 +518,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
         case (120, []): if let i = selection.sorted().first { beginRename(i) }   // F2
         case (53, []): selection = []; needsDisplay = true                           // Esc
+        case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }                    // Space
+        case (123, []), (124, []), (125, []), (126, []): moveSelection(keyCode: event.keyCode)
         default: super.keyDown(with: event)
         }
     }
@@ -535,6 +541,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         if let i = index(at: point) {
             if !selection.contains(i) { selection = [i]; needsDisplay = true }
             add("Открыть", #selector(openSelectionAction(_:)))
+            add("Быстрый просмотр", #selector(quickLookAction(_:)))
             if let openWith = OpenWithMenu.item(for: selectedURLs) { menu.addItem(openWith) }
             menu.addItem(.separator())
             add("Вырезать", #selector(cut(_:)))
@@ -602,6 +609,68 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     @objc private func openSelectionAction(_ sender: Any?) { openSelection() }
+    @objc private func quickLookAction(_ sender: Any?) { QuickLook.toggle(for: self) }
+
+    /// Arrow keys pick the nearest icon in that direction (icons are freely placed, so by geometry).
+    private func moveSelection(keyCode: UInt16) {
+        guard layout.showIcons, !items.isEmpty else { return }
+        guard let current = selection.sorted().first else {
+            selection = [0]
+            needsDisplay = true
+            return
+        }
+        let from = centers[current]
+        let candidates = items.indices.filter { i in
+            let dx = centers[i].x - from.x, dy = centers[i].y - from.y
+            switch keyCode {
+            case 123: return dx < -1 && abs(dy) <= abs(dx)   // ←
+            case 124: return dx > 1 && abs(dy) <= abs(dx)    // →
+            case 126: return dy < -1 && abs(dx) <= abs(dy)   // ↑
+            default: return dy > 1 && abs(dx) <= abs(dy)     // ↓
+            }
+        }
+        guard let next = candidates.min(by: {
+            hypot(centers[$0].x - from.x, centers[$0].y - from.y) < hypot(centers[$1].x - from.x, centers[$1].y - from.y)
+        }) else { return }
+        selection = [next]
+        needsDisplay = true
+    }
+
+    // MARK: - Quick Look (space)
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { QuickLook.accepts(self) }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = self
+        panel.delegate = self
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        QuickLook.detach(panel, from: self)
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        selectedURLs.count
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        selectedURLs[index] as NSURL
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+        QuickLook.forward(event, to: self, panel: panel)
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, sourceFrameOnScreenFor item: QLPreviewItem!) -> NSRect {
+        guard let window, let url = item?.previewItemURL, let i = items.firstIndex(where: { $0.url.path == url.path }) else { return .zero }
+        return window.convertToScreen(convert(iconRect(at: centers[i]), to: nil))
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, transitionImageFor item: QLPreviewItem!,
+                      contentRect: UnsafeMutablePointer<NSRect>!) -> Any! {
+        guard let url = item?.previewItemURL else { return nil }
+        return items.first { $0.url.path == url.path }?.icon
+    }
     @objc private func copyPathAction(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
     @objc private func trashAction(_ sender: Any?) { trashSelection() }
     @objc private func refreshAction(_ sender: Any?) { reload() }
