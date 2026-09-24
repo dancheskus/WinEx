@@ -759,6 +759,25 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     @objc private func openSelectionAction(_ sender: Any?) { openSelection() }
 
+    /// ⇧⌘N on the desktop: a new folder in the first free spot, straight into renaming.
+    @objc func newFolder(_ sender: Any?) {
+        let url = FileOps.newFolderURL(in: desktopURL)
+        do {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        } catch {
+            NSAlert(error: error).runModal()
+            return
+        }
+        FileUndo.recordCreate(url)
+        setPlacement(firstFreeCell(occupied: centers), forName: url.lastPathComponent)
+        layout.save()
+        reload()
+        if let i = index(named: url.lastPathComponent) {
+            selection = [i]
+            beginRename(i)
+        }
+    }
+
     /// ⌘I / ⌥↩ reach here through the main menu when the desktop is focused.
     @objc func showProperties(_ sender: Any?) {
         PropertiesWindowController.show(for: selectedURLs.isEmpty ? [desktopURL] : selectedURLs)

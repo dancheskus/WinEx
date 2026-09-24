@@ -11,6 +11,9 @@ enum MainMenu {
         renameItem.keyEquivalentModifierMask = []
     }
 
+    /// US-layout Shift characters for the punctuation used in shortcuts.
+    private static let shiftedKeys = [".": ">", ",": "<", "[": "{", "]": "}", "/": "?", "=": "+", "-": "_", ";": ":"]
+
     static func build() -> NSMenu {
         let main = NSMenu()
         updateRenameShortcut()
@@ -28,6 +31,13 @@ enum MainMenu {
 
         func item(_ title: String, _ action: Selector, _ key: String,
                   _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            // A real keyboard sends ⇧⌘N as "N" and ⇧⌘. as ">": NSMenu compares those characters, so
+            // "n" + Shift never matches. Write Shift chords with the shifted character instead.
+            var key = key, modifiers = modifiers
+            if modifiers.contains(.shift), let shifted = shiftedKeys[key] ?? (key.count == 1 && key.lowercased() == key && key.uppercased() != key ? key.uppercased() : nil) {
+                key = shifted
+                modifiers.remove(.shift)
+            }
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.keyEquivalentModifierMask = modifiers
             return item
