@@ -232,3 +232,33 @@ final class ColorView: NSView {
         }
     }
 }
+
+/// Finder / Explorer "slow click": clicking the name of an item that was already the only one
+/// selected starts renaming, once the double-click interval has passed without a second click.
+@MainActor
+final class SlowClickRename {
+    private var pending: DispatchWorkItem?
+
+    /// Call on every mouse down / key down: a double-click, a drag or typing cancels the rename.
+    func cancel() {
+        pending?.cancel()
+        pending = nil
+    }
+
+    func schedule(_ rename: @escaping @MainActor () -> Void) {
+        cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.pending = nil
+                rename()
+            }
+        }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: work)
+    }
+
+    /// A plain single click: no modifiers, no second click.
+    static func isPlainClick(_ event: NSEvent) -> Bool {
+        event.clickCount == 1 && event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty
+    }
+}

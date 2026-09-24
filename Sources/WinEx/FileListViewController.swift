@@ -174,7 +174,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         collectionView.registerForDraggedTypes([.fileURL])
         collectionView.dropTarget = { [weak self] point in
             guard let self, let directory = self.directory else { return nil }
-            if let index = self.collectionView.indexPathForItem(at: point)?.item, self.items[index].isFolder {
+            if let index = self.collectionView.itemIndex(at: point), self.items[index].isFolder {
                 return (self.items[index].url, index)
             }
             return (directory, nil)
@@ -1025,11 +1025,29 @@ final class FileTableView: NSTableView {
 
     /// Explorer's Details view: dragging from empty space or from the Date/Type/Size columns draws a
     /// selection rectangle; pressing on a name selects it and can drag the file.
+    private let slowClick = SlowClickRename()
+
     override func mouseDown(with event: NSEvent) {
+        slowClick.cancel()
         let point = convert(event.locationInWindow, from: nil)
         let row = self.row(at: point)
         let onName = row >= 0 && column(at: point) == 0
-        guard !onName, event.clickCount == 1 else { return super.mouseDown(with: event) }
+        if onName {
+            // Slow click on the name of the row that was already selected → rename
+            let candidate = SlowClickRename.isPlainClick(event) && selectedRowIndexes == IndexSet(integer: row)
+                && nameTextRect(row: row)?.contains(point) == true
+            let start = NSEvent.mouseLocation
+            super.mouseDown(with: event)  // tracks until mouse up (or runs a file drag)
+            let moved = hypot(NSEvent.mouseLocation.x - start.x, NSEvent.mouseLocation.y - start.y) > 3
+            if candidate, !moved, !(window?.firstResponder is NSTextView) {
+                slowClick.schedule { [weak self] in
+                    guard let self, self.selectedRowIndexes == IndexSet(integer: row) else { return }
+                    self.onRename?()
+                }
+            }
+            return
+        }
+        guard event.clickCount == 1 else { return super.mouseDown(with: event) }
 
         // On a row: a plain click still selects it (and double-click opens) — only a drag draws the rectangle
         if row >= 0 && !isDragBeginning(from: event) {
@@ -1043,6 +1061,20 @@ final class FileTableView: NSTableView {
             let rows = self.rows(in: rect)
             selectRowIndexes(base.union(IndexSet(integersIn: rows.lowerBound..<rows.upperBound)), byExtendingSelection: false)
         }
+    }
+
+    /// Clicking a name must not start editing by itself (the stock table does that on any click):
+    /// renaming starts only from the slow click, F2 / Return or the menu, which call `editColumn`.
+    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
+        if responder is NSTextField { return false }
+        return super.validateProposedFirstResponder(responder, for: event)
+    }
+
+    /// Where the file name's text is drawn in a row (clicks next to it don't rename).
+    private func nameTextRect(row: Int) -> NSRect? {
+        guard let field = (view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView)?.textField else { return nil }
+        let width = min(field.attributedStringValue.size().width + 6, field.bounds.width)
+        return field.convert(NSRect(x: 0, y: 0, width: width, height: field.bounds.height), to: self)
     }
 
     /// Waits for the mouse to either move a few points (a drag) or be released (a click).
@@ -1059,6 +1091,7 @@ final class FileTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
+        slowClick.cancel()
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         guard modifiers.isEmpty else { return super.keyDown(with: event) }
         switch event.keyCode {

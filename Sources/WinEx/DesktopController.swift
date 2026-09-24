@@ -453,7 +453,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     // MARK: - Mouse
 
+    private let slowClick = SlowClickRename()
+    private var slowClickIndex: Int?
+
     override func mouseDown(with event: NSEvent) {
+        slowClick.cancel()
+        slowClickIndex = nil
         endRename()
         window?.makeKey()
         window?.makeFirstResponder(self)
@@ -465,6 +470,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         mouseDownIndex = index(at: point)
 
         if let i = mouseDownIndex {
+            // Slow click on the label of the only selected icon → rename (files only, not disks)
+            if SlowClickRename.isPlainClick(event), selection == [i], !isVolume(i), labelRect(at: centers[i]).contains(point) {
+                slowClickIndex = i
+            }
             if toggles {
                 if selection.contains(i) { selection.remove(i) } else { selection.insert(i) }
             } else if selection.contains(i) {
@@ -497,6 +506,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
               hypot(point.x - mouseDownPoint.x, point.y - mouseDownPoint.y) > 4 else { return }
         dragStarted = true
         collapseOnMouseUp = nil
+        slowClickIndex = nil
         let dragged = selection.sorted()
         draggedNames = dragged.map(name(of:))
         dragOrigin = mouseDownPoint
@@ -510,6 +520,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     override func mouseUp(with event: NSEvent) {
         if !dragStarted, let i = collapseOnMouseUp { selection = [i] }
+        if let i = slowClickIndex, !dragStarted {
+            let name = name(of: i)
+            slowClick.schedule { [weak self] in
+                guard let self, let index = self.index(named: name), self.selection == [index] else { return }
+                self.beginRename(index)
+            }
+        }
+        slowClickIndex = nil
         // Clicking the wallpaper moves windows aside (and back), as System Settings asks
         if emptyClickCandidate && rubberBand != nil && SystemDesktop.clickRevealsDesktop {
             SystemDesktop.toggleShowDesktop()
@@ -599,6 +617,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
+        slowClick.cancel()
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         switch (event.keyCode, modifiers) {
         case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameAction(nil) }
@@ -949,5 +968,6 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
     }
 }
+
 
 

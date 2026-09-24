@@ -274,9 +274,10 @@ final class GridItemView: NSView {
     var isRenaming = false
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Clicks go to the collection view (it implements selection), except while renaming
+        // Clicks go straight to the collection view (it implements selection), except while renaming.
+        // Taking them here and letting them bubble up delivered each click to the grid twice.
         guard !isRenaming else { return super.hitTest(point) }
-        return frame.contains(point) ? self : nil
+        return nil
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -330,6 +331,17 @@ final class FileCollectionView: NSCollectionView {
     private var typeSelectBuffer = ""
     private var typeSelectTime = Date.distantPast
     private var zoom = ZoomGesture()
+    private let slowClick = SlowClickRename()
+
+    /// Like Finder, the click that activates the window also selects the icon.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private var slowClickCandidate = false
+
+    /// Item under a point, from the layout (item views don't take clicks, so the stock
+    /// `indexPathForItem(at:)`, which hit-tests them, finds nothing).
+    func itemIndex(at point: NSPoint) -> Int? {
+        indexPathsForVisibleItems().first { layoutAttributesForItem(at: $0)?.frame.contains(point) == true }?.item
+    }
 
     var count: Int { numberOfSections > 0 ? numberOfItems(inSection: 0) : 0 }
 
@@ -366,12 +378,14 @@ final class FileCollectionView: NSCollectionView {
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
+        slowClick.cancel()
+        slowClickCandidate = false
         window?.makeFirstResponder(self)
         clickedIndex = -1
         let point = convert(event.locationInWindow, from: nil)
         let modifiers = event.modifierFlags.intersection([.shift, .command])
 
-        guard let index = indexPathForItem(at: point)?.item else {
+        guard let index = itemIndex(at: point) else {
             // Empty space: selection rectangle (⌘/⇧ add to the current selection)
             mouseDownIndex = nil
             let base = modifiers.isEmpty ? IndexSet() : selectedIndexes
@@ -387,6 +401,12 @@ final class FileCollectionView: NSCollectionView {
             return
         }
 
+        // Slow click on the label of the item that was already the only selected one → rename
+        if SlowClickRename.isPlainClick(event), selectedIndexes == IndexSet(integer: index),
+           let label = (item(at: IndexPath(item: index, section: 0)) as? FileGridItem)?.textField,
+           label.convert(label.bounds, to: self).contains(point) {
+            slowClickCandidate = true
+        }
         mouseDownIndex = index
         mouseDownPoint = point
         dragStarted = false
@@ -421,6 +441,7 @@ final class FileCollectionView: NSCollectionView {
         guard hypot(point.x - mouseDownPoint.x, point.y - mouseDownPoint.y) > 4 else { return }
         dragStarted = true
         collapseOnMouseUp = nil
+        slowClickCandidate = false
         let items = draggingItems?(selectedIndexes) ?? []
         guard !items.isEmpty else { return }
         beginDraggingSession(with: items, event: event, source: self)
@@ -430,6 +451,13 @@ final class FileCollectionView: NSCollectionView {
         if !dragStarted, let index = collapseOnMouseUp {
             apply([index], lead: index)
         }
+        if slowClickCandidate, !dragStarted, let index = mouseDownIndex {
+            slowClick.schedule { [weak self] in
+                guard let self, self.selectedIndexes == IndexSet(integer: index) else { return }
+                self.onRename?()
+            }
+        }
+        slowClickCandidate = false
         collapseOnMouseUp = nil
         mouseDownIndex = nil
     }
@@ -485,7 +513,7 @@ final class FileCollectionView: NSCollectionView {
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
-        clickedIndex = indexPathForItem(at: point)?.item ?? -1
+        clickedIndex = itemIndex(at: point) ?? -1
         // Like Explorer: right-clicking an unselected item selects it, empty space clears
         if clickedIndex < 0 {
             apply([], lead: lead ?? 0)
@@ -514,6 +542,7 @@ final class FileCollectionView: NSCollectionView {
     // MARK: Keyboard
 
     override func keyDown(with event: NSEvent) {
+        slowClick.cancel()
         let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
         if modifiers.isEmpty && (event.keyCode == 36 || event.keyCode == 76) {   // Return, Enter
             if Settings.windowsKeys { onOpen?() } else if !selectedIndexes.isEmpty { onRename?() }
