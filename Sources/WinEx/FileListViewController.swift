@@ -289,6 +289,18 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         reloadAfterEditing = false
         readDirectory()
         refilter(keepSelection: true)
+        selectPendingItem()
+    }
+
+    /// An item to select once the list is reloaded (the renamed file: the reload that shows its
+    /// new name can be postponed until the name field has let go).
+    private var pendingSelectionName: String?
+
+    private func selectPendingItem() {
+        guard let name = pendingSelectionName,
+              let index = items.firstIndex(where: { $0.url.lastPathComponent == name }) else { return }
+        pendingSelectionName = nil
+        setSelection(IndexSet(integer: index), scrollTo: index)
     }
 
     private var reloadAfterEditing = false
@@ -545,11 +557,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 NSAlert(error: error).runModal()
             }
         }
-        // Reload either way so a rejected name reverts on screen
+        // Reload either way so a rejected name reverts on screen; the item stays selected under its
+        // (new or old) name, even if the reload has to wait for the name field to close
+        let renamed = FileManager.default.fileExists(atPath: destination.path) && !newName.isEmpty
+        pendingSelectionName = renamed ? destination.lastPathComponent : url.lastPathComponent
         reload()
-        if let index = items.firstIndex(where: { [destination.lastPathComponent, url.lastPathComponent].contains($0.url.lastPathComponent) }) {
-            setSelection(IndexSet(integer: index), scrollTo: index)
-        }
+        selectPendingItem()
     }
 
     @objc func cut(_ sender: Any?) {
