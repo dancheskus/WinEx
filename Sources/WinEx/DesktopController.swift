@@ -643,6 +643,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
         if let i = index(at: point) {
             if !selection.contains(i) { selection = [i]; needsDisplay = true }
+            menu.addItem(TagRowMenuView.menuItem(for: selectedFileURLs))
+            menu.addItem(.separator())
             add("Открыть", #selector(openSelectionAction(_:)))
             add("Быстрый просмотр", #selector(quickLookAction(_:)))
             if let openWith = OpenWithMenu.item(for: selectedURLs) { menu.addItem(openWith) }
@@ -655,6 +657,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             add("Переместить в корзину", #selector(trashAction(_:)))
             menu.addItem(.separator())
             menu.addItem(FileTags.menuItem(for: selectedFileURLs, target: self, action: #selector(toggleTag(_:))))
+            if selection.count == 1, items[i].isFolder {
+                add("Настроить папку…", #selector(customizeFolder(_:)))
+            }
             menu.addItem(.separator())
             add("Свойства", #selector(showProperties(_:)))
             return menu
@@ -730,6 +735,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// ⌘I / ⌥↩ reach here through the main menu when the desktop is focused.
     @objc func showProperties(_ sender: Any?) {
         PropertiesWindowController.show(for: selectedURLs.isEmpty ? [desktopURL] : selectedURLs)
+    }
+
+    @objc private func customizeFolder(_ sender: Any?) {
+        guard let i = selection.first, items.indices.contains(i) else { return }
+        FolderCustomizationController.show(for: items[i].url, relativeTo: iconRect(at: centers[i]), of: self)
     }
 
     @objc private func toggleTag(_ sender: NSMenuItem) {

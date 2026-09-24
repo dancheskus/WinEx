@@ -245,6 +245,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     // MARK: - Loading
 
     func load(_ url: URL, select: [URL]) {
+        stopTagQuery()
+        if let tag = ExplorerTab.tagName(of: url) {
+            // A tag location: every file with the tag, found by Spotlight (updates live)
+            directory = nil
+            watcher = nil
+            startTagQuery(tag)
+            refilter(keepSelection: false)
+            return
+        }
         directory = url
         watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
         readDirectory()
@@ -275,11 +284,55 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         return field.isDescendant(of: focusView)
     }
 
+    // MARK: - Tag locations
+
+    private var tagQuery: NSMetadataQuery?
+    private var tagResults: [URL] = []
+    private var tagQueryObservers: [NSObjectProtocol] = []
+
+    private func startTagQuery(_ tag: String) {
+        let query = NSMetadataQuery()
+        query.predicate = NSPredicate(format: "kMDItemUserTags == %@", tag)
+        query.searchScopes = [NSMetadataQueryLocalComputerScope]
+        tagQuery = query
+        tagResults = []
+        allItems = []
+        for name in [Notification.Name.NSMetadataQueryDidFinishGathering, .NSMetadataQueryDidUpdate] {
+            tagQueryObservers.append(NotificationCenter.default.addObserver(forName: name, object: query, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tagQueryChanged() }
+            })
+        }
+        query.start()
+    }
+
+    private func tagQueryChanged() {
+        guard let query = tagQuery else { return }
+        query.disableUpdates()
+        tagResults = (0..<query.resultCount).compactMap { index in
+            (query.result(at: index) as? NSMetadataItem)?.value(forAttribute: NSMetadataItemPathKey) as? String
+        }.map { URL(fileURLWithPath: $0) }
+        query.enableUpdates()
+        reload()
+    }
+
+    private func stopTagQuery() {
+        tagQuery?.stop()
+        tagQuery = nil
+        tagQueryObservers.forEach(NotificationCenter.default.removeObserver)
+        tagQueryObservers = []
+    }
+
     func stopWatching() {
+        stopTagQuery()
         watcher = nil
     }
 
     private func readDirectory() {
+        if tagQuery != nil {
+            allItems = tagResults.map(FileItem.init)
+            errorMessage = nil
+            return
+        }
         guard let directory else { return }
         var options: FileManager.DirectoryEnumerationOptions = []
         if !Settings.showHidden { options.insert(.skipsHiddenFiles) }
@@ -561,6 +614,19 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         PropertiesWindowController.show(for: urls.isEmpty ? [directory].compactMap { $0 } : urls)
     }
 
+    @objc private func customizeFolder(_ sender: Any?) {
+        guard let index = targetRows.first ?? selectedIndexes.first, items.indices.contains(index) else { return }
+        let anchor: NSView, rect: NSRect
+        if viewMode == .details {
+            anchor = tableView
+            rect = tableView.rect(ofRow: index)
+        } else {
+            anchor = collectionView
+            rect = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame ?? .zero
+        }
+        FolderCustomizationController.show(for: items[index].url, relativeTo: rect, of: anchor)
+    }
+
     @objc private func toggleTag(_ sender: NSMenuItem) {
         guard let toggle = sender.representedObject as? FileTags.TagToggle else { return }
         FileTags.toggle(toggle.tag, on: toggle.urls, add: toggle.add)
@@ -624,6 +690,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
         if clickedIndex >= 0 {
+            // Finder's row of tag colors on top
+            menu.addItem(TagRowMenuView.menuItem(for: targetURLs))
+            menu.addItem(.separator())
             add("Открыть", #selector(openSelected(_:)))
             add("Быстрый просмотр", #selector(quickLook(_:)))
             if let openWith = OpenWithMenu.item(for: targetURLs) { menu.addItem(openWith) }
@@ -640,6 +709,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             add("Переместить в корзину", #selector(moveToTrash(_:)))
             menu.addItem(.separator())
             menu.addItem(FileTags.menuItem(for: targetURLs, target: self, action: #selector(toggleTag(_:))))
+            if targetRows.count == 1, let row = targetRows.first, items[row].isFolder {
+                add("Настроить папку…", #selector(customizeFolder(_:)))
+            }
             menu.addItem(.separator())
             add("Свойства", #selector(showProperties(_:)))
         } else {

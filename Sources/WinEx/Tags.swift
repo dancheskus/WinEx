@@ -18,9 +18,18 @@ enum FileTags {
         "Red": 6, "Orange": 7, "Yellow": 5, "Green": 2, "Blue": 4, "Purple": 3, "Gray": 1, "Grey": 1,
     ]
 
+    /// Finder draws tags with the system palette (the old label colors are paler).
     static func color(forIndex index: Int) -> NSColor? {
-        let colors = NSWorkspace.shared.fileLabelColors
-        return index > 0 && index < colors.count ? colors[index] : nil
+        switch index {
+        case 1: .systemGray
+        case 2: .systemGreen
+        case 3: .systemPurple
+        case 4: .systemBlue
+        case 5: .systemYellow
+        case 6: .systemRed
+        case 7: .systemOrange
+        default: nil
+        }
     }
 
     static func tags(of url: URL) -> [Tag] {
@@ -135,7 +144,11 @@ enum FileTags {
             item.state = count == 0 ? .off : (count == urls.count ? .on : .mixed)
             item.representedObject = TagToggle(tag: tag, urls: urls, add: count < urls.count)
         }
+        menu.addItem(.separator())
+        let edit = menu.addItem(withTitle: "Изменить теги…", action: #selector(FileListViewController.showProperties(_:)), keyEquivalent: "")
+        edit.target = target
         let item = NSMenuItem(title: "Теги", action: nil, keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: "tag", accessibilityDescription: nil)
         item.submenu = menu
         return item
     }

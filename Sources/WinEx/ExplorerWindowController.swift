@@ -248,7 +248,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let tab = selectedTab
         // Leaving the address bar mid-edit (tab switch, sidebar click…) drops the edit and its selection
         if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.focusView) }
-        pathField.stringValue = tab.url.path
+        pathField.stringValue = ExplorerTab.tagName(of: tab.url).map { "Теги: \($0)" } ?? tab.url.path
         searchField.stringValue = ""
         searchField.placeholderString = "Поиск: \(tab.title)"
         fileList.load(tab.url, select: tab.pendingSelection)
@@ -262,7 +262,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     func navigate(to url: URL) {
-        guard url.isBrowsableDirectory else {
+        guard url.isBrowsableDirectory || ExplorerTab.tagName(of: url) != nil else {
             NSWorkspace.shared.open(url)
             return
         }
@@ -393,7 +393,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             commitPath()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
-            pathField.stringValue = selectedTab.url.path
+            pathField.stringValue = ExplorerTab.tagName(of: selectedTab.url).map { "Теги: \($0)" } ?? selectedTab.url.path
             window?.makeFirstResponder(fileList.focusView)
             return true
         default:
@@ -403,7 +403,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     func controlTextDidEndEditing(_ obj: Notification) {
         guard (obj.object as? NSTextField) === pathField else { return }
-        pathField.stringValue = selectedTab.url.path
+        pathField.stringValue = ExplorerTab.tagName(of: selectedTab.url).map { "Теги: \($0)" } ?? selectedTab.url.path
     }
 
     /// Accepts "/path", "~/path" and "file:///path". A file path reveals the file in its folder.

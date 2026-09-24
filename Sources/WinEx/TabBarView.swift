@@ -47,7 +47,11 @@ final class TabBarView: NSView {
         for (i, tab) in controller.tabs.enumerated() {
             let view = existing[tab.id] ?? makeItemView(for: tab)
             view.title = tab.title
-            view.icon = NSWorkspace.shared.icon(forFile: tab.url.path)
+            if let tag = ExplorerTab.tagName(of: tab.url) {
+                view.icon = FileTags.dotImage(color: FileTags.tag(named: tag, knownTags: []).color, size: 14)
+            } else {
+                view.icon = FileItem(url: tab.url).icon
+            }
             view.isSelected = i == controller.selectedIndex
             views.append(view)
         }

@@ -71,11 +71,13 @@ final class FileItem {
 
     var tagColors: [NSColor] { tags.compactMap { FileTags.color(forIndex: $0.color) } }
 
-    /// File icon; folders with a colored tag take its color, like in macOS 26 Finder.
+    /// File icon; customized folders (tag color, symbol / emoji) are drawn like macOS 26 Finder does.
     lazy var icon: NSImage = {
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
-        guard isFolder, let color = tags.lazy.compactMap({ FileTags.color(forIndex: $0.color) }).first else { return icon }
-        return FileTags.tinted(icon, with: color)
+        if isFolder, let custom = FolderIcon.custom(tagColor: tags.lazy.compactMap({ FileTags.color(forIndex: $0.color) }).first,
+                                                    customization: FolderCustomization.read(url)) {
+            return custom
+        }
+        return NSWorkspace.shared.icon(forFile: url.path)
     }()
 
     var sizeDescription: String? {

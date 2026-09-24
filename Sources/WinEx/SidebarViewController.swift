@@ -12,7 +12,11 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         let title: String
         let url: URL
         let symbol: String
-        init(title: String, url: URL, symbol: String) { self.title = title; self.url = url; self.symbol = symbol }
+        /// Tag entries show a colored dot instead of a symbol.
+        let tagColor: Int?
+        init(title: String, url: URL, symbol: String, tagColor: Int? = nil) {
+            self.title = title; self.url = url; self.symbol = symbol; self.tagColor = tagColor
+        }
     }
 
     var onSelect: ((URL) -> Void)?
@@ -97,6 +101,10 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         sections = [
             Section(title: "Быстрый доступ", items: quick.compactMap { $0 }),
             Section(title: "Этот Mac", items: volumes),
+            // Finder's favorite tags; clicking one lists every file with it
+            Section(title: "Теги", items: FileTags.favorites.map {
+                Item(title: $0.name, url: ExplorerTab.tagURL($0.name), symbol: "tag", tagColor: $0.color)
+            }),
         ]
         outlineView.reloadData()
         outlineView.expandItem(nil, expandChildren: true)
@@ -109,7 +117,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         suppressSelection = true
         defer { suppressSelection = false }
         for section in sections {
-            if let item = section.items.first(where: { $0.url.standardizedFileURL.path == url.path }) {
+            if let item = section.items.first(where: {
+                $0.url.isFileURL == url.isFileURL && ($0.url.isFileURL ? $0.url.standardizedFileURL.path == url.path : $0.url == url)
+            }) {
                 let row = outlineView.row(forItem: item)
                 if row >= 0 { outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
                 return
@@ -161,8 +171,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         }
         guard let item = item as? Item else { return nil }
         let cell = NSTableCellView()
-        let image = NSImageView(image: NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil) ?? NSImage())
-        image.contentTintColor = .controlAccentColor
+        let image = NSImageView(image: item.tagColor.map { FileTags.dotImage(color: $0, size: 14) }
+            ?? NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil) ?? NSImage())
+        if item.tagColor == nil { image.contentTintColor = .controlAccentColor }
         let label = NSTextField(labelWithString: item.title)
         label.lineBreakMode = .byTruncatingTail
         for view in [image, label] {
