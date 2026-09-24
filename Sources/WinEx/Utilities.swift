@@ -58,28 +58,17 @@ final class FileItem {
         tagNames = values?.tagNames ?? []
     }
 
-    /// Colors of the item's Finder tags. Each tag is stored as "name\n<color index>" in the
-    /// `com.apple.metadata:_kMDItemUserTags` attribute, so renamed/localized/custom tags keep their color.
-    lazy var tagColors: [NSColor] = {
-        guard !tagNames.isEmpty else { return [] }
-        let attribute = "com.apple.metadata:_kMDItemUserTags"
-        let data: Data? = url.withUnsafeFileSystemRepresentation { path in
-            guard let path else { return nil }
-            let size = getxattr(path, attribute, nil, 0, 0, 0)
-            guard size > 0 else { return nil }
-            var buffer = Data(count: size)
-            let read = buffer.withUnsafeMutableBytes { getxattr(path, attribute, $0.baseAddress, size, 0, 0) }
-            return read > 0 ? buffer : nil
-        }
-        guard let data, let tags = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String] else { return [] }
-        let colors = NSWorkspace.shared.fileLabelColors
-        return tags.compactMap { tag in
-            guard let index = tag.split(separator: "\n").last.flatMap({ Int($0) }), index > 0, index < colors.count else { return nil }
-            return colors[index]
-        }
-    }()
+    /// Finder tags with their colors (read lazily: only views that show tags ask).
+    lazy var tags: [FileTags.Tag] = tagNames.isEmpty ? [] : FileTags.tags(of: url)
 
-    lazy var icon: NSImage = NSWorkspace.shared.icon(forFile: url.path)
+    var tagColors: [NSColor] { tags.compactMap { FileTags.color(forIndex: $0.color) } }
+
+    /// File icon; folders with a colored tag take its color, like in macOS 26 Finder.
+    lazy var icon: NSImage = {
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        guard isFolder, let color = tags.lazy.compactMap({ FileTags.color(forIndex: $0.color) }).first else { return icon }
+        return FileTags.tinted(icon, with: color)
+    }()
 
     var sizeDescription: String? {
         size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }

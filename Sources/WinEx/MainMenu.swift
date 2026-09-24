@@ -37,6 +37,15 @@ enum MainMenu {
             item("Новая папка", #selector(FileListViewController.newFolder(_:)), "n", [.command, .shift]),
             item("Переименовать", #selector(FileListViewController.renameSelected(_:)), key(NSF2FunctionKey), []),
             item("Переместить в корзину", #selector(FileListViewController.moveToTrash(_:)), key(NSBackspaceCharacter)),
+            .separator(),
+            item("Свойства", #selector(FileListViewController.showProperties(_:)), "i"),
+            {
+                // Alt+Enter from Windows
+                let alternate = item("Свойства", #selector(FileListViewController.showProperties(_:)), "\r", [.option])
+                alternate.isHidden = true
+                alternate.allowsKeyEquivalentWhenHidden = true
+                return alternate
+            }(),
         ])
         submenu("Правка", [
             item("Вырезать", #selector(NSText.cut(_:)), "x"),

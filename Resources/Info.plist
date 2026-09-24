@@ -2,6 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Russian UI: system-provided strings (file types, sizes, dates) follow it -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>ru</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>ru</string>
+    </array>
     <key>CFBundleIdentifier</key>
     <string>dev.winex.WinEx</string>
     <key>CFBundleName</key>

@@ -87,6 +87,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         NotificationCenter.default.addObserver(forName: .folderViewDefaultsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.showFolderView() }
         }
+        NotificationCenter.default.addObserver(forName: .fileTagsChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reload() }
+        }
         NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateCutAppearance() }
         }
@@ -95,13 +98,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func setUpTable(menu: NSMenu) {
         let columns: [(id: String, title: String, width: CGFloat)] = [
             ("name", "Имя", 320), ("date", "Дата изменения", 150), ("type", "Тип", 160), ("size", "Размер", 90),
+            ("tags", "Теги", 70),
         ]
         for column in columns {
             let tableColumn = NSTableColumn(identifier: .init(column.id))
             tableColumn.title = column.title
             tableColumn.width = column.width
             tableColumn.minWidth = 60
-            tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.id, ascending: true)
+            if column.id != "tags" { tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.id, ascending: true) }
             if column.id == "size" { tableColumn.headerCell.alignment = .right }
             tableView.addTableColumn(tableColumn)
         }
@@ -543,6 +547,18 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         return collectionView.item(at: IndexPath(item: index, section: 0))?.imageView
     }
 
+    /// ⌘I / ⌥↩ / context menu: the selection, or the folder itself when nothing is selected.
+    @objc func showProperties(_ sender: Any?) {
+        let urls = targetURLs
+        PropertiesWindowController.show(for: urls.isEmpty ? [directory].compactMap { $0 } : urls)
+    }
+
+    @objc private func toggleTag(_ sender: NSMenuItem) {
+        guard let toggle = sender.representedObject as? FileTags.TagToggle else { return }
+        FileTags.toggle(toggle.tag, on: toggle.urls, add: toggle.add)
+        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
+    }
+
     @objc private func sortByKey(_ sender: NSMenuItem) {
         guard let key = sender.representedObject as? String else { return }
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: tableView.sortDescriptors.first?.ascending ?? true)]
@@ -614,6 +630,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(.separator())
             add("Переименовать", #selector(renameSelected(_:)))
             add("Переместить в корзину", #selector(moveToTrash(_:)))
+            menu.addItem(.separator())
+            menu.addItem(FileTags.menuItem(for: targetURLs, target: self, action: #selector(toggleTag(_:))))
+            menu.addItem(.separator())
+            add("Свойства", #selector(showProperties(_:)))
         } else {
             let viewItem = NSMenuItem(title: "Вид", action: nil, keyEquivalent: "")
             let viewMenu = NSMenu()
@@ -650,6 +670,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
             menu.addItem(.separator())
             add("Копировать путь к папке", #selector(copyPath(_:)))
+            add("Свойства", #selector(showProperties(_:)))
         }
     }
 
@@ -717,6 +738,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             cell.textField?.stringValue = item.typeDescription
         case "size":
             cell.textField?.stringValue = item.sizeDescription ?? ""
+        case "tags":
+            let dots = FileTags.dots(for: item.tags, attributes: [.font: NSFont.systemFont(ofSize: 12)])
+            cell.textField?.attributedStringValue = dots
+            cell.textField?.toolTip = item.tags.map(\.name).joined(separator: ", ")
         default:
             break
         }

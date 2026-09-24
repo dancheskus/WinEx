@@ -85,7 +85,8 @@ enum ViewMode: Int, CaseIterable {
     /// "List" fills columns top to bottom and scrolls sideways, like in Explorer.
     var scrollsHorizontally: Bool { self == .list }
 
-    var usesThumbnails: Bool { iconSize >= 96 }
+    /// Previews from "Обычные значки" up, like Explorer (tiny list/detail icons stay icons).
+    var usesThumbnails: Bool { iconSize >= 32 }
 }
 
 /// Turns ⌘+scroll and pinch into zoom steps (Explorer uses Ctrl+wheel).
@@ -144,6 +145,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     private var mode: ViewMode = .mediumIcons
     private var isFolder = false
     private var originalName = ""
+    private var plainName = ""
     private var onRename: ((String) -> Void)?
     private var renameCancelled = false
 
@@ -168,7 +170,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         self.mode = mode
         isFolder = file.isFolder
         iconView.image = image
-        nameField.stringValue = file.name
+        plainName = file.name
         nameField.toolTip = file.name
         if mode.isHorizontalItem {
             nameField.alignment = .left
@@ -183,6 +185,14 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
             nameField.cell?.truncatesLastVisibleLine = true
         }
         nameField.font = .systemFont(ofSize: mode == .extraLargeIcons ? 13 : 12)
+        // Tag dots in front of the name, like on the desktop
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = nameField.alignment
+        paragraph.lineBreakMode = nameField.lineBreakMode
+        let attributes: [NSAttributedString.Key: Any] = [.font: nameField.font!, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+        let label = NSMutableAttributedString(attributedString: FileTags.dots(for: file.tags, attributes: attributes))
+        label.append(NSAttributedString(string: file.name, attributes: attributes))
+        nameField.attributedStringValue = label
         detailField.isHidden = mode != .tiles
         detailField.stringValue = [file.typeDescription, file.sizeDescription].compactMap { $0 }.joined(separator: "\n")
         view.needsLayout = true
@@ -220,7 +230,8 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
 
     func beginRename(onCommit: @escaping (String) -> Void) {
         onRename = onCommit
-        originalName = nameField.stringValue
+        nameField.stringValue = plainName  // without the tag dots
+        originalName = plainName
         renameCancelled = false
         itemView.isRenaming = true
         nameField.isEditable = true

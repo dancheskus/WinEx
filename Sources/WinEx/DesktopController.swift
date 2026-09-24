@@ -130,6 +130,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.needsDisplay = true }
         }
+        NotificationCenter.default.addObserver(forName: .fileTagsChanged, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reload() }
+        }
     }
 
     func stop() {
@@ -396,8 +399,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                     NSBezierPath(roundedRect: highlight, xRadius: 4, yRadius: 4).fill()
                 }
                 let alpha = FileClipboard.shared.isCut(item.url) ? FileListViewController.cutAlpha : 1
-                image(for: i).draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: alpha,
-                                   respectFlipped: true, hints: nil)
+                let image = image(for: i)
+                image.draw(in: Self.aspectFit(image.size, in: iconRect), from: .zero, operation: .sourceOver,
+                           fraction: alpha, respectFlipped: true, hints: nil)
                 if !isRenaming { label.draw(with: labelRect, options: options) }
             }
         }
@@ -410,15 +414,17 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
     }
 
+    /// Largest rect with the image's proportions inside `rect` (previews aren't square).
+    static func aspectFit(_ size: NSSize, in rect: NSRect) -> NSRect {
+        guard size.width > 0, size.height > 0 else { return rect }
+        let scale = min(rect.width / size.width, rect.height / size.height)
+        let fitted = NSSize(width: size.width * scale, height: size.height * scale)
+        return NSRect(x: rect.midX - fitted.width / 2, y: rect.midY - fitted.height / 2, width: fitted.width, height: fitted.height)
+    }
+
     /// Name with Finder's colored tag dots in front of it.
     private func labelText(for item: FileItem, attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        let text = NSMutableAttributedString()
-        for color in item.tagColors {
-            var dot = attributes
-            dot[.foregroundColor] = color
-            text.append(NSAttributedString(string: "●", attributes: dot))
-        }
-        if text.length > 0 { text.append(NSAttributedString(string: " ", attributes: attributes)) }
+        let text = NSMutableAttributedString(attributedString: FileTags.dots(for: item.tags, attributes: attributes))
         text.append(NSAttributedString(string: item.name, attributes: attributes))
         return text
     }
@@ -628,6 +634,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             add("Копировать путь", #selector(copyPathAction(_:)))
             menu.addItem(.separator())
             add("Извлечь «\(items[i].name)»", #selector(trashAction(_:)))
+            menu.addItem(.separator())
+            add("Свойства", #selector(showProperties(_:)))
             return menu
         }
 
@@ -643,6 +651,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             menu.addItem(.separator())
             add("Переименовать", #selector(renameAction(_:)))
             add("Переместить в корзину", #selector(trashAction(_:)))
+            menu.addItem(.separator())
+            menu.addItem(FileTags.menuItem(for: selectedFileURLs, target: self, action: #selector(toggleTag(_:))))
+            menu.addItem(.separator())
+            add("Свойства", #selector(showProperties(_:)))
             return menu
         }
 
@@ -712,6 +724,17 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private var selectedFileURLs: [URL] { selection.sorted().filter { !isVolume($0) }.map { items[$0].url } }
 
     @objc private func openSelectionAction(_ sender: Any?) { openSelection() }
+
+    /// ⌘I / ⌥↩ reach here through the main menu when the desktop is focused.
+    @objc func showProperties(_ sender: Any?) {
+        PropertiesWindowController.show(for: selectedURLs.isEmpty ? [desktopURL] : selectedURLs)
+    }
+
+    @objc private func toggleTag(_ sender: NSMenuItem) {
+        guard let toggle = sender.representedObject as? FileTags.TagToggle else { return }
+        FileTags.toggle(toggle.tag, on: toggle.urls, add: toggle.add)
+        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
+    }
     @objc private func quickLookAction(_ sender: Any?) { QuickLook.toggle(for: self) }
 
     /// Arrow keys pick the nearest icon in that direction (icons are freely placed, so by geometry).
