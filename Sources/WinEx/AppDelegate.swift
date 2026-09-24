@@ -35,6 +35,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    // MARK: - Dock
+
+    /// Clicking the Dock icon: bring folder windows back, un-minimize one, or open a new window.
+    /// (The desktop window always counts as "visible", so the system flag can't be used.)
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        let windows = windowControllers.compactMap(\.window)
+        if windows.contains(where: { $0.isVisible && !$0.isMiniaturized }) {
+            windows.filter { $0.isVisible && !$0.isMiniaturized }.forEach { $0.orderFront(nil) }
+            windows.first { $0.isVisible && !$0.isMiniaturized }?.makeKey()
+        } else if let minimized = windows.first(where: \.isMiniaturized) {
+            minimized.deminiaturize(nil)
+        } else {
+            openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+        }
+        return false
+    }
+
+    /// Right-click on the Dock icon: every open folder (tabs grouped by window) + "New window".
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        for controller in windowControllers {
+            guard let window = controller.window else { continue }
+            if menu.numberOfItems > 0 { menu.addItem(.separator()) }
+            for (index, tab) in controller.tabs.enumerated() {
+                var title = tab.title
+                if window.isMiniaturized && index == controller.selectedIndex { title += " (свёрнуто)" }
+                let item = menu.addItem(withTitle: title, action: #selector(showFolderFromDock(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = DockTarget(controller: controller, tabID: tab.id)
+                item.toolTip = tab.url.path
+                // Checkmark on the tab each window is showing, like the system window list
+                item.state = index == controller.selectedIndex && controller.tabs.count > 1 ? .on : .off
+            }
+        }
+        if menu.numberOfItems > 0 { menu.addItem(.separator()) }
+        menu.addItem(withTitle: "Новое окно", action: #selector(newWindow(_:)), keyEquivalent: "").target = self
+        return menu
+    }
+
+    private final class DockTarget: NSObject {
+        weak var controller: ExplorerWindowController?
+        let tabID: UUID
+        init(controller: ExplorerWindowController, tabID: UUID) { self.controller = controller; self.tabID = tabID }
+    }
+
+    @objc private func showFolderFromDock(_ sender: NSMenuItem) {
+        guard let target = sender.representedObject as? DockTarget, let controller = target.controller,
+              let window = controller.window else { return }
+        if let index = controller.tabs.firstIndex(where: { $0.id == target.tabID }) { controller.selectTab(at: index) }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+    }
+
     // MARK: - Opening folders from the outside
 
     func application(_ application: NSApplication, open urls: [URL]) {

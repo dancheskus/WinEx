@@ -11,6 +11,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ".build/$CONFIG/WinEx" "$APP/Contents/MacOS/WinEx"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Dock icon (regenerate with: swift Resources/make-icon.swift)
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP" >/dev/null
 
 # Register with LaunchServices so WinEx can become the folder handler

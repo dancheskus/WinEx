@@ -41,6 +41,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         // The tab strip lives in the title bar area. If the window server may move the window, it
         // grabs every drag there (tabs included) before AppKit sees it — so we move the window ourselves.
         window.isMovable = false
+        // The Dock menu lists folders (tabs included) itself; keep the system's per-window list out of it
+        window.isExcludedFromWindowsMenu = true
         window.minSize = NSSize(width: 640, height: 360)
         // Tab strip color; the selected tab and the nav bar use controlBackgroundColor
         window.backgroundColor = NSColor(name: nil) { appearance in

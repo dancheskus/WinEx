@@ -18,9 +18,9 @@
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>26.0</string>
-    <!-- No Dock icon; the app lives in the menu bar -->
-    <key>LSUIElement</key>
-    <true/>
+    <!-- Folder icon (Resources/AppIcon.icns) -->
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
     <!-- Lets LaunchServices use WinEx as the handler for folders -->

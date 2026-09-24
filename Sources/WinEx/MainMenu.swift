@@ -65,6 +65,15 @@ enum MainMenu {
             item("Следующая вкладка", #selector(ExplorerWindowController.selectNextTab(_:)), "]", [.command, .shift]),
             item("Предыдущая вкладка", #selector(ExplorerWindowController.selectPreviousTab(_:)), "[", [.command, .shift]),
         ])
+        let windowMenu = NSMenu(title: "Окно")
+        [item("Свернуть", #selector(NSWindow.performMiniaturize(_:)), "m"),
+         item("Масштаб", #selector(NSWindow.performZoom(_:)), ""),
+         .separator(),
+         item("Все окна — на передний план", #selector(NSApplication.arrangeInFront(_:)), "")].forEach(windowMenu.addItem)
+        let windowItem = NSMenuItem()
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+        NSApp.windowsMenu = windowMenu
         return main
     }
 }

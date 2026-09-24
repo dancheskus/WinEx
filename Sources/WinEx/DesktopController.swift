@@ -19,6 +19,7 @@ final class DesktopController {
         window.backgroundColor = .clear
         window.hasShadow = false
         window.isReleasedWhenClosed = false
+        window.isExcludedFromWindowsMenu = true
         window.contentView = desktopView
         self.window = window
         updateFrame()
