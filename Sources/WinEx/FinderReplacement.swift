@@ -24,13 +24,52 @@ enum FinderReplacement {
         run("/usr/bin/defaults", "write", "com.apple.finder", "CreateDesktop", "-bool", "false")
         restartFinder()
         isApplied = true
+        startGuard()
     }
 
     static func restore() {
+        stopGuard()
         run("/usr/bin/defaults", "delete", "-g", "NSFileViewer")
         run("/usr/bin/defaults", "delete", "com.apple.finder", "CreateDesktop")
         restartFinder()
         isApplied = false
+    }
+
+    // MARK: - Crash guard
+
+    private static var guardProcess: Process?
+
+    /// If WinEx dies without restoring (crash, force quit, kill -9), Finder would be left without a
+    /// desktop and nobody drawing one. A tiny shell process outlives us (it is reparented to launchd),
+    /// waits for our PID to disappear and puts Finder back if the desktop is still hidden.
+    /// A normal quit stops it first, so Finder isn't restarted twice.
+    private static func startGuard() {
+        stopGuard()
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let script = """
+            while kill -0 \(pid) 2>/dev/null; do sleep 1; done
+            if [ "$(/usr/bin/defaults read com.apple.finder CreateDesktop 2>/dev/null)" = "0" ]; then
+              /usr/bin/defaults delete -g NSFileViewer 2>/dev/null
+              /usr/bin/defaults delete com.apple.finder CreateDesktop 2>/dev/null
+              /usr/bin/killall Finder 2>/dev/null
+            fi
+            """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            guardProcess = process
+        } catch {
+            NSLog("WinEx: could not start the Finder guard: \(error)")
+        }
+    }
+
+    private static func stopGuard() {
+        guardProcess?.terminate()
+        guardProcess = nil
     }
 
     /// Finder rereads CreateDesktop only on launch. Killing it makes launchd start it again;

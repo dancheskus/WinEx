@@ -56,7 +56,9 @@ open build/WinEx.app
 `paramErr (-50)` на смену обработчика `public.folder`. Поэтому папки, которые другие приложения
 открывают напрямую (`open ~/Documents`), по-прежнему открываются в Finder.
 
-При выходе из WinEx всё откатывается. Если WinEx упал и рабочий стол пропал:
+При выходе из WinEx всё откатывается. Если WinEx упал или его убили, это делает «сторож» —
+отдельный процесс, который ждёт исчезновения WinEx и возвращает Finder рабочий стол.
+Если рабочий стол всё же пропал:
 
 ```sh
 defaults delete com.apple.finder CreateDesktop; defaults delete -g NSFileViewer; killall Finder
