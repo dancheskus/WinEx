@@ -63,7 +63,7 @@ final class DesktopLayout {
     private var stored: Stored
 
     init(desktop: URL, screenSize: CGSize) {
-        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+        if let data = AppDefaults.store.data(forKey: Self.defaultsKey),
            let decoded = try? JSONDecoder().decode(Stored.self, from: data) {
             stored = decoded
         } else {
@@ -128,7 +128,7 @@ final class DesktopLayout {
 
     func save() {
         if let data = try? JSONEncoder().encode(stored) {
-            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+            AppDefaults.store.set(data, forKey: Self.defaultsKey)
         }
     }
 }

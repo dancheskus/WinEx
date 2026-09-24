@@ -199,7 +199,7 @@ enum NetworkMounter {
         alert.messageText = "Подключение к серверу"
         alert.informativeText = "Например: smb://NAS.local или afp://192.168.1.10/Share"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-        field.stringValue = UserDefaults.standard.string(forKey: "lastServerAddress") ?? "smb://"
+        field.stringValue = AppDefaults.store.string(forKey: "lastServerAddress") ?? "smb://"
         alert.accessoryView = field
         alert.addButton(withTitle: "Подключиться")
         alert.addButton(withTitle: "Отменить")
@@ -209,7 +209,7 @@ enum NetworkMounter {
         var text = field.stringValue.trimmingCharacters(in: .whitespaces)
         if !text.contains("://") { text = "smb://" + text }
         guard let url = URL(string: text), url.host != nil else { NSSound.beep(); return }
-        UserDefaults.standard.set(text, forKey: "lastServerAddress")
+        AppDefaults.store.set(text, forKey: "lastServerAddress")
         mount(url, completion: completion)
     }
 }

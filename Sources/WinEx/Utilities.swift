@@ -1,7 +1,21 @@
 import AppKit
 
+/// Where WinEx keeps its settings. Debug scenarios get their own, emptied store, so a test run
+/// can never change the user's settings (or switch Finder replacement on).
+enum AppDefaults {
+    static let store: UserDefaults = {
+        #if DEBUG
+        if Scenario.isRequested, let scenarioStore = UserDefaults(suiteName: "dev.winex.WinEx.scenario") {
+            scenarioStore.removePersistentDomain(forName: "dev.winex.WinEx.scenario")
+            return scenarioStore
+        }
+        #endif
+        return .standard
+    }()
+}
+
 enum Settings {
-    private static let defaults = UserDefaults.standard
+    private static var defaults: UserDefaults { AppDefaults.store }
 
     static var replaceFinder: Bool {
         get { defaults.bool(forKey: "replaceFinder") }

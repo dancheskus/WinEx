@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
 
+        #if DEBUG
+        Scenario.startIfRequested()
+        #endif
         if Settings.replaceFinder { enableFinderReplacement() }
         // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
         if !openedByEvent && !launchedAtLogin { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
