@@ -3,11 +3,11 @@ import AppKit
 /// Chrome-style tab strip: click to select, drag to reorder, drag far enough
 /// out of the strip to tear the tab off into its own window.
 final class TabBarView: NSView {
-    static let height: CGFloat = 38
     private static let detachDistance: CGFloat = 30
     private static let maxTabWidth: CGFloat = 220
     private static let minTabWidth: CGFloat = 70
-    private static let topInset: CGFloat = 6
+    /// Pill-shaped tabs, vertically centred in the title bar.
+    private static let tabHeight: CGFloat = 30
 
     weak var controller: ExplorerWindowController?
 
@@ -77,8 +77,8 @@ final class TabBarView: NSView {
     }
 
     private func frameForTab(at index: Int) -> NSRect {
-        NSRect(x: CGFloat(index) * tabWidth, y: Self.topInset,
-               width: tabWidth, height: bounds.height - Self.topInset)
+        NSRect(x: CGFloat(index) * tabWidth, y: ((bounds.height - Self.tabHeight) / 2).rounded(),
+               width: tabWidth, height: Self.tabHeight)
     }
 
     override func layout() {
@@ -99,8 +99,7 @@ final class TabBarView: NSView {
             }
         }
         let addX = CGFloat(itemViews.count) * tabWidth + 6
-        let tabHeight = bounds.height - Self.topInset
-        addButton.frame = NSRect(x: addX, y: Self.topInset + (tabHeight - 24) / 2, width: 24, height: 24)
+        addButton.frame = NSRect(x: addX, y: ((bounds.height - 24) / 2).rounded(), width: 24, height: 24)
     }
 
     func insertionIndex(forScreenPoint point: NSPoint) -> Int {
@@ -181,7 +180,8 @@ final class TabBarView: NSView {
                 dragState = nil
                 let newWindow = controller.detachTab(at: index)
                 // Keep the grabbed point of the tab under the cursor
-                windowGrabOffset = NSPoint(x: ExplorerWindowController.tabBarLeadingInset + grabOffsetX,
+                let stripX = (newWindow.windowController as? ExplorerWindowController)?.tabBarOriginX ?? 0
+                windowGrabOffset = NSPoint(x: stripX + grabOffsetX,
                                            y: newWindow.frame.height - startPoint.y)
                 newWindow.setFrameOrigin(NSPoint(x: mouse.x - windowGrabOffset.x, y: mouse.y - windowGrabOffset.y))
                 floatingWindow = newWindow
@@ -239,7 +239,7 @@ final class TabItemView: NSView {
     init(tabID: UUID) {
         self.tabID = tabID
         super.init(frame: .zero)
-        label.font = .systemFont(ofSize: 12)
+        label.font = .systemFont(ofSize: 12, weight: .medium)
         label.lineBreakMode = .byTruncatingTail
         label.textColor = .secondaryLabelColor
         iconView.imageScaling = .scaleProportionallyDown
@@ -279,18 +279,22 @@ final class TabItemView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        if isSelected {
-            // Rounded top corners, square bottom that merges into the nav bar
-            let rect = bounds.insetBy(dx: 1, dy: 0)
-            let path = NSBezierPath(roundedRect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height + 10),
-                                    xRadius: 8, yRadius: 8)
-            NSColor.controlBackgroundColor.setFill()
-            path.fill()
-        } else {
-            NSColor.separatorColor.setFill()
-            NSRect(x: bounds.maxX - 1, y: 9, width: 1, height: bounds.height - 18).fill(using: .sourceOver)
-        }
+        // macOS 26 tabs: a soft pill for the selected one, a lighter one under the mouse
+        guard isSelected || hovering else { return }
+        (isSelected ? NSColor.labelColor.withAlphaComponent(0.12) : NSColor.labelColor.withAlphaComponent(0.05)).setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 0), xRadius: 9, yRadius: 9).fill()
     }
+
+    private var hovering = false { didSet { if hovering != oldValue { needsDisplay = true } } }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
 }
 
 /// Title bar behaviour for windows that aren't movable by the window server:

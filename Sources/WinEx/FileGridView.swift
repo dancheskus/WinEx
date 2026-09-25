@@ -33,7 +33,15 @@ enum ViewMode: Int, CaseIterable {
 
     /// View for folders that have none of their own ("Apply to all folders" sets it).
     static var saved: ViewMode {
-        get { ViewMode(rawValue: AppDefaults.store.object(forKey: "viewMode") as? Int ?? -1) ?? .details }
+        get {
+            // Once: "Обычные значки" became the default everywhere (earlier choices were "Крупные")
+            if AppDefaults.store.object(forKey: "viewModeDefaults2") == nil {
+                AppDefaults.store.set(true, forKey: "viewModeDefaults2")
+                AppDefaults.store.set(ViewMode.mediumIcons.rawValue, forKey: "viewMode")
+                AppDefaults.store.removeObject(forKey: folderModesKey)
+            }
+            return ViewMode(rawValue: AppDefaults.store.object(forKey: "viewMode") as? Int ?? -1) ?? .mediumIcons
+        }
         set { AppDefaults.store.set(newValue.rawValue, forKey: "viewMode") }
     }
 

@@ -23,9 +23,30 @@ enum Scenarios {
         "trashaccess": trashAccess,
         "update": update,
         "settings": settingsTabs,
+        "look": look,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// A window to photograph (scripts/capture-window.sh look): two tabs, some files, the icon view.
+    static func look(_ s: Scenario) {
+        let base = s.makeFiles(["Документы/", "Проекты/", "отчёт.pdf", "заметки.txt", "фото.png", "таблица.xlsx"])
+        s.window?.navigate(to: base)
+        s.window?.addTab(url: FileManager.default.homeDirectoryForCurrentUser, select: false)
+        s.window?.window?.setFrame(NSRect(x: 200, y: 200, width: 1000, height: 620), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            guard let window = s.window?.window else { s.run([]); return }
+            s.note("  view: \(ViewMode.saved.title)")
+            try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+            @MainActor func wait(_ tries: Int) {
+                if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-0").path) || tries == 0 { s.run([]); return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { MainActor.assumeIsolated { wait(tries - 1) } }
+            }
+            wait(50)
+        }
+    }
 
     /// Run by scripts/check-self-update.sh on a copy of the app: updates itself from a local feed.
     static func selfUpdate(_ s: Scenario) {
@@ -477,7 +498,7 @@ enum Scenarios {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            let grab = NSPoint(x: window.frame.maxX - 120, y: window.frame.maxY - TabBarView.height / 2)
+            let grab = NSPoint(x: window.frame.maxX - 120, y: window.frame.maxY - 26)
             let target = NSPoint(x: second.frame.midX, y: second.frame.midY + 200)
             guard isOurs(grab, window) else { s.note("  another window covers the grab point — aborted"); write("abort", ""); s.run([]); return }
             s.note("  opened: \(describe(window))")

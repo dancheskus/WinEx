@@ -6,7 +6,6 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     NSSplitViewDelegate, NSMenuItemValidation, FileListDelegate {
 
     /// Room for the traffic-light buttons to the left of the tab strip.
-    static let tabBarLeadingInset: CGFloat = 78
 
     private(set) var tabs: [ExplorerTab]
     private(set) var selectedIndex = 0
@@ -46,11 +45,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         // The Dock menu lists folders (tabs included) itself; keep the system's per-window list out of it
         window.isExcludedFromWindowsMenu = true
         window.minSize = NSSize(width: 640, height: 360)
-        // Tab strip color; the selected tab and the nav bar use controlBackgroundColor
-        window.backgroundColor = NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 0.07, alpha: 1) : NSColor(white: 0.85, alpha: 1)
-        }
+        // An empty unified toolbar: the tall macOS 26 title bar — window buttons with room around
+        // them, the modern corner radius. The tabs are drawn in it by WinEx itself.
+        let toolbar = NSToolbar(identifier: "WinExWindow")
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         super.init(window: window)
         window.delegate = self
         buildUI()
@@ -61,13 +61,30 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private static func navButton(_ symbol: String, _ tip: String) -> NSButton {
         let button = NSButton()
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)
-        button.bezelStyle = .accessoryBarAction
-        button.isBordered = false
+        // Grey like Finder's toolbar (the toolbar bezel ignores contentTintColor)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+                .applying(.init(hierarchicalColor: .secondaryLabelColor)))
+        // Toolbar buttons like Finder's: plain until hovered
+        button.bezelStyle = .toolbar
+        button.contentTintColor = .secondaryLabelColor
         button.toolTip = tip
-        button.widthAnchor.constraint(equalToConstant: 28).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
         return button
+    }
+
+    /// Height of the title bar (the unified toolbar): the tab strip and the sidebar's top fit it.
+    private var titleBarHeight: CGFloat {
+        guard let window, let content = window.contentView else { return 52 }
+        let height = content.frame.height - window.contentLayoutRect.height
+        return height > 20 ? height : 52
+    }
+
+    /// Where the tab strip starts, in window coordinates (a torn-off tab keeps its grab point).
+    var tabBarOriginX: CGFloat {
+        window?.layoutIfNeeded()
+        return tabBar.convert(NSPoint.zero, to: nil).x
     }
 
     // MARK: - UI
@@ -110,76 +127,86 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         navStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         navStack.alignment = .centerY
 
-        let navBar = ColorView()
-        navBar.color = .controlBackgroundColor
+        let navBar = NSView()
         navBar.addSubview(navStack)
 
+        let barHeight = titleBarHeight
+        sidebar.topInset = barHeight
         sidebar.onSelect = { [weak self] url in self?.navigate(to: url) }
         fileList.delegate = self
         splitView.isVertical = true
         splitView.dividerStyle = .thin
         splitView.delegate = self
+        // Finder's layout: the sidebar runs the full height (window buttons sit on it); tabs, the
+        // navigation row and the files are on the right
+        let mainPane = NSView()
         splitView.addArrangedSubview(sidebar.view)
-        splitView.addArrangedSubview(fileList.view)
+        splitView.addArrangedSubview(mainPane)
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(260), forSubviewAt: 0)
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(250), forSubviewAt: 1)
 
         statusLabel.font = .systemFont(ofSize: 11)
         statusLabel.textColor = .secondaryLabelColor
-        let statusBar = ColorView()
-        statusBar.color = .controlBackgroundColor
+        let statusBar = NSView()
         statusBar.addSubview(statusLabel)
         statusBar.addSubview(viewModeToggle)
 
         let topSeparator = NSBox(); topSeparator.boxType = .separator
         let bottomSeparator = NSBox(); bottomSeparator.boxType = .separator
 
-        for view in [tabBar, navBar, navStack, topSeparator, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle] as [NSView] {
+        let fileView = fileList.view
+        for view in [tabBar, navBar, navStack, topSeparator, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle, fileView] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
-        [tabBar, navBar, topSeparator, splitView, bottomSeparator, statusBar].forEach(content.addSubview)
-        // Title bar strip left of the tabs (under the traffic lights) still drags / zooms the window
+        content.addSubview(splitView)
+        [tabBar, navBar, topSeparator, fileView, bottomSeparator, statusBar].forEach(mainPane.addSubview)
+        // The sidebar's top strip (under the window buttons) drags / zooms the window like a title bar
         let dragArea = WindowDragArea()
         (window as? ExplorerWindow)?.titleBarViews = [tabBar, dragArea]
         dragArea.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(dragArea, positioned: .below, relativeTo: tabBar)
+        content.addSubview(dragArea)
         NSLayoutConstraint.activate([
             dragArea.topAnchor.constraint(equalTo: content.topAnchor),
             dragArea.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             dragArea.trailingAnchor.constraint(equalTo: tabBar.leadingAnchor),
-            dragArea.heightAnchor.constraint(equalToConstant: TabBarView.height),
+            dragArea.heightAnchor.constraint(equalToConstant: barHeight),
         ])
 
         NSLayoutConstraint.activate([
-            tabBar.topAnchor.constraint(equalTo: content.topAnchor),
-            tabBar.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Self.tabBarLeadingInset),
-            tabBar.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
-            tabBar.heightAnchor.constraint(equalToConstant: TabBarView.height),
+            splitView.topAnchor.constraint(equalTo: content.topAnchor),
+            splitView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+
+            tabBar.topAnchor.constraint(equalTo: mainPane.topAnchor),
+            tabBar.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor, constant: 8),
+            tabBar.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor, constant: -8),
+            tabBar.heightAnchor.constraint(equalToConstant: barHeight),
 
             navBar.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
-            navBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            navBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            navBar.heightAnchor.constraint(equalToConstant: 40),
+            navBar.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
+            navBar.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
+            navBar.heightAnchor.constraint(equalToConstant: 42),
             navStack.leadingAnchor.constraint(equalTo: navBar.leadingAnchor),
             navStack.trailingAnchor.constraint(equalTo: navBar.trailingAnchor),
             navStack.centerYAnchor.constraint(equalTo: navBar.centerYAnchor),
 
             topSeparator.topAnchor.constraint(equalTo: navBar.bottomAnchor),
-            topSeparator.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            topSeparator.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            topSeparator.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
+            topSeparator.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
 
-            splitView.topAnchor.constraint(equalTo: topSeparator.bottomAnchor),
-            splitView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            splitView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            splitView.bottomAnchor.constraint(equalTo: bottomSeparator.topAnchor),
+            fileView.topAnchor.constraint(equalTo: topSeparator.bottomAnchor),
+            fileView.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
+            fileView.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
+            fileView.bottomAnchor.constraint(equalTo: bottomSeparator.topAnchor),
 
-            bottomSeparator.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            bottomSeparator.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            bottomSeparator.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
+            bottomSeparator.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
             bottomSeparator.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
-            statusBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            statusBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            statusBar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            statusBar.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: mainPane.bottomAnchor),
             statusBar.heightAnchor.constraint(equalToConstant: 24),
             statusLabel.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 12),
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
@@ -196,8 +223,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private func setUpViewModeControls() {
         // Pull-down with every view (Explorer's "View" button)
-        viewModeButton.bezelStyle = .accessoryBarAction
-        viewModeButton.isBordered = false
+        viewModeButton.bezelStyle = .toolbar
+        viewModeButton.contentTintColor = .secondaryLabelColor
         viewModeButton.toolTip = "Вид"
         let menu = viewModeButton.menu!
         menu.addItem(NSMenuItem())  // title item of a pull-down: shows the current view's icon
@@ -226,7 +253,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private func updateViewModeControls() {
         let mode = fileList.viewMode
         let titleItem = viewModeButton.menu?.items.first
-        titleItem?.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: mode.title)
+        titleItem?.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: mode.title)?
+            .withSymbolConfiguration(.init(hierarchicalColor: .secondaryLabelColor))
         titleItem?.title = ""
         for item in viewModeButton.menu?.items.dropFirst() ?? [] where item.action == #selector(selectViewMode(_:)) {
             item.state = item.tag == mode.rawValue ? .on : .off

@@ -25,6 +25,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     }
 
     var onSelect: ((URL) -> Void)?
+    /// Room at the top for the window buttons (the sidebar runs under the title bar).
+    var topInset: CGFloat = 0
 
     private let outlineView = NSOutlineView()
     private var sections: [Section] = []
@@ -55,7 +57,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(scrollView)
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: background.topAnchor),
+            scrollView.topAnchor.constraint(equalTo: background.topAnchor, constant: topInset),
             scrollView.bottomAnchor.constraint(equalTo: background.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: background.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: background.trailingAnchor),
@@ -190,9 +192,11 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         }
         guard let item = item as? Item else { return nil }
         let cell = NSTableCellView()
-        let image = NSImageView(image: item.tagColor.map { FileTags.dotImage(color: $0, size: 14) }
-            ?? NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil) ?? NSImage())
-        if item.tagColor == nil { image.contentTintColor = .controlAccentColor }
+        let image = NSImageView(image: item.tagColor.map { FileTags.dotImage(color: $0, size: 12) }
+            ?? NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 14, weight: .regular)) ?? NSImage())
+        // Finder's sidebar: thin grey symbols, colour only for tags
+        if item.tagColor == nil { image.contentTintColor = .secondaryLabelColor }
         let label = NSTextField(labelWithString: item.title)
         label.lineBreakMode = .byTruncatingTail
         cell.toolTip = item.toolTip
