@@ -20,7 +20,26 @@ enum Scenarios {
         "search": search,
         "filecommands": fileCommands,
         "drives": drives,
+        "trashaccess": trashAccess,
     ]
+
+    /// Can this build read the Trash (Full Disk Access)? Launch with `open` so that macOS checks
+    /// WinEx itself, not the terminal that started it.
+    static func trashAccess(_ s: Scenario) {
+        s.run([
+            (0.2, "read ~/.Trash", {
+                do {
+                    let items = try FileManager.default.contentsOfDirectory(atPath: Places.trashURL.path)
+                    s.note("  ok: \(items.count) items")
+                } catch {
+                    s.note("  error: \(error.localizedDescription)")
+                }
+                // Granted once with the persistent signature: this build must read it without asking
+                let desktop = (try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path))?.count
+                s.note("  Desktop: \(desktop.map { "ok, \($0) items" } ?? "no access")")
+            }),
+        ])
+    }
 
     /// "Этот Mac", empty-folder and Trash messages, the size of the selection, the start folder.
     static func drives(_ s: Scenario) {
