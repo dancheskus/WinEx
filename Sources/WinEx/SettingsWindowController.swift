@@ -8,6 +8,7 @@ final class SettingsWindowController: NSWindowController {
     private let loginHint = NSTextField(wrappingLabelWithString: "")
     private let loginApproveButton = NSButton(title: "Открыть «Объекты входа»…", target: nil, action: nil)
     private let hotKeyPopup = NSPopUpButton()
+    private let updatesCheckbox = NSButton(checkboxWithTitle: "Проверять обновления автоматически", target: nil, action: nil)
     private let startPopup = NSPopUpButton()
     private static let startChoices: [(id: String, title: String)] = [
         ("home", "Домашняя папка"), ("desktop", "Рабочий стол"), ("downloads", "Загрузки"),
@@ -59,6 +60,17 @@ final class SettingsWindowController: NSWindowController {
         let separator = NSBox()
         separator.boxType = .separator
 
+        // Updates from GitHub Releases
+        updatesCheckbox.target = self
+        updatesCheckbox.action = #selector(toggleUpdates(_:))
+        let checkNow = NSButton(title: "Проверить сейчас", target: AppDelegate.shared, action: #selector(AppDelegate.checkForUpdates(_:)))
+        checkNow.controlSize = .small
+        let version = NSTextField(labelWithString: "Версия \(Updater.shared.currentVersion)" + (Updater.shared.isDevBuild ? " (своя сборка)" : ""))
+        version.textColor = .secondaryLabelColor
+        version.font = .systemFont(ofSize: 12)
+        let updatesRow = NSStackView(views: [updatesCheckbox, checkNow, version])
+        updatesRow.spacing = 10
+
         // Where new windows open
         startPopup.target = self
         startPopup.action = #selector(changeStartFolder(_:))
@@ -78,7 +90,7 @@ final class SettingsWindowController: NSWindowController {
         let separator2 = NSBox()
         separator2.boxType = .separator
         let stack = NSStackView(views: [loginCheckbox, loginHint, loginApproveButton, separator2,
-                                        replaceCheckbox, explanation, resetDesktopButton, separator, startRow, hotKeyRow, hotKeyHint, hiddenCheckbox, windowsKeysCheckbox, keysHint])
+                                        replaceCheckbox, explanation, resetDesktopButton, separator, updatesRow, startRow, hotKeyRow, hotKeyHint, hiddenCheckbox, windowsKeysCheckbox, keysHint])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -104,6 +116,7 @@ final class SettingsWindowController: NSWindowController {
         windowsKeysCheckbox.state = Settings.windowsKeys ? .on : .off
         syncHotKey()
         syncStartFolder()
+        updatesCheckbox.state = Updater.automaticChecks ? .on : .off
         syncLogin()
     }
 
@@ -177,6 +190,11 @@ final class SettingsWindowController: NSWindowController {
             if let window, panel.runModal() == .OK, let url = panel.url { _ = window; Settings.startFolder = url.path }
         }
         syncStartFolder()
+    }
+
+    @objc private func toggleUpdates(_ sender: NSButton) {
+        Updater.automaticChecks = sender.state == .on
+        Updater.shared.startAutomaticChecks()
     }
 
     private func syncHotKey() {

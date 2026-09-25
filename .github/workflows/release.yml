@@ -1,0 +1,59 @@
+# Publishes a release when a version tag is pushed:
+#   git tag v1.2.0 && git push origin v1.2.0
+# Builds WinEx with that version, signs it with the "WinEx Signing" certificate (so updates keep
+# every privacy permission and pass the updater's signature check), and attaches WinEx-<version>.zip
+# to a GitHub Release — which running copies of WinEx pick up (see Sources/WinEx/Updater.swift).
+#
+# Secrets (scripts/setup-signing.sh keeps the originals in ~/.winex-signing):
+#   SIGNING_P12_BASE64    base64 of WinEx-signing.p12
+#   SIGNING_P12_PASSWORD  its password
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Signing certificate
+        env:
+          P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/signing.p12"
+
+      - name: Build
+        run: |
+          swift --version
+          VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+
+      - name: Check the signature
+        run: |
+          codesign --verify --strict --verbose=2 build/WinEx.app
+          codesign -dr - build/WinEx.app 2>&1 | tee /dev/stderr | grep -q 'certificate leaf'
+
+      - name: Package
+        run: ditto -c -k --keepParent build/WinEx.app "WinEx-${GITHUB_REF_NAME#v}.zip"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "WinEx-${GITHUB_REF_NAME#v}.zip" \
+            --title "WinEx ${GITHUB_REF_NAME#v}" --generate-notes

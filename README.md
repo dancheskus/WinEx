@@ -2,6 +2,33 @@
 
 Проводник в стиле Windows Explorer для macOS 26+, который может подменять Finder.
 
+## Установка
+
+1. Скачайте `WinEx-<версия>.zip` со страницы [Releases](https://github.com/dancheskus/WinEx/releases),
+   распакуйте и перенесите `WinEx.app` в «Программы».
+2. Первый запуск: WinEx не подписан платным сертификатом Apple, поэтому macOS не откроет его
+   двойным щелчком. Откройте «Системные настройки ▸ Конфиденциальность и безопасность» и нажмите
+   «Всё равно открыть» у WinEx (или в Терминале: `xattr -dr com.apple.quarantine /Applications/WinEx.app`).
+   Это нужно один раз.
+3. Включите WinEx в «Системные настройки ▸ Конфиденциальность и безопасность ▸ Полный доступ к диску» —
+   тогда не будет отдельных вопросов про Рабочий стол, Документы, Загрузки, сетевые диски, и
+   откроется Корзина.
+
+Дальше WinEx обновляется сам: раз в сутки проверяет Releases и предлагает «Обновить и перезапустить»
+(«Настройки» или меню в строке меню ▸ «Проверить обновления…»). Обновление скачивает сам WinEx, поэтому
+macOS больше не спрашивает про запуск, а все разрешения сохраняются: каждая версия подписана одним и тем
+же сертификатом, и WinEx ставит обновление, только если подпись совпадает.
+
+## Выпуск версии
+
+```sh
+git tag v1.2.0 && git push origin v1.2.0
+```
+
+GitHub Action `.github/workflows/release.yml` собирает WinEx с этой версией, подписывает сертификатом
+«WinEx Signing» (секреты `SIGNING_P12_BASE64` и `SIGNING_P12_PASSWORD`) и публикует
+`WinEx-1.2.0.zip` в Releases. Локальные сборки помечены как «своя сборка» и сами не обновляются.
+
 ## Сборка и запуск
 
 ```sh
@@ -13,8 +40,10 @@ open build/WinEx.app
 
 ### Подпись и разрешения
 
-Один раз выполните `scripts/setup-signing.sh`: он создаёт в связке ключей «вход» локальный
-самоподписанный сертификат «WinEx Local Signing», и `build.sh` подписывает им каждую сборку.
+Один раз выполните `scripts/setup-signing.sh`: он создаёт самоподписанный сертификат «WinEx Signing»
+(копия и пароль — в `~/.winex-signing`, сохраните их в надёжном месте), кладёт его в связку ключей
+«вход», и `build.sh` подписывает им каждую сборку. На другом Mac: `scripts/setup-signing.sh файл.p12`.
+Тем же сертификатом подписываются релизы в GitHub Actions.
 Тогда macOS считает новые сборки тем же приложением, и разрешения («Полный доступ к диску»,
 Рабочий стол, Документы, Загрузки, сетевые тома) выдаются один раз, а не после каждой пересборки.
 Без сертификата сборка подписывается ad-hoc, и разрешения сбрасываются при каждой сборке.
@@ -24,7 +53,7 @@ open build/WinEx.app
 ```sh
 swift test                         # модульные тесты логики (имена, теги, .DS_Store, отмена, горячие клавиши)
 scripts/run-scenario.sh undo       # сценарий в самом приложении: undo, newfolder, slowclick, perf,
-                                   # desktop (картинка в build/scenario-desktop/), hittest, placement, placement2, desktopreset, monitorgone, fileops, search, filecommands, drives;
+                                   # desktop (картинка в build/scenario-desktop/), hittest, placement, placement2, desktopreset, monitorgone, fileops, search, filecommands, drives, trashaccess, update;
                                    # mousedrag — с настоящей мышью, вместе со scripts/mouse-drag-check.swift
 ```
 

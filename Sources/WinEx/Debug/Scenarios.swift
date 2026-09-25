@@ -21,7 +21,40 @@ enum Scenarios {
         "filecommands": fileCommands,
         "drives": drives,
         "trashaccess": trashAccess,
+        "update": update,
     ]
+
+    /// The updater's download and signature check (without the restart): a build signed with our
+    /// certificate is accepted, an ad-hoc copy is refused. Uses this very app as the "release".
+    static func update(_ s: Scenario) {
+        let fm = FileManager.default
+        let good = s.sandbox.appendingPathComponent("WinEx.app")
+        let forged = s.sandbox.appendingPathComponent("forged/WinEx.app")
+        try? fm.createDirectory(at: forged.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fm.copyItem(at: Bundle.main.bundleURL, to: good)
+        try? fm.copyItem(at: Bundle.main.bundleURL, to: forged)
+        func shell(_ command: String) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", command]
+            try? process.run()
+            process.waitUntilExit()
+        }
+        shell("codesign --force --sign - '\(forged.path)' 2>/dev/null")
+        shell("cd '\(s.sandbox.path)' && ditto -c -k --keepParent WinEx.app good.zip && cd forged && ditto -c -k --keepParent WinEx.app ../forged.zip")
+        s.note("  running app signed with a certificate: \(Updater.isSignedLikeUs(Bundle.main.bundleURL))")
+        Task { @MainActor in
+            for name in ["good", "forged"] {
+                do {
+                    let app = try await Updater.shared.download(s.sandbox.appendingPathComponent("\(name).zip"))
+                    s.note("  \(name).zip → \(app.lastPathComponent), accepted: \(Updater.isSignedLikeUs(app))  expect \(name == "good")")
+                } catch {
+                    s.note("  \(name).zip: \(error.localizedDescription)")
+                }
+            }
+            s.run([])
+        }
+    }
 
     /// Can this build read the Trash (Full Disk Access)? Launch with `open` so that macOS checks
     /// WinEx itself, not the terminal that started it.

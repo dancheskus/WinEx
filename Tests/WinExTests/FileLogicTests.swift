@@ -321,3 +321,23 @@ struct SpotlightPredicateTests {
         query.stop()
     }
 }
+
+@MainActor
+struct UpdaterTests {
+    @Test func versionOrder() {
+        #expect(Updater.isVersion("1.10.0", newerThan: "1.9.2"))
+        #expect(Updater.isVersion("1.0.1", newerThan: "1.0"))
+        #expect(!Updater.isVersion("1.0", newerThan: "1.0.0"))
+        #expect(!Updater.isVersion("0.9", newerThan: "1.0"))
+    }
+
+    @Test func readsGitHubReleases() throws {
+        let json = """
+            {"tag_name": "v1.2.0", "body": "Поиск", "html_url": "https://github.com/dancheskus/WinEx/releases/tag/v1.2.0",
+             "assets": [{"name": "WinEx-1.2.0.zip", "browser_download_url": "https://example.com/WinEx-1.2.0.zip"},
+                        {"name": "notes.txt", "browser_download_url": "https://example.com/notes.txt"}]}
+            """
+        let release = try JSONDecoder().decode(Updater.Release.self, from: Data(json.utf8))
+        #expect(release.version == "1.2.0" && release.archive?.name == "WinEx-1.2.0.zip")
+    }
+}

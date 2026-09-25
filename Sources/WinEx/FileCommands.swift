@@ -156,7 +156,7 @@ enum FileCommands {
 
 /// A small window for archiving that takes a while, with a Cancel button.
 @MainActor
-private final class BusyIndicator {
+final class BusyIndicator {
     private var window: NSWindow?
     private(set) var cancelled = false
     private var closed = false

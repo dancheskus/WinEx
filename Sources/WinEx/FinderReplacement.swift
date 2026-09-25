@@ -39,6 +39,11 @@ enum FinderReplacement {
 
     private static var guardProcess: Process?
 
+    /// Exists while WinEx quits to install an update: the guard leaves Finder alone then.
+    static func updateMarker(for pid: Int32) -> String {
+        FileManager.default.temporaryDirectory.appendingPathComponent("winex-updating-\(pid)").path
+    }
+
     /// If WinEx dies without restoring (crash, force quit, kill -9), Finder would be left without a
     /// desktop and nobody drawing one. A tiny shell process outlives us (it is reparented to launchd),
     /// waits for our PID to disappear and puts Finder back if the desktop is still hidden.
@@ -48,6 +53,7 @@ enum FinderReplacement {
         let pid = ProcessInfo.processInfo.processIdentifier
         let script = """
             while kill -0 \(pid) 2>/dev/null; do sleep 1; done
+            [ -e "\(updateMarker(for: pid))" ] && exit 0  # quit to update: the new version takes over
             if [ "$(/usr/bin/defaults read com.apple.finder CreateDesktop 2>/dev/null)" = "0" ]; then
               /usr/bin/defaults delete -g NSFileViewer 2>/dev/null
               /usr/bin/defaults delete com.apple.finder CreateDesktop 2>/dev/null

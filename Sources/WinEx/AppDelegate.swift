@@ -32,9 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if Settings.replaceFinder { enableFinderReplacement() }
         #if DEBUG
         // Scenario runs must not take the shortcut from the user's WinEx
-        if !Scenario.isRequested { GlobalHotKey.shared.apply() }
+        if !Scenario.isRequested {
+            GlobalHotKey.shared.apply()
+            Updater.shared.startAutomaticChecks()
+        }
         #else
         GlobalHotKey.shared.apply()
+        Updater.shared.startAutomaticChecks()
         #endif
         // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
         if !openedByEvent && !launchedAtLogin { openWindow(at: Settings.startURL) }
@@ -44,7 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // The window in front is the one to come back next time
         isTerminating = true
         if let front = frontExplorerWindow { WindowPlacement.remember(front) }
-        guard FinderReplacement.isApplied else { return }
+        // Restarting into an update: the new version keeps the desktop, no Finder in between
+        guard FinderReplacement.isApplied, !Updater.shared.isRelaunching else { return }
         desktop?.hide()
         FinderReplacement.restore()
     }
@@ -216,12 +221,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(withTitle: "Загрузки", action: #selector(openDownloadsFolder(_:)), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Настройки…", action: #selector(showSettings(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Проверить обновления…", action: #selector(checkForUpdates(_:)), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Выйти из WinEx (вернуть Finder)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         statusItem.menu = menu
     }
 
     // MARK: - Actions
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        Updater.shared.check(userInitiated: true)
+    }
 
     @objc func newWindow(_ sender: Any?) {
         openWindow(at: Settings.startURL)
