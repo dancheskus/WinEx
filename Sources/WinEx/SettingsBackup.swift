@@ -1,5 +1,4 @@
 import AppKit
-import UniformTypeIdentifiers
 
 /// Settings ▸ Основные ▸ Настройки: save every WinEx setting to a file, load them back, or go
 /// back to the defaults. Loading and resetting restart WinEx with the same windows.
@@ -31,9 +30,12 @@ enum SettingsBackup {
         let date = DateFormatter()
         date.dateFormat = "yyyy-MM-dd"
         panel.nameFieldStringValue = "WinEx \(date.string(from: Date())).\(fileExtension)"
-        panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .propertyList]
+        // No content type: the extension isn't registered with macOS, and the panel would add it
+        // a second time ("….winexsettings.winexsettings")
+        panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         panel.message = L("Все настройки WinEx: вид, боковое меню, теги, программы, рабочий стол…")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, var url = panel.url else { return }
+        if url.pathExtension != fileExtension { url.appendPathExtension(fileExtension) }
         do {
             try fileData().write(to: url, options: .atomic)
         } catch {
@@ -58,7 +60,7 @@ enum SettingsBackup {
 
     static func load(into window: NSWindow?) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: fileExtension) ?? .propertyList, .propertyList]
+        panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         panel.message = L("Файл настроек WinEx")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard let data = try? Data(contentsOf: url), let (saved, savedDate) = read(data) else {
