@@ -558,8 +558,13 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
 
         if selection.contains(i) || dropTarget == i {
-            NSColor.white.withAlphaComponent(dropTarget == i ? 0.35 : 0.2).setFill()
-            NSBezierPath(roundedRect: iconRect.insetBy(dx: -4, dy: -4), xRadius: 6, yRadius: 6).fill()
+            // Finder's desktop: a dark translucent square with a light border
+            let square = NSBezierPath(roundedRect: iconRect.insetBy(dx: -6, dy: -6), xRadius: 10, yRadius: 10)
+            NSColor.black.withAlphaComponent(dropTarget == i ? 0.45 : 0.3).setFill()
+            square.fill()
+            NSColor.white.withAlphaComponent(0.4).setStroke()
+            square.lineWidth = 2
+            square.stroke()
         }
         if selection.contains(i) && !isRenaming {
             // One rounded highlight per line, like Finder
@@ -571,24 +576,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let alpha = FileClipboard.shared.isCut(item.url) ? FileListViewController.cutAlpha : 1
         let image = image(for: i)
         let imageRect = Self.aspectFit(image.size, in: iconRect)
-        NSGraphicsContext.saveGraphicsState()
-        if thumbnails[thumbnailKey(item)] === image {
-            // Previews get rounded corners, like Finder's
-            let radius = Self.previewCornerRadius(imageRect.size)
-            NSBezierPath(roundedRect: imageRect, xRadius: radius, yRadius: radius).addClip()
-        }
         image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: alpha, respectFlipped: true, hints: nil)
-        NSGraphicsContext.restoreGraphicsState()
         if !isRenaming {
             for (line, rect) in zip(lines, lineRects) {
                 line.draw(in: rect.insetBy(dx: -2, dy: 0))
             }
         }
-    }
-
-    /// Corner radius of a preview drawn at `size`.
-    static func previewCornerRadius(_ size: NSSize) -> CGFloat {
-        max(3, min(size.width, size.height) * 0.1)
     }
 
     /// Largest rect with the image's proportions inside `rect` (previews aren't square).
@@ -621,6 +614,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             requestedThumbnails.insert(key)
             let request = QLThumbnailGenerator.Request(fileAt: item.url, size: CGSize(width: side, height: side),
                                                        scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
+            // Finder's look: documents as rounded pages, pictures as rounded cards
+            request.iconMode = true
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
                 guard let image = representation?.nsImage else { return }
                 DispatchQueue.main.async {
@@ -1048,15 +1043,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard let url = item?.previewItemURL, let i = items.firstIndex(where: { $0.url.path == url.path }) else { return nil }
         let image = image(for: i)
         contentRect?.pointee = NSRect(origin: .zero, size: image.size)
-        guard thumbnails[thumbnailKey(items[i])] === image else { return image }
-        // The panel zooms from / back into this picture: round it like the desktop draws it
-        let drawn = Self.aspectFit(image.size, in: iconRect(at: centers[i]))
-        let radius = Self.previewCornerRadius(drawn.size) * image.size.width / max(drawn.width, 1)
-        return NSImage(size: image.size, flipped: false) { rect in
-            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
-            image.draw(in: rect)
-            return true
-        }
+        // The panel zooms from / back into the same rounded preview the desktop shows
+        return image
     }
     @objc func copyPath(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
     @objc func moveToTrash(_ sender: Any?) { trashSelection() }

@@ -1202,6 +1202,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let request = QLThumbnailGenerator.Request(
             fileAt: file.url, size: CGSize(width: side, height: side),
             scale: view.window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
+        // Finder's look: documents as rounded pages, pictures as rounded cards
+        request.iconMode = true
         let path = file.url.path
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
             guard let image = representation?.nsImage else { return }

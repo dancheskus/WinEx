@@ -3,7 +3,7 @@ import AppKit
 /// An explorer window: tab strip, navigation bar with an editable path,
 /// sidebar, file list and a status bar.
 final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate,
-    NSSplitViewDelegate, NSMenuItemValidation, FileListDelegate {
+    NSSearchFieldDelegate, NSSplitViewDelegate, NSMenuItemValidation, FileListDelegate {
 
     /// Room for the traffic-light buttons to the left of the tab strip.
 
@@ -20,7 +20,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let pathField = AddressField()
     private let viewModeButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let viewModeToggle = NSSegmentedControl()
-    private let searchField = NSSearchField()
+    private let searchField = RoomySearchField()
     private let splitView = NSSplitView()
     private let sidebar = SidebarViewController()
     private let fileList = FileListViewController()
@@ -101,7 +101,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         settingsButton.target = AppDelegate.shared; settingsButton.action = #selector(AppDelegate.showSettings(_:))
 
         pathField.bezelStyle = .roundedBezel
-        pathField.controlSize = .large
+        pathField.controlSize = .extraLarge
         pathField.font = .systemFont(ofSize: 14)
         pathField.usesSingleLineMode = true
         pathField.cell?.isScrollable = true
@@ -116,14 +116,24 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         searchField.sendsSearchStringImmediately = true
         searchField.recentsAutosaveName = "WinExRecentSearches"
         searchField.maximumRecents = 10
-        searchField.controlSize = .large
+        searchField.controlSize = .extraLarge
+        searchField.delegate = self
         searchField.font = .systemFont(ofSize: 14)
-        searchField.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        // Wide like Finder's (up to 300), but never wider than the address bar; both give way in
+        // narrow windows down to a usable minimum
+        searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 300).isActive = true
+        searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
+        pathField.widthAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
+        let preferred = searchField.widthAnchor.constraint(equalToConstant: 300)
+        preferred.priority = .defaultLow + 1
+        preferred.isActive = true
         updateSearchMenu()
 
         setUpViewModeControls()
 
         let navStack = NSStackView(views: [backButton, forwardButton, upButton, pathField, refreshButton, searchField, viewModeButton, settingsButton])
+        // Both are in the stack now (a constraint between views without a common ancestor throws)
+        searchField.widthAnchor.constraint(lessThanOrEqualTo: pathField.widthAnchor).isActive = true
         navStack.orientation = .horizontal
         navStack.spacing = 4
         navStack.setCustomSpacing(10, after: upButton)
@@ -498,6 +508,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let clear = menu.addItem(withTitle: "Очистить недавние", action: nil, keyEquivalent: "")
         clear.tag = NSSearchField.clearRecentsMenuItemTag
         searchField.searchMenuTemplate = menu
+        // Our own glass + arrow with a gap (the stock one squeezes them together)
+        let image = RoomySearchFieldCell.buttonImage(pointSize: 15)
+        (searchField.cell as? NSSearchFieldCell)?.searchButtonCell?.image = image
+        (searchField.cell as? NSSearchFieldCell)?.searchButtonCell?.alternateImage = image
     }
 
     @objc private func searchInFolder(_ sender: Any?) { setSearchOptions(wholeMac: false) }
@@ -530,6 +544,13 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     // MARK: - Path field
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        // Esc in the search field: drop the search (back to the folder) and leave the field
+        if control === searchField, selector == #selector(NSResponder.cancelOperation(_:)) {
+            searchField.stringValue = ""
+            search(for: "")
+            window?.makeFirstResponder(fileList.focusView)
+            return true
+        }
         guard control === pathField else { return false }
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
@@ -785,5 +806,48 @@ final class ExplorerWindow: NSWindow {
             if view.frame.contains(local) { return view.hitTest(local) ?? view }
         }
         return nil
+    }
+}
+
+/// The search field with room between the magnifying glass and the arrow of its menu.
+final class RoomySearchField: NSSearchField {
+    override class var cellClass: AnyClass? {
+        get { RoomySearchFieldCell.self }
+        set {}
+    }
+}
+
+final class RoomySearchFieldCell: NSSearchFieldCell {
+    private static let gap: CGFloat = 8
+
+    override func searchButtonRect(forBounds rect: NSRect) -> NSRect {
+        var button = super.searchButtonRect(forBounds: rect)
+        button.size.width += Self.gap
+        return button
+    }
+
+    override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+        var text = super.searchTextRect(forBounds: rect)
+        text.origin.x += Self.gap
+        text.size.width -= Self.gap
+        return text
+    }
+
+    /// Magnifying glass, a gap, then the small arrow that opens the menu.
+    static func buttonImage(pointSize: CGFloat) -> NSImage {
+        let glass = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Поиск")?
+            .withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular)) ?? NSImage()
+        let arrow = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: pointSize * 0.55, weight: .semibold)) ?? NSImage()
+        let spacing: CGFloat = 5
+        let size = NSSize(width: glass.size.width + spacing + arrow.size.width, height: max(glass.size.height, arrow.size.height))
+        let image = NSImage(size: size, flipped: false) { rect in
+            glass.draw(in: NSRect(x: 0, y: (rect.height - glass.size.height) / 2, width: glass.size.width, height: glass.size.height))
+            arrow.draw(in: NSRect(x: glass.size.width + spacing, y: (rect.height - arrow.size.height) / 2,
+                                  width: arrow.size.width, height: arrow.size.height))
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }

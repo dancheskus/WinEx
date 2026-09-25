@@ -80,7 +80,7 @@ enum Scenarios {
 
     /// A window to photograph (scripts/capture-window.sh look): two tabs, some files, the icon view.
     static func look(_ s: Scenario) {
-        let base = s.makeFiles(["Документы/", "Проекты/", "отчёт.pdf", "заметки.txt", "фото.png", "таблица.xlsx"])
+        let base = s.makeFiles(["Документы/", "Проекты/", "отчёт.pdf", "заметки.txt", "фото.png", "таблица.xlsx", "xiaomi vacuum 5 pro token.rtf"])
         s.window?.navigate(to: base)
         s.window?.addTab(url: FileManager.default.homeDirectoryForCurrentUser, select: false)
         s.window?.window?.setFrame(NSRect(x: 200, y: 200, width: 1000, height: 620), display: true)
@@ -89,6 +89,13 @@ enum Scenarios {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             guard let window = s.window?.window else { s.run([]); return }
             s.note("  view: \(ViewMode.saved.title)")
+            // Finder-style selection: a folder and a long name
+            if let grid = s.grid {
+                let names = (0..<grid.count).map { (grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem)?.textField?.stringValue ?? "" }
+                let picked = IndexSet(names.indices.filter { names[$0] == "Проекты" || names[$0].hasPrefix("xiaomi") })
+                grid.setSelection(picked, anchor: picked.first ?? 0)
+                window.makeFirstResponder(grid)
+            }
             try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
             @MainActor func wait(_ tries: Int) {
                 if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-0").path) || tries == 0 { s.run([]); return }
@@ -363,6 +370,17 @@ enum Scenarios {
                 cpuStart = cpuSeconds()
             }),
             (5.0, "CPU after leaving the results (5 s)", { s.note(String(format: "  %.1f%% of one core", (cpuSeconds() - cpuStart) / 5 * 100)) }),
+            (0.1, "type again, then Esc", {
+                type("отч")
+            }),
+            (1.0, "Esc", {
+                s.window?.window?.makeFirstResponder(field())
+                s.key("\u{1b}", code: 53)
+            }),
+            (0.6, "after Esc", {
+                let focus = s.window?.window?.firstResponder
+                s.note("  field: «\(field()?.stringValue ?? "?")», \(s.window?.selectedTab.title ?? "?"), focus in the list: \(focus === s.table || focus === s.grid)  expect «», the folder, true")
+            }),
             (0.1, "whole Mac, 1 letter", { Settings.searchWholeMac = true; type("W") }),
             (0.8, "too short", { s.note("  \(status())") }),
             (0.1, "whole Mac: «WinEx»", {

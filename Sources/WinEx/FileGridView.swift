@@ -85,9 +85,9 @@ enum ViewMode: Int, CaseIterable {
 
     var itemSize: NSSize {
         switch self {
-        case .extraLargeIcons: NSSize(width: 212, height: 238)
-        case .largeIcons: NSSize(width: 122, height: 140)
-        case .mediumIcons: NSSize(width: 90, height: 92)
+        case .extraLargeIcons: NSSize(width: 220, height: 256)
+        case .largeIcons: NSSize(width: 132, height: 156)
+        case .mediumIcons: NSSize(width: 104, height: 108)
         case .smallIcons: NSSize(width: 220, height: 22)
         case .list: NSSize(width: 240, height: 22)
         case .tiles: NSSize(width: 280, height: 64)
@@ -179,7 +179,59 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     }
 
     override var isSelected: Bool {
-        didSet { itemView.isSelected = isSelected }
+        didSet {
+            itemView.isSelected = isSelected
+            applyLabelColor()
+            updateSelectionShapes()
+        }
+    }
+
+    /// The name as configured (tag dots + name), recoloured when selected.
+    private var label = NSAttributedString()
+    private var tagDotsLength = 0
+
+    /// White on the blue pill when selected, like Finder.
+    private func applyLabelColor() {
+        guard !itemView.isRenaming, label.length > 0 else { return }
+        let colored = NSMutableAttributedString(attributedString: label)
+        let nameRange = NSRange(location: tagDotsLength, length: label.length - tagDotsLength)
+        colored.addAttribute(.foregroundColor, value: isSelected ? NSColor.white : NSColor.labelColor, range: nameRange)
+        nameField.attributedStringValue = colored
+    }
+
+    /// Finder's selection in icon views: a grey square behind the icon and a pill behind each line of the name.
+    private func updateSelectionShapes() {
+        guard !mode.isHorizontalItem else {
+            itemView.iconBacking = nil
+            itemView.labelPills = []
+            return
+        }
+        itemView.iconBacking = iconView.frame.insetBy(dx: -8, dy: -8)
+        itemView.labelPills = Self.lineRects(of: nameField)
+    }
+
+    /// Where the lines of a centred, wrapping label are drawn (at most its maximum lines).
+    private static func lineRects(of field: NSTextField) -> [NSRect] {
+        let text = field.attributedStringValue
+        guard text.length > 0 else { return [] }
+        let storage = NSTextStorage(attributedString: text)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: NSSize(width: field.bounds.width - 4, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        var rects: [NSRect] = []
+        manager.enumerateLineFragments(forGlyphRange: manager.glyphRange(for: container)) { _, used, _, _, _ in
+            rects.append(used)
+        }
+        let lines = Array(rects.prefix(max(field.maximumNumberOfLines, 1)))
+        // The field lays text out from its top edge (flipped: lines go down from maxY)
+        let frame = field.frame
+        return lines.enumerated().map { n, line in
+            let width = min(line.width, frame.width - 4)
+            return NSRect(x: frame.midX - width / 2 - 5, y: frame.maxY - line.height * CGFloat(n + 1) - 1,
+                          width: width + 10, height: line.height + 1)
+        }
     }
 
     func configure(with file: FileItem, mode: ViewMode, image: NSImage) {
@@ -206,9 +258,13 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         paragraph.alignment = nameField.alignment
         paragraph.lineBreakMode = nameField.lineBreakMode
         let attributes: [NSAttributedString.Key: Any] = [.font: nameField.font!, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
-        let label = NSMutableAttributedString(attributedString: FileTags.dots(for: file.tags, attributes: attributes))
+        let dots = FileTags.dots(for: file.tags, attributes: attributes)
+        let label = NSMutableAttributedString(attributedString: dots)
         label.append(NSAttributedString(string: file.name, attributes: attributes))
-        nameField.attributedStringValue = label
+        self.label = label
+        tagDotsLength = dots.length
+        itemView.isHorizontal = mode.isHorizontalItem
+        applyLabelColor()
         detailField.isHidden = mode != .tiles
         detailField.stringValue = [file.typeDescription, file.sizeDescription].compactMap { $0 }.joined(separator: "\n")
         view.needsLayout = true
@@ -236,10 +292,11 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
             nameField.frame = NSRect(x: 62, y: bounds.height - 24, width: bounds.width - 68, height: 16)
             detailField.frame = NSRect(x: 62, y: 6, width: bounds.width - 68, height: 30)
         default:
-            iconView.frame = NSRect(x: (bounds.width - icon) / 2, y: bounds.height - icon - 4, width: icon, height: icon)
-            let textHeight = bounds.height - icon - 10
+            iconView.frame = NSRect(x: (bounds.width - icon) / 2, y: bounds.height - icon - 10, width: icon, height: icon)
+            let textHeight = bounds.height - icon - 18
             nameField.frame = NSRect(x: 4, y: 2, width: bounds.width - 8, height: textHeight)
         }
+        updateSelectionShapes()
     }
 
     // MARK: Inline rename
@@ -250,6 +307,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         originalName = plainName
         renameCancelled = false
         itemView.isRenaming = true
+        nameField.attributedStringValue = NSAttributedString(string: plainName, attributes: [.font: nameField.font ?? .systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor])
         nameField.isEditable = true
         nameField.isSelectable = true
         nameField.drawsBackground = true
@@ -272,9 +330,12 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         nameField.isSelectable = false
         nameField.drawsBackground = false
         itemView.isRenaming = false
+        let typed = nameField.stringValue
         let commit = onRename
         onRename = nil
-        if !renameCancelled { commit?(nameField.stringValue) }
+        // Restore the (coloured) label only after reading what was typed
+        applyLabelColor()
+        if !renameCancelled { commit?(typed) }
         // Return keyboard focus to the grid after Return/Tab
         DispatchQueue.main.async { [weak self] in
             guard let self, let grid = self.collectionView, self.view.window?.firstResponder is NSWindow else { return }
@@ -283,11 +344,15 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     }
 }
 
-/// Item background: Explorer-style highlight of the whole cell.
+/// Item background, Finder style: in icon views a grey square behind the icon and blue pills
+/// behind the name; in list-like views a rounded highlight of the whole row.
 final class GridItemView: NSView {
     var isSelected = false { didSet { needsDisplay = true } }
     var isDropTarget = false { didSet { needsDisplay = true } }
-    var isRenaming = false
+    var isRenaming = false { didSet { needsDisplay = true } }
+    var isHorizontal = false { didSet { needsDisplay = true } }
+    var iconBacking: NSRect? { didSet { needsDisplay = true } }
+    var labelPills: [NSRect] = [] { didSet { needsDisplay = true } }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Clicks go straight to the collection view (it implements selection), except while renaming.
@@ -297,13 +362,26 @@ final class GridItemView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard isSelected || isDropTarget else { return }
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4)
-        NSColor.selectedContentBackgroundColor.withAlphaComponent(isDropTarget ? 0.5 : 0.3).setFill()
-        path.fill()
-        NSColor.selectedContentBackgroundColor.withAlphaComponent(0.7).setStroke()
-        path.lineWidth = 1
-        path.stroke()
+        if isDropTarget {
+            NSColor.selectedContentBackgroundColor.withAlphaComponent(0.35).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 8, yRadius: 8).fill()
+            return
+        }
+        guard isSelected else { return }
+        if isHorizontal || iconBacking == nil {
+            NSColor.selectedContentBackgroundColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6).fill()
+            return
+        }
+        if let iconBacking {
+            NSColor.labelColor.withAlphaComponent(0.1).setFill()
+            NSBezierPath(roundedRect: iconBacking, xRadius: 10, yRadius: 10).fill()
+        }
+        guard !isRenaming else { return }
+        NSColor.selectedContentBackgroundColor.setFill()
+        for pill in labelPills {
+            NSBezierPath(roundedRect: pill, xRadius: 5, yRadius: 5).fill()
+        }
     }
 }
 
