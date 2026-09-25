@@ -232,6 +232,22 @@ enum Scenarios {
                 RunLoop.main.add(close, forMode: .common)
             }
             RunLoop.main.add(find, forMode: .common)
+            // The sort menu: highlight "Дополнительно" (↓ × 4) and open it (→), for the arrow
+            if index == 1 {
+                let keys = Timer(timeInterval: 0.25, repeats: false) { _ in
+                    for (key, code) in [(NSDownArrowFunctionKey, 125), (NSDownArrowFunctionKey, 125), (NSDownArrowFunctionKey, 125),
+                                        (NSDownArrowFunctionKey, 125), (NSRightArrowFunctionKey, 124)] {
+                        guard let scalar = UnicodeScalar(key) else { continue }
+                        let text = String(Character(scalar))
+                        if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                        windowNumber: 0, context: nil, characters: text, charactersIgnoringModifiers: text,
+                                                        isARepeat: false, keyCode: UInt16(code)) {
+                            NSApp.postEvent(event, atStart: false)
+                        }
+                    }
+                }
+                RunLoop.main.add(keys, forMode: .common)
+            }
             open()
             DispatchQueue.main.async { next() }
         }

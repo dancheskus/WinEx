@@ -118,18 +118,32 @@ final class CommandButton: NSView {
             chevron.contentTintColor = .secondaryLabelColor
             views.append(chevron)
         }
-        let stack = NSStackView(views: views)
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        let padding: CGFloat = title == nil && !menu ? 0 : 10
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            widthAnchor.constraint(equalTo: stack.widthAnchor, constant: padding * 2).withPriority(.defaultHigh),
-            widthAnchor.constraint(greaterThanOrEqualToConstant: 36),
-            heightAnchor.constraint(equalToConstant: 32),
-        ])
+        if views.count == 1 {
+            // Just an icon: a fixed square with the icon in its middle
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            icon.imageAlignment = .alignCenter
+            addSubview(icon)
+            NSLayoutConstraint.activate([
+                icon.leadingAnchor.constraint(equalTo: leadingAnchor),
+                icon.trailingAnchor.constraint(equalTo: trailingAnchor),
+                icon.topAnchor.constraint(equalTo: topAnchor),
+                icon.bottomAnchor.constraint(equalTo: bottomAnchor),
+                widthAnchor.constraint(equalToConstant: 38),
+                heightAnchor.constraint(equalToConstant: 32),
+            ])
+        } else {
+            let stack = NSStackView(views: views)
+            stack.spacing = 6
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.centerXAnchor.constraint(equalTo: centerXAnchor),
+                stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+                widthAnchor.constraint(equalTo: stack.widthAnchor, constant: 20),
+                heightAnchor.constraint(equalToConstant: 32),
+            ])
+        }
+        setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -165,12 +179,5 @@ final class CommandButton: NSView {
         guard isEnabled, hovering || pressed || isOpen else { return }
         NSColor.labelColor.withAlphaComponent(pressed || isOpen ? 0.14 : 0.08).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
-    }
-}
-
-private extension NSLayoutConstraint {
-    func withPriority(_ priority: NSLayoutConstraint.Priority) -> NSLayoutConstraint {
-        self.priority = priority
-        return self
     }
 }

@@ -29,6 +29,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private var addressCapsule = ToolbarCapsule(height: 32, views: [])
     private let breadcrumbs = BreadcrumbBar()
     private let commandBar = CommandBar()
+    private var viewCapsule: NSView?
     private var commandBarHeight = NSLayoutConstraint()
     private let windowObservers = Observers()
     /// What the status bar says (item count, selection and its size).
@@ -165,6 +166,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         addressCapsule = ToolbarCapsule(height: height, views: [addressArea], padding: 14)
         let refreshCapsule = ToolbarCapsule(height: height, views: [refreshButton], round: true)
         let viewCapsule = ToolbarCapsule(height: height, views: [viewModeButton], padding: 6)
+        // The command bar has "Просмотреть": the toolbar's own view button only without it
+        self.viewCapsule = viewCapsule
+        viewCapsule.isHidden = Settings.showCommandBar
         let settingsCapsule = ToolbarCapsule(height: height, views: [settingsButton], round: true)
         let navStack = NSStackView(views: [navGroup, addressCapsule, refreshCapsule, searchField, viewCapsule, settingsCapsule])
         // Both are in the stack now (a constraint between views without a common ancestor throws)
@@ -198,7 +202,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(260), forSubviewAt: 0)
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(250), forSubviewAt: 1)
 
-        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.font = .systemFont(ofSize: 12)
         statusLabel.textColor = .secondaryLabelColor
         let statusBar = NSView()
         statusBar.addSubview(statusLabel)
@@ -268,8 +272,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             statusBar.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: mainPane.bottomAnchor),
-            statusBar.heightAnchor.constraint(equalToConstant: 24),
-            statusLabel.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 12),
+            statusBar.heightAnchor.constraint(equalToConstant: 32),
+            statusLabel.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 14),
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
             viewModeToggle.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -8),
             viewModeToggle.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
@@ -311,6 +315,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             guard let self else { return }
             commandBar.isHidden = !Settings.showCommandBar
             commandBarHeight.constant = Settings.showCommandBar ? CommandBar.height : 0
+            viewCapsule?.isHidden = Settings.showCommandBar
         }
     }
 
@@ -401,11 +406,14 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         viewModeToggle.segmentCount = 2
         viewModeToggle.trackingMode = .selectOne
         viewModeToggle.segmentStyle = .texturedRounded
-        viewModeToggle.controlSize = .small
-        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.details.symbol, accessibilityDescription: "Таблица"), forSegment: 0)
-        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.largeIcons.symbol, accessibilityDescription: "Крупные значки"), forSegment: 1)
+        viewModeToggle.controlSize = .regular
+        let toggleSymbol = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.details.symbol, accessibilityDescription: "Таблица")?.withSymbolConfiguration(toggleSymbol), forSegment: 0)
+        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.largeIcons.symbol, accessibilityDescription: "Значки")?.withSymbolConfiguration(toggleSymbol), forSegment: 1)
+        viewModeToggle.setWidth(34, forSegment: 0)
+        viewModeToggle.setWidth(34, forSegment: 1)
         viewModeToggle.setToolTip("Таблица", forSegment: 0)
-        viewModeToggle.setToolTip("Крупные значки", forSegment: 1)
+        viewModeToggle.setToolTip("Значки", forSegment: 1)
         viewModeToggle.target = self
         viewModeToggle.action = #selector(viewModeToggleChanged(_:))
     }
@@ -419,7 +427,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         for item in viewModeButton.menu?.items.dropFirst() ?? [] where item.action == #selector(selectViewMode(_:)) {
             item.state = item.tag == mode.rawValue ? .on : .off
         }
-        viewModeToggle.selectedSegment = mode == .details ? 0 : (mode == .largeIcons ? 1 : -1)
+        viewModeToggle.selectedSegment = mode == .details ? 0 : 1
+        if mode != .details { lastIconMode = mode }
     }
 
     @objc func selectViewMode(_ sender: Any?) {
@@ -431,9 +440,17 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         fileList.applyViewModeToAllFolders()
     }
 
+    /// The grid button switches to icons of the size used last (it doesn't pick a size).
     @objc private func viewModeToggleChanged(_ sender: NSSegmentedControl) {
-        fileList.viewMode = sender.selectedSegment == 0 ? .details : .largeIcons
+        fileList.viewMode = sender.selectedSegment == 0 ? .details : lastIconMode
     }
+
+    /// The icon view last used in this window (the saved default before that).
+    private var lastIconMode: ViewMode {
+        get { storedIconMode ?? (ViewMode.saved == .details ? .mediumIcons : ViewMode.saved) }
+        set { storedIconMode = newValue }
+    }
+    private var storedIconMode: ViewMode?
 
     // MARK: - Showing the current tab
 
@@ -585,18 +602,20 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let menu = NSMenu()
         let url = selectedTab.url
         let path = url.isFileURL ? url.path : nil
-        func add(_ title: String, _ action: Selector, enabled: Bool = true) {
+        func add(_ title: String, _ action: Selector, _ symbol: String, enabled: Bool = true) {
             let item = menu.addItem(withTitle: title, action: enabled ? action : nil, keyEquivalent: "")
             item.target = self
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         }
-        add("Копировать адрес", #selector(copyAddress(_:)), enabled: path != nil)
-        add("Копировать адрес как URL", #selector(copyAddressAsURL(_:)), enabled: path != nil)
-        add("Изменить адрес", #selector(focusPathField(_:)))
+        add("Копировать адрес", #selector(copyAddress(_:)), "doc.on.doc", enabled: path != nil)
+        add("Копировать адрес как URL", #selector(copyAddressAsURL(_:)), "link", enabled: path != nil)
+        add("Изменить адрес", #selector(focusPathField(_:)), "pencil")
         menu.addItem(.separator())
         if let path, URL(fileURLWithPath: path).isBrowsableDirectory, !SidebarConfig.isFavorite(url) {
-            add("Добавить в избранное", #selector(addCurrentFolderToFavorites(_:)))
+            add("Добавить в избранное", #selector(addCurrentFolderToFavorites(_:)), "star")
         }
-        add("Очистить историю переходов", #selector(clearBrowsingHistory(_:)), enabled: tabs.contains { $0.canGoBack || $0.canGoForward })
+        add("Очистить историю переходов", #selector(clearBrowsingHistory(_:)), "clock.arrow.circlepath",
+            enabled: tabs.contains { $0.canGoBack || $0.canGoForward })
         MenuStyle.decorate(menu)
         return menu
     }

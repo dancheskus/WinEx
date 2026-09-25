@@ -71,7 +71,7 @@ enum MenuStyle {
         guard !todo.isEmpty else { return }
         // A menu without any icon (a submenu of sort keys, of views) gets the same text and rows,
         // just no icon column
-        let withIcons = !icons.isEmpty || items.contains { isDecorated($0) && $0.attributedTitle?.containsAttachments == true }
+        let withIcons = !icons.isEmpty || items.contains { isDecorated($0) && hasIcon($0) }
         // Roomier than the stock menu, like Explorer's: bigger text, a tall frame per icon.
         // The shortcut is drawn in the title too (right-aligned at a tab stop): then text and
         // shortcut share one line, centred in the row — AppKit places its own shortcut by other rules.
@@ -87,19 +87,19 @@ enum MenuStyle {
         // difference of the two line heights, so it sits in the middle too. (A tall icon or a big
         // line height made the rows roomy as well, but left the arrow off-centre.) Set on every
         // menu: a submenu would otherwise take its parent's 18 pt for its own texts.
-        let rowFont = NSFont.menuFont(ofSize: 18)
+        let rowFont = NSFont.menuFont(ofSize: rowFontSize)
         menu.font = rowFont
         let raise = (((rowFont.ascender - rowFont.descender) - (font.ascender - font.descender)) / 2).rounded()
         let middle = (font.ascender + font.descender) / 2
         for item in todo {
             let title = NSMutableAttributedString()
-            if withIcons {
-                let attachment = NSTextAttachment()
-                attachment.image = framed(icons[item])
-                attachment.bounds = NSRect(x: 0, y: (middle - 10).rounded(), width: 22, height: 20)
-                title.append(NSAttributedString(attachment: attachment))
-                title.append(NSAttributedString(string: "   ", attributes: [.font: font]))
-            }
+            // Without icons an empty, zero-width frame keeps the line exactly as tall and placed as
+            // with one: the text, the arrow and the checkmark sit where they do in the other menus
+            let attachment = NSTextAttachment()
+            attachment.image = withIcons ? framed(icons[item]) : NSImage(size: NSSize(width: 1, height: 20))
+            attachment.bounds = NSRect(x: 0, y: (middle - 10).rounded(), width: withIcons ? 22 : 0.01, height: 20)
+            title.append(NSAttributedString(attachment: attachment))
+            if withIcons { title.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
             title.append(NSAttributedString(string: item.title, attributes: [.font: font, .paragraphStyle: paragraph]))
             if let shortcut = shortcutText(item) {
                 title.append(NSAttributedString(string: "\t" + shortcut, attributes: [
@@ -118,7 +118,17 @@ enum MenuStyle {
         }
     }
 
+    /// The menu's own font: it sets the row height and the size of AppKit's checkmarks and
+    /// submenu arrows (16 pt: roomy rows, arrows centred, marks not oversized).
+    static let rowFontSize: CGFloat = 16
+
     private static let decoratedKey = NSAttributedString.Key("WinExMenuDecorated")
+
+    private static func hasIcon(_ item: NSMenuItem) -> Bool {
+        guard let title = item.attributedTitle, title.length > 0,
+              let attachment = title.attribute(.attachment, at: 0, effectiveRange: nil) as? NSTextAttachment else { return false }
+        return attachment.bounds.width > 1
+    }
 
     private static func isDecorated(_ item: NSMenuItem) -> Bool {
         guard let title = item.attributedTitle, title.length > 0 else { return false }
