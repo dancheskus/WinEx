@@ -41,7 +41,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         outlineView.style = .sourceList
         outlineView.backgroundColor = .clear
         outlineView.floatsGroupRows = false
-        outlineView.rowSizeStyle = .default
+        // Finder's macOS 26 sidebar: roomy rows, larger symbols
+        outlineView.rowSizeStyle = .custom
+        outlineView.rowHeight = 30
         outlineView.dataSource = self
         outlineView.delegate = self
 
@@ -192,12 +194,12 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         }
         guard let item = item as? Item else { return nil }
         let cell = NSTableCellView()
-        let image = NSImageView(image: item.tagColor.map { FileTags.dotImage(color: $0, size: 12) }
+        let image = NSImageView(image: item.tagColor.map { FileTags.dotImage(color: $0, size: 14) }
             ?? NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 14, weight: .regular)) ?? NSImage())
-        // Finder's sidebar: thin grey symbols, colour only for tags
-        if item.tagColor == nil { image.contentTintColor = .secondaryLabelColor }
+                .withSymbolConfiguration(.init(pointSize: 17, weight: .regular)) ?? NSImage())
+        if item.tagColor == nil { image.contentTintColor = tint(for: item) }
         let label = NSTextField(labelWithString: item.title)
+        label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
         cell.toolTip = item.toolTip
         for view in [image, label] {
@@ -221,12 +223,40 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         NSLayoutConstraint.activate([
             image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
             image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            image.widthAnchor.constraint(equalToConstant: 18),
-            label.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 6),
+            image.widthAnchor.constraint(equalToConstant: 24),
+            label.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 8),
             label.trailingAnchor.constraint(lessThanOrEqualTo: trailing, constant: -2),
             label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
         return cell
+    }
+
+    /// Like Finder: the favourites in the accent colour, places in grey; everything grey while the
+    /// window isn't the active one.
+    private func tint(for item: Item) -> NSColor {
+        let active = view.window?.isKeyWindow ?? true
+        let favourite = sections.first?.items.contains { $0 === item } == true
+        return active && favourite ? .controlAccentColor : .secondaryLabelColor
+    }
+
+    private func updateTints() {
+        for row in 0..<outlineView.numberOfRows {
+            guard let item = outlineView.item(atRow: row) as? Item, item.tagColor == nil,
+                  let cell = outlineView.view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView else { continue }
+            cell.imageView?.contentTintColor = tint(for: item)
+        }
+    }
+
+    private let windowObservers = Observers()
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        windowObservers.removeAll()
+        guard let window = view.window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            windowObservers.add(name, object: window) { [weak self] in self?.updateTints() }
+        }
+        updateTints()
     }
 
     func outlineViewSelectionDidChange(_ notification: Notification) {
