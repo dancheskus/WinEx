@@ -574,7 +574,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         NSGraphicsContext.saveGraphicsState()
         if thumbnails[thumbnailKey(item)] === image {
             // Previews get rounded corners, like Finder's
-            let radius = max(3, min(imageRect.width, imageRect.height) * 0.1)
+            let radius = Self.previewCornerRadius(imageRect.size)
             NSBezierPath(roundedRect: imageRect, xRadius: radius, yRadius: radius).addClip()
         }
         image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: alpha, respectFlipped: true, hints: nil)
@@ -584,6 +584,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                 line.draw(in: rect.insetBy(dx: -2, dy: 0))
             }
         }
+    }
+
+    /// Corner radius of a preview drawn at `size`.
+    static func previewCornerRadius(_ size: NSSize) -> CGFloat {
+        max(3, min(size.width, size.height) * 0.1)
     }
 
     /// Largest rect with the image's proportions inside `rect` (previews aren't square).
@@ -1018,7 +1023,15 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard let url = item?.previewItemURL, let i = items.firstIndex(where: { $0.url.path == url.path }) else { return nil }
         let image = image(for: i)
         contentRect?.pointee = NSRect(origin: .zero, size: image.size)
-        return image
+        guard thumbnails[thumbnailKey(items[i])] === image else { return image }
+        // The panel zooms from / back into this picture: round it like the desktop draws it
+        let drawn = Self.aspectFit(image.size, in: iconRect(at: centers[i]))
+        let radius = Self.previewCornerRadius(drawn.size) * image.size.width / max(drawn.width, 1)
+        return NSImage(size: image.size, flipped: false) { rect in
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
+            image.draw(in: rect)
+            return true
+        }
     }
     @objc func copyPath(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
     @objc func moveToTrash(_ sender: Any?) { trashSelection() }

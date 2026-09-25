@@ -262,6 +262,22 @@ enum Scenarios {
                 view.keyDown(with: event)
                 s.note("  icons: \(view.subviews.count) subviews")
             }),
+            (0.5, "Quick Look transition picture", {
+                let views = NSApp.windows.compactMap { $0.contentView as? DesktopView }
+                let names = (try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? []
+                for name in names where ["png", "jpg", "jpeg", "webp", "pdf"].contains((name as NSString).pathExtension.lowercased()) {
+                    let url = DesktopView.desktopURL.appendingPathComponent(name) as NSURL
+                    var rect = NSRect.zero
+                    guard let view = views.first(where: { $0.previewPanel(nil, sourceFrameOnScreenFor: url) != .zero }),
+                          let image = view.previewPanel(nil, transitionImageFor: url, contentRect: &rect) as? NSImage,
+                          let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { continue }
+                    let corner = rep.colorAt(x: 0, y: 0)?.alphaComponent ?? -1
+                    let middle = rep.colorAt(x: rep.pixelsWide / 2, y: rep.pixelsHigh / 2)?.alphaComponent ?? -1
+                    s.note("  \(name): corner alpha \(corner), middle alpha \(middle)  expect 0, 1")
+                    try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("transition.png"))
+                    break
+                }
+            }),
             (1.0, "snapshot of every monitor", {
                 let views = NSApp.windows.compactMap { $0.contentView as? DesktopView }
                 for view in views {
