@@ -82,14 +82,13 @@ enum MenuStyle {
         let rowWidth = menu.items.compactMap { $0.view as? ActionRowView }.first?.frame.width ?? 0
         let lead: CGFloat = withIcons ? 22 + 12 : 0
         paragraph.tabStops = [NSTextTab(textAlignment: .right, location: ceil(max(lead + widest + 70, rowWidth - 36)))]
-        // Roomy rows come from the menu's own (larger) font: AppKit sizes the rows for it and
-        // centres its submenu arrows and shortcuts in them. The 14 pt text is raised by half the
-        // difference of the two line heights, so it sits in the middle too. (A tall icon or a big
-        // line height made the rows roomy as well, but left the arrow off-centre.) Set on every
-        // menu: a submenu would otherwise take its parent's 18 pt for its own texts.
+        // The menu's own font sets the size of AppKit's checkmarks and arrows; the row height
+        // comes from a strut in each title. Set on every menu: a submenu would otherwise take
+        // its parent's font for its own texts.
         let rowFont = NSFont.menuFont(ofSize: rowFontSize)
         menu.font = rowFont
-        let raise = (((rowFont.ascender - rowFont.descender) - (font.ascender - font.descender)) / 2).rounded()
+        // Measured on screenshots (text, icon, arrow and checkmark centred in the highlight)
+        let raise: CGFloat = 4
         let middle = (font.ascender + font.descender) / 2
         for item in todo {
             let title = NSMutableAttributedString()
@@ -99,6 +98,13 @@ enum MenuStyle {
             attachment.image = withIcons ? framed(icons[item]) : NSImage(size: NSSize(width: 1, height: 20))
             attachment.bounds = NSRect(x: 0, y: (middle - 10).rounded(), width: withIcons ? 22 : 0.01, height: 20)
             title.append(NSAttributedString(attachment: attachment))
+            // An invisible strut makes the row taller (Explorer's roomy rows) while the menu font —
+            // which sizes AppKit's checkmarks and arrows — stays small. AppKit puts the arrow by
+            // the line's lower part, so the strut sits a little low: the arrow lands in the middle
+            let strut = NSTextAttachment()
+            strut.image = NSImage(size: NSSize(width: 1, height: 1))
+            strut.bounds = NSRect(x: 0, y: (middle - strutHeight / 2 + 3).rounded(), width: 0.01, height: strutHeight)
+            title.append(NSAttributedString(attachment: strut))
             if withIcons { title.append(NSAttributedString(string: "   ", attributes: [.font: font])) }
             title.append(NSAttributedString(string: item.title, attributes: [.font: font, .paragraphStyle: paragraph]))
             if let shortcut = shortcutText(item) {
@@ -112,6 +118,12 @@ enum MenuStyle {
             let all = NSRange(location: 0, length: title.length)
             title.addAttribute(.paragraphStyle, value: paragraph, range: all)
             title.addAttribute(.baselineOffset, value: raise, range: all)
+            // (The strut stays where it is: it decides where AppKit puts the arrow)
+            title.enumerateAttribute(.attachment, in: all) { value, range, _ in
+                if let attachment = value as? NSTextAttachment, attachment.bounds.height == strutHeight {
+                    title.removeAttribute(.baselineOffset, range: range)
+                }
+            }
             title.addAttribute(decoratedKey, value: true, range: all)
             item.attributedTitle = title
             item.image = nil
@@ -121,6 +133,8 @@ enum MenuStyle {
     /// The menu's own font: it sets the row height and the size of AppKit's checkmarks and
     /// submenu arrows (16 pt: roomy rows, arrows centred, marks not oversized).
     static let rowFontSize: CGFloat = 16
+    /// Row height beyond the font's: an invisible strut in each title (see `decorate`).
+    private static let strutHeight: CGFloat = 24
 
     private static let decoratedKey = NSAttributedString.Key("WinExMenuDecorated")
 

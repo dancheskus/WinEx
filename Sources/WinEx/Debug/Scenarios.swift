@@ -25,6 +25,7 @@ enum Scenarios {
         "settings": settingsTabs,
         "sidebar": sidebar,
         "commandbar": commandBarScenario,
+        "menuswitch": menuSwitch,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -290,6 +291,59 @@ enum Scenarios {
                     }
                 }
             }
+        }
+    }
+
+    /// With "Просмотреть" open, a click on "Сортировать" should open the sort menu (Explorer),
+    /// and nothing should reopen "Просмотреть" afterwards. Clicks are posted events.
+    static func menuSwitch(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt"])
+        s.window?.navigate(to: base)
+        s.window?.window?.setFrame(NSRect(x: 150, y: 200, width: 1200, height: 560), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        var opened: [String] = []
+        func bar() -> CommandBar? { s.find(CommandBar.self, in: s.window?.window?.contentView) }
+        func click(_ button: NSView) {
+            guard let window = button.window else { return }
+            let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    NSApp.postEvent(event, atStart: false)
+                }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            guard let bar = bar() else { s.note("  (no bar)"); s.run([]); return }
+            bar.onMenuOpen = { opened.append($0) }
+            click(bar.viewButton)
+            // While "Просмотреть" tracks: click "Сортировать"
+            let second = Timer(timeInterval: 0.8, repeats: false) { _ in click(bar.sortButton) }
+            RunLoop.main.add(second, forMode: .common)
+            // Close whatever is open after that
+            let closer = Timer(timeInterval: 0.4, repeats: true) { timer in
+                guard opened.count >= 2 else { return }
+                timer.invalidate()
+                if let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: 0, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                              isARepeat: false, keyCode: 53) {
+                    NSApp.postEvent(esc, atStart: false)
+                }
+            }
+            RunLoop.main.add(closer, forMode: .common)
+            s.run([
+                (3.5, "menus opened", { s.note("  \(opened)  expect [view, sort]") }),
+                (0.2, "click Сортировать once more", { opened = []; click(bar.sortButton) }),
+                (1.0, "which opened", {
+                    s.note("  \(opened)  expect [sort]")
+                    if let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: 0, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                                  isARepeat: false, keyCode: 53) {
+                        NSApp.postEvent(esc, atStart: false)
+                    }
+                }),
+            ])
         }
     }
 

@@ -10,6 +10,8 @@ final class CommandBar: NSView {
     var sortMenu: (() -> NSMenu?)?
     var viewMenu: (() -> NSMenu?)?
     var moreMenu: (() -> NSMenu?)?
+    /// Scenario hook: "new", "sort", "view", "more" as each menu opens.
+    var onMenuOpen: ((String) -> Void)?
 
     let newButton = CommandButton(symbol: "plus.circle", title: "Создать", tip: "Создать папку или документ", menu: true)
     let cutButton = CommandButton(symbol: "scissors", tip: "Вырезать (⌘X)")
@@ -80,9 +82,22 @@ final class CommandBar: NSView {
     private func pop(_ provider: (() -> NSMenu?)?, under button: CommandButton?) {
         guard let button, let menu = provider?() else { return }
         MenuStyle.decorate(menu)
+        onMenuOpen?([newButton: "new", sortButton: "sort", viewButton: "view", moreButton: "more"][button] ?? "?")
         button.isOpen = true
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY + 4 : -4), in: button)
         button.isOpen = false
+        // Closed by a click on another command (Explorer: that command works at once — its menu
+        // opens). The click itself only ended the menu; pass it on. (Its press or, by the time the
+        // menu has let go, its release; a release on a menu item belongs to the menu's window.)
+        if let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp, event.window === window,
+           let other = commandButtons.first(where: { $0 !== button && $0.isEnabled
+                && $0.bounds.contains($0.convert(event.locationInWindow, from: nil)) }) {
+            DispatchQueue.main.async { other.perform() }
+        }
+    }
+
+    private var commandButtons: [CommandButton] {
+        [newButton, cutButton, copyButton, pasteButton, renameButton, shareButton, deleteButton, sortButton, viewButton, moreButton]
     }
 }
 
@@ -166,6 +181,12 @@ final class CommandButton: NSView {
             return
         }
         pressed = true
+    }
+
+    /// What a click does: opens the menu or sends the action.
+    func perform() {
+        guard isEnabled else { return }
+        if let action { NSApp.sendAction(action, to: target, from: self) } else { onClick?() }
     }
 
     override func mouseUp(with event: NSEvent) {
