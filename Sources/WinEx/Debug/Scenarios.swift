@@ -27,6 +27,7 @@ enum Scenarios {
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
         "contextmenu": contextMenu,
+        "unzip": unzip,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
@@ -178,6 +179,32 @@ enum Scenarios {
             table.rightMouseDown(with: event)
             s.run([])
         }
+    }
+
+    /// A big archive: the extraction window with its percentage (scripts/capture-window.sh unzip).
+    static func unzip(_ s: Scenario) {
+        let source = s.makeFiles([], in: "big")
+        let chunk = Data((0..<200_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        for i in 1...1500 { FileManager.default.createFile(atPath: source.appendingPathComponent("file-\(i).bin").path, contents: chunk) }
+        let zip = Process()
+        zip.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        zip.arguments = ["-c", "-k", "--keepParent", source.path, s.sandbox.appendingPathComponent("big.zip").path]
+        try? zip.run()
+        zip.waitUntilExit()
+        try? FileManager.default.removeItem(at: source)
+        s.note("  archive: \(s.files())")
+        FileCommands.extract(s.sandbox.appendingPathComponent("big.zip"))
+        func wait(_ tries: Int) {
+            if let window = NSApp.windows.first(where: { $0.isVisible && ($0.title.contains("%") || $0.title.contains("Подготовка")) }) {
+                s.note("  window: \(window.title)")
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 20) { s.run([]) }   // lets the extraction finish
+                return
+            }
+            guard tries > 0 else { s.note("  (no progress window — too fast?)"); s.run([]); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { MainActor.assumeIsolated { wait(tries - 1) } }
+        }
+        wait(60)
     }
 
     /// A window to photograph (scripts/capture-window.sh look): two tabs, some files, the icon view.
@@ -382,6 +409,17 @@ enum Scenarios {
             }),
             (1.5, "double-click Архив.zip", {
                 s.note("  \(s.files())  expect a.txt.zip, Архив.zip")
+                // A file compressed alone holds just the file, not its parent folder
+                let list = Process()
+                list.executableURL = URL(fileURLWithPath: "/usr/bin/zipinfo")
+                list.arguments = ["-1", base.appendingPathComponent("a.txt.zip").path]
+                let pipe = Pipe()
+                list.standardOutput = pipe
+                try? list.run()
+                list.waitUntilExit()
+                let entries = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                    .split(separator: "\n").filter { !$0.hasPrefix("__MACOSX") }
+                s.note("  a.txt.zip holds: \(entries)  expect [a.txt]")
                 open("Архив.zip")
             }),
             (1.5, "extracted", {
@@ -511,7 +549,7 @@ enum Scenarios {
             try? handle.close()
         }
         FileOperation.cloneFiles = false
-        FileOperation.slowDownForTesting = 0.004
+        FileOperation.slowDownForTesting = 0.012
 
         func window(titled test: (String) -> Bool) -> NSWindow? { NSApp.windows.first { $0.isVisible && test($0.title) } }
         var progressWindow: NSWindow? { window { $0.contains("%") || $0.contains("Подготовка") || $0.contains("Приостановлено") } }
@@ -566,6 +604,8 @@ enum Scenarios {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                     s.note("  \(first) → \(progressWindow?.title ?? "-")  expect the same percentage (paused)")
                     snapshot(progressWindow, "paused.png")
+                    // Full speed for the rest: the next steps expect the copy to be over
+                    FileOperation.slowDownForTesting = 0
                     _ = press("Продолжить", in: progressWindow?.contentView)
                 }
             }),

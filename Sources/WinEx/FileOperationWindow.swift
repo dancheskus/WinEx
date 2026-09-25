@@ -33,6 +33,15 @@ enum FileOperations {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     recordUndo(kind, result)
+                    // Finder's sounds, once something was actually done
+                    if !result.done.isEmpty {
+                        switch kind {
+                        case .copy: FileSounds.play(.copy)
+                        case .move: FileSounds.play(.move)
+                        case .trash: FileSounds.play(.trash)
+                        case .delete: FileSounds.play(.delete)
+                        }
+                    }
                     controller.finish()
                     running.removeAll { $0 === controller }
                 }

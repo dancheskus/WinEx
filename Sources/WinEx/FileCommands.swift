@@ -17,7 +17,8 @@ enum FileCommands {
 
     static func isZip(_ url: URL) -> Bool { url.pathExtension.lowercased() == "zip" }
 
-    /// One item → "имя.zip", several → "Архив.zip" (like Finder), next to them.
+    /// One item → "имя.zip", several → "Архив.zip" (like Finder), next to them. The archive holds
+    /// exactly what was selected (a single file isn't wrapped into its parent folder).
     static func compress(_ urls: [URL]) {
         guard let first = urls.first else { return }
         let folder = first.deletingLastPathComponent()
@@ -26,16 +27,32 @@ enum FileCommands {
         let archive = FileOps.newItemURL(named: base + ".zip", in: folder)
         let arguments: [String]
         let tool: String
+        let marker: String
+        // Progress: the tools name every file they add
+        var total = 0
+        for item in items {
+            total += FileOperation.size(of: item).files
+            if item.hasDirectoryPath || (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true { total += 1 }
+        }
         if items.count == 1 {
-            // ditto keeps extended attributes and resource forks, like Finder's "Compress"
+            // ditto keeps extended attributes and resource forks, like Finder's "Compress";
+            // --keepParent keeps a folder's own name, but would wrap a file into its parent
             tool = "/usr/bin/ditto"
-            arguments = ["-c", "-k", "--sequesterRsrc", "--keepParent", first.path, archive.path]
+            let isFolder = (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            arguments = ["-V", "-c", "-k", "--sequesterRsrc"] + (isFolder ? ["--keepParent"] : []) + [first.path, archive.path]
+            marker = "copying file "
         } else {
             tool = "/usr/bin/zip"
-            arguments = ["-r", "-y", "-q", archive.path] + items.map(\.lastPathComponent)
+            arguments = ["-r", "-y", archive.path] + items.map(\.lastPathComponent)
+            marker = "  adding: "
         }
-        run(tool, arguments, in: folder, busy: "Сжатие «\(archive.lastPathComponent)»…") { ok in
-            if ok { FileUndo.recordCreate(archive) } else { try? FileManager.default.removeItem(at: archive) }
+        let headline: [(text: String, link: URL?)] = [("Сжатие \(items.count) \(plural(items.count, "элемента", "элементов", "элементов")) в «\(archive.lastPathComponent)»", nil)]
+        run(tool, arguments, in: folder, headline: headline, total: total, marker: marker) { ok in
+            if ok {
+                FileUndo.recordCreate(archive)
+            } else {
+                try? FileManager.default.removeItem(at: archive)
+            }
         }
     }
 
@@ -45,7 +62,9 @@ enum FileCommands {
         let fm = FileManager.default
         let folder = archive.deletingLastPathComponent()
         let staging = folder.appendingPathComponent(".winex-extract-\(UUID().uuidString)")
-        run("/usr/bin/ditto", ["-x", "-k", archive.path, staging.path], in: folder, busy: "Распаковка «\(archive.lastPathComponent)»…") { ok in
+        let headline: [(text: String, link: URL?)] = [("Распаковка «\(archive.lastPathComponent)» в ", nil), (folder.displayName, folder)]
+        run("/usr/bin/ditto", ["-V", "-x", "-k", archive.path, staging.path], in: folder, headline: headline,
+            total: entryCount(of: archive), marker: "copying file ") { ok in
             defer { try? fm.removeItem(at: staging) }
             guard ok else { return }
             let contents = ((try? fm.contentsOfDirectory(at: staging, includingPropertiesForKeys: nil)) ?? [])
@@ -67,27 +86,50 @@ enum FileCommands {
         }
     }
 
-    /// Runs an archiving tool off the main thread; a small window says what's going on if it takes long.
-    private static func run(_ tool: String, _ arguments: [String], in folder: URL, busy: String,
-                            then done: @escaping @MainActor (Bool) -> Void) {
+    /// Files in a ZIP (what `ditto -V` will report while extracting).
+    private static func entryCount(of archive: URL) -> Int {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zipinfo")
+        process.arguments = ["-1", archive.path]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return 0 }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self).split(separator: "\n").filter { !$0.hasSuffix("/") }.count
+    }
+
+    /// Runs an archiving tool off the main thread. Lines starting with `marker` (one per file) drive
+    /// the progress window, which appears if the job takes more than a moment.
+    private static func run(_ tool: String, _ arguments: [String], in folder: URL, headline: [(text: String, link: URL?)],
+                            total: Int, marker: String, then done: @escaping @MainActor (Bool) -> Void) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
         process.currentDirectoryURL = folder
-        let errors = Pipe()
-        process.standardError = errors
-        process.standardOutput = FileHandle.nullDevice
-        let indicator = BusyIndicator(title: busy) { process.terminate() }
+        let output = Pipe()
+        process.standardError = output
+        process.standardOutput = output
+        let panel = ArchiveProgress(headline: headline, total: total) { process.terminate() }
+        let collected = ArchiveOutput()
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            let (count, last) = collected.add(chunk, marker: marker)
+            DispatchQueue.main.async { MainActor.assumeIsolated { panel.update(done: count, name: last) } }
+        }
         process.terminationHandler = { finished in
-            let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            output.fileHandleForReading.readabilityHandler = nil
             let ok = finished.terminationStatus == 0 && finished.terminationReason == .exit
+            let message = collected.otherLines
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    indicator.close()
-                    if !ok && !indicator.cancelled {
+                    panel.close()
+                    if !ok && !panel.cancelled {
                         let alert = NSAlert()
-                        alert.messageText = busy.replacingOccurrences(of: "…", with: "") + " не удалось"
-                        alert.informativeText = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                        alert.messageText = (headline.first?.text ?? "Архив") + " — не удалось"
+                        alert.informativeText = message.suffix(600).trimmingCharacters(in: .whitespacesAndNewlines)
                         alert.runModal()
                     }
                     done(ok)
@@ -97,7 +139,7 @@ enum FileCommands {
         do {
             try process.run()
         } catch {
-            indicator.close()
+            panel.close()
             NSAlert(error: error).runModal()
         }
     }
@@ -154,45 +196,96 @@ enum FileCommands {
     }
 }
 
-/// A small window for archiving that takes a while, with a Cancel button.
-@MainActor
-final class BusyIndicator {
-    private var window: NSWindow?
-    private(set) var cancelled = false
-    private var closed = false
+/// Counts the per-file lines of an archiving tool's output (from its background thread).
+final class ArchiveOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = ""
+    private var count = 0
+    private var last = ""
+    private var others = ""
 
-    init(title: String, cancel: @escaping () -> Void) {
-        // Quick jobs never show it
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            MainActor.assumeIsolated { self?.show(title, cancel) }
+    func add(_ data: Data, marker: String) -> (Int, String) {
+        lock.withLock {
+            pending += String(decoding: data, as: UTF8.self)
+            var lines = pending.components(separatedBy: "\n")
+            pending = lines.removeLast()
+            for line in lines {
+                if line.hasPrefix(marker) {
+                    count += 1
+                    let name = line.dropFirst(marker.count).replacingOccurrences(of: " ... ", with: "")
+                    let file = (name.components(separatedBy: " (").first ?? name).trimmingCharacters(in: .whitespaces)
+                    // Resource-fork copies ("__MACOSX/…/._name") aren't worth showing
+                    if !(file as NSString).lastPathComponent.hasPrefix("._") { last = file }
+                } else if !line.hasPrefix(">>>") && !line.contains(" bytes for ") && !line.isEmpty {
+                    others += line + "\n"
+                }
+            }
+            return (count, (last as NSString).lastPathComponent)
         }
     }
 
-    private func show(_ title: String, _ cancel: @escaping () -> Void) {
+    var otherLines: String { lock.withLock { others } }
+}
+
+/// The window of a long archiving job (and of an update download): what's going on, the
+/// percentage, a bar, the current file and ✕ to stop. Quick jobs never show it.
+@MainActor
+final class ArchiveProgress {
+    private var window: NSWindow?
+    private(set) var cancelled = false
+    private var closed = false
+    private let total: Int
+    private let percent = NSTextField(labelWithString: "Подготовка…")
+    private let bar = NSProgressIndicator()
+    private let name = NSTextField(labelWithString: "")
+
+    init(headline: [(text: String, link: URL?)], total: Int, cancel: @escaping () -> Void) {
+        self.total = total
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            MainActor.assumeIsolated { self?.show(headline, cancel) }
+        }
+    }
+
+    func update(done: Int, name current: String) {
+        guard total > 0 else { return }
+        let fraction = min(0.99, Double(done) / Double(total))
+        bar.doubleValue = fraction * 100
+        percent.stringValue = "\(Int(fraction * 100))% выполнено"
+        window?.title = percent.stringValue
+        name.stringValue = current
+    }
+
+    private func show(_ headline: [(text: String, link: URL?)], _ cancel: @escaping () -> Void) {
         guard !closed else { return }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 110), styleMask: [.titled],
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 150), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
-        window.title = "WinEx"
+        window.title = percent.stringValue
         window.isReleasedWhenClosed = false
-        let label = NSTextField(labelWithString: title)
-        label.lineBreakMode = .byTruncatingMiddle
-        let bar = NSProgressIndicator()
-        bar.isIndeterminate = true
-        bar.startAnimation(nil)
-        let button = NSButton(title: "Отмена", target: nil, action: nil)
+        percent.font = .systemFont(ofSize: 18)
+        bar.isIndeterminate = total == 0
+        bar.minValue = 0
+        bar.maxValue = 100
+        if total == 0 { bar.startAnimation(nil) }
+        name.textColor = .secondaryLabelColor
+        name.lineBreakMode = .byTruncatingMiddle
+        let stop = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Отмена") ?? NSImage(), target: nil, action: nil)
+        stop.isBordered = false
+        stop.toolTip = "Отмена"
         let handler = ButtonHandler { [weak self] in
             self?.cancelled = true
             cancel()
         }
-        button.target = handler
-        button.action = #selector(ButtonHandler.fire)
-        objc_setAssociatedObject(button, "handler", handler, .OBJC_ASSOCIATION_RETAIN)
-        let stack = NSStackView(views: [label, bar, button])
+        stop.target = handler
+        stop.action = #selector(ButtonHandler.fire)
+        objc_setAssociatedObject(stop, "handler", handler, .OBJC_ASSOCIATION_RETAIN)
+        let titleRow = NSStackView(views: [percent, NSView(), stop])
+        let stack = NSStackView(views: [FileOperationUI.headlineView(headline), titleRow, bar, name])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
-        bar.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
-        stack.widthAnchor.constraint(equalToConstant: 380).isActive = true
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 18, right: 20)
+        for view in [titleRow, bar, name] { view.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true }
+        stack.widthAnchor.constraint(equalToConstant: 440).isActive = true
         window.contentView = stack
         window.setContentSize(stack.fittingSize)
         window.center()
@@ -204,6 +297,15 @@ final class BusyIndicator {
         closed = true
         window?.orderOut(nil)
         window = nil
+    }
+}
+
+/// Old name kept for the updater's download window.
+typealias BusyIndicator = ArchiveProgress
+
+extension ArchiveProgress {
+    convenience init(title: String, cancel: @escaping () -> Void) {
+        self.init(headline: [(title, nil)], total: 0, cancel: cancel)
     }
 }
 

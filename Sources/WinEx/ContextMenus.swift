@@ -55,7 +55,6 @@ enum FileContextMenu {
         if let single, FileCommands.isAlias(single) {
             add("Показать оригинал", #selector(FileMenuActions.showOriginal(_:)))
         }
-        add("Быстрый просмотр", #selector(FileMenuActions.quickLook(_:)))
         if let openWith = OpenWithMenu.item(for: urls) { menu.addItem(openWith) }
         if folderTabs {
             add("Открыть в новой вкладке", #selector(FileMenuActions.openInNewTab(_:)))

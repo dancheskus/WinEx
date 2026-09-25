@@ -56,7 +56,7 @@ open build/WinEx.app
 ```sh
 swift test                         # модульные тесты логики (имена, теги, .DS_Store, отмена, горячие клавиши)
 scripts/run-scenario.sh undo       # сценарий в самом приложении: undo, newfolder, slowclick, perf,
-                                   # desktop (картинка в build/scenario-desktop/), hittest, placement, placement2, desktopreset, monitorgone, fileops, search, filecommands, drives, trashaccess, update, addressclick, breadcrumbs, look, contextmenu;
+                                   # desktop (картинка в build/scenario-desktop/), hittest, placement, placement2, desktopreset, monitorgone, fileops, search, filecommands, drives, trashaccess, update, addressclick, breadcrumbs, look, contextmenu, unzip;
                                    # mousedrag — с настоящей мышью, вместе со scripts/mouse-drag-check.swift
 ```
 
@@ -78,6 +78,10 @@ WinEx и режим «вместо Finder» тест не трогает.
 - Контекстное меню в стиле Windows 11: сверху ряд кнопок (вырезать, копировать, переименовать,
   поделиться, удалить), ниже пункты со значками и сочетаниями клавиш; «Открыть» — со значком программы.
   Правый щелчок по файлу выделяет его.
+- Звуки как в Finder: перемещение в Корзину, удаление, завершение вставки и перемещения (если в
+  «Звук» включены звуковые эффекты интерфейса).
+- Сжатие и распаковка ZIP с окном хода (проценты, текущий файл, отмена); в архив попадает ровно
+  выделенное (файл — без папки, в которой он лежит).
 - Боковая панель: «Быстрый доступ»; «Места» — iCloud Drive, диски и сетевые папки (⏏ извлечь),
   AirDrop (системное окно), «Сеть» (серверы из Bonjour, подключение с системным входом), «Корзина»
   («Вернуть», «Удалить навсегда», «Очистить Корзину»; нужен «Полный доступ к диску»); «Теги».

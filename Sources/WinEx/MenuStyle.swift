@@ -67,33 +67,43 @@ enum MenuStyle {
             }
         }
         guard !icons.isEmpty else { return }
+        // Roomier than the stock menu, like Explorer's: bigger text, a tall frame per icon
+        let font = NSFont.menuFont(ofSize: 14)
         // Items without an icon keep the same indent, so the texts line up
         for item in items where item.attributedTitle == nil || item.attributedTitle?.containsAttachments == false {
             let attachment = NSTextAttachment()
             attachment.image = framed(icons[item])
-            attachment.bounds = NSRect(x: 0, y: -4, width: 20, height: 18)
+            // The menu centres the row's line box, the shortcut the row itself: more of the frame
+            // above the baseline keeps the text level with the shortcut on the right
+            attachment.bounds = NSRect(x: 0, y: -6, width: 22, height: 28)
             let title = NSMutableAttributedString(attachment: attachment)
-            title.append(NSAttributedString(string: "  " + item.title, attributes: [.font: menu.font ?? NSFont.menuFont(ofSize: 0)]))
+            title.append(NSAttributedString(string: "   " + item.title, attributes: [.font: font]))
             item.attributedTitle = title
             item.image = nil
         }
     }
 
-    /// Every icon in the same 20×18 frame, centred and scaled down to fit, so the texts line up.
+    /// Every icon in the same 22×28 frame (the height makes the rows roomy), centred and scaled
+    /// down to fit, so the texts line up.
     private static func framed(_ icon: NSImage?) -> NSImage {
-        NSImage(size: NSSize(width: 20, height: 18), flipped: false) { rect in
+        NSImage(size: NSSize(width: 22, height: 28), flipped: false) { rect in
             guard let icon, icon.size.width > 0, icon.size.height > 0 else { return true }
-            let scale = min(1, 16 / icon.size.width, 16 / icon.size.height)
+            let scale = min(1, 20 / icon.size.width, 20 / icon.size.height)
             let size = NSSize(width: icon.size.width * scale, height: icon.size.height * scale)
-            icon.draw(in: NSRect(x: (rect.width - size.width) / 2, y: (rect.height - size.height) / 2, width: size.width, height: size.height))
+            // Level with the middle of the text (11 pt up the frame, which starts 6 pt below the baseline)
+            icon.draw(in: NSRect(x: (rect.width - size.width) / 2, y: 11 - size.height / 2, width: size.width, height: size.height))
             return true
         }
     }
 
+    /// A symbol in the menu's text colour, resolved for the current appearance (a dynamic colour
+    /// drawn inside an image can come out black in the dark menu).
     static func symbol(_ name: String) -> NSImage? {
-        NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-                .applying(.init(hierarchicalColor: .labelColor)))
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let color = dark ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.15, alpha: 1)
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+                .applying(.init(paletteColors: [color, color.withAlphaComponent(0.55)])))
     }
 
     /// The row of icon buttons on top of a file menu.
@@ -109,22 +119,24 @@ private final class ActionRowView: NSView {
     private let actions: [(title: String, symbol: String, action: Selector)]
     private weak var target: AnyObject?
     private var hovered: Int? { didSet { needsDisplay = true } }
-    private static let buttonSize = NSSize(width: 78, height: 56), inset: CGFloat = 10
+    private static let buttonSize = NSSize(width: 80, height: 62), inset: CGFloat = 8
 
     init(target: AnyObject, actions: [(title: String, symbol: String, action: Selector)]) {
         self.target = target
         self.actions = actions
         let width = Self.inset * 2 + CGFloat(actions.count) * Self.buttonSize.width
         super.init(frame: NSRect(x: 0, y: 0, width: max(width, 300), height: Self.buttonSize.height + 12))
+        // As wide as the menu: the buttons share the whole width (no gap on the right)
+        autoresizingMask = [.width]
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     private func rect(_ index: Int) -> NSRect {
-        let totalWidth = CGFloat(actions.count) * Self.buttonSize.width
-        let x = (bounds.width - totalWidth) / 2 + CGFloat(index) * Self.buttonSize.width
-        return NSRect(x: x, y: (bounds.height - Self.buttonSize.height) / 2, width: Self.buttonSize.width, height: Self.buttonSize.height)
+        let width = (bounds.width - Self.inset * 2) / CGFloat(max(actions.count, 1))
+        return NSRect(x: Self.inset + CGFloat(index) * width, y: (bounds.height - Self.buttonSize.height) / 2,
+                      width: width, height: Self.buttonSize.height)
     }
 
     private func index(at point: NSPoint) -> Int? {
@@ -139,7 +151,7 @@ private final class ActionRowView: NSView {
                 NSBezierPath(roundedRect: area.insetBy(dx: 2, dy: 0), xRadius: 8, yRadius: 8).fill()
             }
             if let image = NSImage(systemSymbolName: entry.symbol, accessibilityDescription: entry.title)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .regular)
                     .applying(.init(hierarchicalColor: .labelColor))) {
                 let size = image.size
                 image.draw(in: NSRect(x: area.midX - size.width / 2, y: area.maxY - 8 - size.height, width: size.width, height: size.height))
@@ -147,8 +159,8 @@ private final class ActionRowView: NSView {
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
             paragraph.lineBreakMode = .byTruncatingTail
-            (entry.title as NSString).draw(in: NSRect(x: area.minX + 2, y: area.minY + 6, width: area.width - 4, height: 15), withAttributes: [
-                .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph,
+            (entry.title as NSString).draw(in: NSRect(x: area.minX + 2, y: area.minY + 5, width: area.width - 4, height: 16), withAttributes: [
+                .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph,
             ])
         }
     }
