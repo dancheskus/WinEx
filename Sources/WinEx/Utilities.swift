@@ -33,6 +33,18 @@ enum Settings {
         get { defaults.bool(forKey: "showHidden") }
         set { defaults.set(newValue, forKey: "showHidden") }
     }
+
+    /// Search the whole Mac instead of the current folder.
+    static var searchWholeMac: Bool {
+        get { defaults.bool(forKey: "searchWholeMac") }
+        set { defaults.set(newValue, forKey: "searchWholeMac") }
+    }
+
+    /// Search inside files too (on by default, like Finder), not only names.
+    static var searchContents: Bool {
+        get { defaults.object(forKey: "searchContents") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "searchContents") }
+    }
 }
 
 extension Notification.Name {
@@ -128,6 +140,7 @@ final class FileItem {
             case "date": result = compare(a.modified ?? .distantPast, b.modified ?? .distantPast)
             case "type": result = a.typeDescription.localizedStandardCompare(b.typeDescription)
             case "size": result = compare(a.size ?? -1, b.size ?? -1)
+            case "folder": result = a.url.deletingLastPathComponent().path.localizedStandardCompare(b.url.deletingLastPathComponent().path)
             default: result = a.name.localizedStandardCompare(b.name)
             }
             if result == .orderedSame { return a.name.localizedStandardCompare(b.name) == .orderedAscending }

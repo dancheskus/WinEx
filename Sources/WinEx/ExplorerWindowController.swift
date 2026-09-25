@@ -93,7 +93,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
         searchField.sendsSearchStringImmediately = true
-        searchField.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        searchField.recentsAutosaveName = "WinExRecentSearches"
+        searchField.maximumRecents = 10
+        searchField.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        updateSearchMenu()
 
         setUpViewModeControls()
 
@@ -249,8 +252,14 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         // Leaving the address bar mid-edit (tab switch, sidebar click…) drops the edit and its selection
         if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.focusView) }
         pathField.stringValue = Location(tab.url).addressText
-        searchField.stringValue = ""
-        searchField.placeholderString = "Поиск: \(tab.title)"
+        // The field shows the query of a results tab; typing in it refines the search in place
+        if case .search(let request) = Location(tab.url) {
+            if searchField.stringValue != request.text { searchField.stringValue = request.text }
+        } else {
+            searchSettle?.cancel()
+            searchField.stringValue = ""
+        }
+        searchField.placeholderString = Settings.searchWholeMac ? "Поиск на Mac" : "Поиск: \(searchFolder.displayName)"
         fileList.load(tab.url, select: tab.pendingSelection)
         tab.pendingSelection = []
         backButton.isEnabled = tab.canGoBack
@@ -377,8 +386,97 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         pathField.currentEditor()?.selectAll(nil)
     }
 
+    // MARK: - Search
+
+    private var searchSettle: DispatchWorkItem?
+
+    /// Runs the search a moment after typing stops (each keystroke would start a Spotlight query).
     @objc private func searchChanged(_ sender: NSSearchField) {
-        fileList.filter = sender.stringValue
+        searchSettle?.cancel()
+        let text = sender.stringValue
+        let work = DispatchWorkItem { [weak self] in self?.search(for: text) }
+        searchSettle = work
+        // Return (or picking a recent search) searches right away
+        let immediate = NSApp.currentEvent?.type == .keyDown && NSApp.currentEvent?.keyCode == 36
+        DispatchQueue.main.asyncAfter(deadline: .now() + (immediate ? 0 : 0.35), execute: work)
+    }
+
+    /// The folder searches start from: the current one, or the one the current results are for.
+    private var searchFolder: URL {
+        switch Location(selectedTab.url) {
+        case .search(let request): request.folder ?? FileManager.default.homeDirectoryForCurrentUser
+        case let location: location.directory ?? FileManager.default.homeDirectoryForCurrentUser
+        }
+    }
+
+    private func search(for rawText: String) {
+        let text = rawText.trimmingCharacters(in: .whitespaces)
+        let tab = selectedTab
+        let current = Location(tab.url)
+        guard !text.isEmpty else {
+            // Cleared: back to the folder the search was made in
+            if case .search(let request) = current {
+                if tab.canGoBack { tab.goBack() } else if let folder = request.folder { tab.navigate(to: folder) }
+                showSelectedTab()
+            }
+            return
+        }
+        let request = SearchRequest(text: text, folder: searchFolder, wholeMac: Settings.searchWholeMac, contents: Settings.searchContents)
+        if case .search(let old) = current {
+            guard old != request else { return }
+            // Refining the query replaces the results; Back still leads to the folder
+            tab.replace(with: request.url)
+        } else {
+            tab.navigate(to: request.url)
+        }
+        if !searchField.recentSearches.contains(text) {
+            searchField.recentSearches = Array(([text] + searchField.recentSearches).prefix(searchField.maximumRecents))
+        }
+        showSelectedTab()
+    }
+
+    @objc func focusSearchField(_ sender: Any?) {
+        window?.makeFirstResponder(searchField)
+    }
+
+    /// The field's menu: where to search, what to match, recent searches.
+    private func updateSearchMenu() {
+        let menu = NSMenu()
+        func option(_ title: String, _ action: Selector, on: Bool) {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+            item.state = on ? .on : .off
+        }
+        menu.addItem(.sectionHeader(title: "Где искать"))
+        option("В этой папке и вложенных", #selector(searchInFolder(_:)), on: !Settings.searchWholeMac)
+        option("На всём Mac", #selector(searchWholeMac(_:)), on: Settings.searchWholeMac)
+        menu.addItem(.sectionHeader(title: "Что искать"))
+        option("Имена и содержимое", #selector(searchNamesAndContents(_:)), on: Settings.searchContents)
+        option("Только имена", #selector(searchNamesOnly(_:)), on: !Settings.searchContents)
+        menu.addItem(.separator())
+        let title = menu.addItem(withTitle: "Недавние запросы", action: nil, keyEquivalent: "")
+        title.tag = NSSearchField.recentsTitleMenuItemTag
+        let recent = menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
+        recent.tag = NSSearchField.recentsMenuItemTag
+        let none = menu.addItem(withTitle: "Нет недавних запросов", action: nil, keyEquivalent: "")
+        none.tag = NSSearchField.noRecentsMenuItemTag
+        let clear = menu.addItem(withTitle: "Очистить недавние", action: nil, keyEquivalent: "")
+        clear.tag = NSSearchField.clearRecentsMenuItemTag
+        searchField.searchMenuTemplate = menu
+    }
+
+    @objc private func searchInFolder(_ sender: Any?) { setSearchOptions(wholeMac: false) }
+    @objc private func searchWholeMac(_ sender: Any?) { setSearchOptions(wholeMac: true) }
+    @objc private func searchNamesAndContents(_ sender: Any?) { setSearchOptions(contents: true) }
+    @objc private func searchNamesOnly(_ sender: Any?) { setSearchOptions(contents: false) }
+
+    /// Changing an option re-runs the current search with it.
+    private func setSearchOptions(wholeMac: Bool? = nil, contents: Bool? = nil) {
+        if let wholeMac { Settings.searchWholeMac = wholeMac }
+        if let contents { Settings.searchContents = contents }
+        updateSearchMenu()
+        searchField.placeholderString = Settings.searchWholeMac ? "Поиск на Mac" : "Поиск: \(searchFolder.displayName)"
+        if case .search = Location(selectedTab.url) { search(for: searchField.stringValue) }
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -460,6 +558,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         case .newTab: addTab(url: url, select: false)
         case .newWindow: AppDelegate.shared.openWindow(at: url)
         }
+    }
+
+    /// "Показать в папке" for a search result: its folder, with it selected.
+    func fileList(_ list: FileListViewController, reveal url: URL) {
+        selectedTab.pendingSelection = [url]
+        navigate(to: url.deletingLastPathComponent())
     }
 
     func fileListGoUp(_ list: FileListViewController) {

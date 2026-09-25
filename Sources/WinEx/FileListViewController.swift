@@ -4,6 +4,7 @@ import QuickLookThumbnailing
 
 protocol FileListDelegate: AnyObject {
     func fileList(_ list: FileListViewController, open url: URL, in target: FileListViewController.OpenTarget)
+    func fileList(_ list: FileListViewController, reveal url: URL)
     func fileListGoUp(_ list: FileListViewController)
     func fileList(_ list: FileListViewController, didUpdateStatus status: String)
     func fileList(_ list: FileListViewController, didChangeViewMode mode: ViewMode)
@@ -40,10 +41,6 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     /// The view that currently shows the files and should get keyboard focus.
     var focusView: NSView { viewMode == .details ? tableView : collectionView }
-
-    var filter = "" {
-        didSet { if filter != oldValue { refilter(keepSelection: true) } }
-    }
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -92,7 +89,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func setUpTable(menu: NSMenu) {
         let columns: [(id: String, title: String, width: CGFloat)] = [
             ("name", "Имя", 320), ("date", "Дата изменения", 150), ("type", "Тип", 160), ("size", "Размер", 90),
-            ("tags", "Теги", 70),
+            ("tags", "Теги", 70), ("folder", "Папка", 220),
         ]
         for column in columns {
             let tableColumn = NSTableColumn(identifier: .init(column.id))
@@ -239,7 +236,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     // MARK: - Loading
 
     func load(_ url: URL, select: [URL]) {
-        stopTagQuery()
+        stopSearch()
+        searchNote = nil
         loader.cancel()
         reloadCompletions = []
         let location = Location(url)
@@ -255,18 +253,24 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             return
         case .tag(let tag):
             // A tag location: every file with the tag, found by Spotlight (updates live)
-            directory = nil
-            watcher = nil
-            allItems = []
-            allItemsOrder = nil
-            startTagQuery(tag)
-            refilter(keepSelection: false)
+            startSearch(FileSearch(predicate: NSPredicate(format: "kMDItemUserTags == %@", tag), scope: nil))
+            return
+        case .search(let request):
+            guard !request.isTooShort else {
+                startSearch(nil)
+                errorMessage = nil
+                searchNote = "Введите хотя бы 2 символа для поиска на всём Mac"
+                refilter(keepSelection: false)
+                return
+            }
+            startSearch(FileSearch(request))
             return
         case .folder, .trash:
             break
         }
         directory = url
         watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
+        updateFolderColumn()
         showFolderView()
         // Compare resolved paths: /tmp/x and /private/tmp/x are the same item
         let paths = Set(select.map { $0.resolvingSymlinksInPath().path })
@@ -303,8 +307,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             return
         }
         let produce: FolderLoader.Produce
-        if tagQuery != nil {
-            let urls = tagResults
+        if search != nil {
+            let urls = searchState.results
             let order = sortOrder
             produce = { FolderLoader.Listing(items: FileItem.sorted(urls.map(FileItem.init), by: order), order: order) }
         } else if let directory {
@@ -348,43 +352,45 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         return field.isDescendant(of: focusView)
     }
 
-    // MARK: - Tag locations
+    // MARK: - Tags and search results
 
-    private var tagQuery: NSMetadataQuery?
-    private var tagResults: [URL] = []
-    private let tagQueryObservers = Observers()
+    /// Spotlight results shown instead of a folder (a tag or a search), live.
+    private var search: FileSearch?
+    private var searchState = FileSearch.State()
+    /// Shown in the status bar instead of the item count (e.g. "type at least 2 characters").
+    private var searchNote: String?
 
-    private func startTagQuery(_ tag: String) {
-        let query = NSMetadataQuery()
-        query.predicate = NSPredicate(format: "kMDItemUserTags == %@", tag)
-        query.searchScopes = [NSMetadataQueryLocalComputerScope]
-        tagQuery = query
-        tagResults = []
+    private func startSearch(_ newSearch: FileSearch?) {
+        directory = nil
+        watcher = nil
         allItems = []
-        for name in [Notification.Name.NSMetadataQueryDidFinishGathering, .NSMetadataQueryDidUpdate] {
-            tagQueryObservers.add(name, object: query) { [weak self] in self?.tagQueryChanged() }
+        allItemsOrder = nil
+        errorMessage = nil
+        search = newSearch
+        searchState = FileSearch.State()
+        updateFolderColumn()
+        refilter(keepSelection: false)
+        guard let newSearch else { return }
+        newSearch.onChange = { [weak self] state in
+            self?.searchState = state
+            self?.reload()
         }
-        query.start()
+        newSearch.start()
     }
 
-    private func tagQueryChanged() {
-        guard let query = tagQuery else { return }
-        query.disableUpdates()
-        tagResults = (0..<query.resultCount).compactMap { index in
-            (query.result(at: index) as? NSMetadataItem)?.value(forAttribute: NSMetadataItemPathKey) as? String
-        }.map { URL(fileURLWithPath: $0) }
-        query.enableUpdates()
-        reload()
+    private func stopSearch() {
+        search?.stop()
+        search = nil
+        searchState = FileSearch.State()
     }
 
-    private func stopTagQuery() {
-        tagQuery?.stop()
-        tagQuery = nil
-        tagQueryObservers.removeAll()
+    /// Results come from many folders: show where each one is.
+    private func updateFolderColumn() {
+        tableView.tableColumn(withIdentifier: .init("folder"))?.isHidden = search == nil
     }
 
     func stopWatching() {
-        stopTagQuery()
+        stopSearch()
         loader.cancel()
         watcher = nil
     }
@@ -424,8 +430,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             FileItem.sort(&allItems, by: order)
             allItemsOrder = order
         }
-        let query = filter.trimmingCharacters(in: .whitespaces)
-        items = query.isEmpty ? allItems : allItems.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        items = allItems
         if viewMode == .details { tableView.reloadData() } else { collectionView.reloadData() }
         setSelection(IndexSet(items.indices.filter { selectedPaths.contains(items[$0].url.path) }))
     }
@@ -437,6 +442,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private func updateStatus() {
         var status = "\(items.count) \(plural(items.count, "элемент", "элемента", "элементов"))"
+        if search != nil, case .search = location {
+            status = "Найдено: \(items.count)"
+            if searchState.truncated { status += " (показаны самые подходящие)" }
+            if searchState.gathering || searchState.walking { status += "    Поиск…" }
+        }
+        if let searchNote { status = searchNote }
         let selected = selectedIndexes.count
         if selected > 0 { status += "    Выбрано: \(selected)" }
         if let errorMessage { status = "Нет доступа: \(errorMessage)" }
@@ -503,6 +514,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     @objc func openInNewWindow(_ sender: Any?) {
         targetURLs.forEach { delegate?.fileList(self, open: $0, in: .newWindow) }
+    }
+
+    @objc private func revealInFolder(_ sender: Any?) {
+        guard let url = targetURLs.first else { return }
+        delegate?.fileList(self, reveal: url)
     }
 
     @objc func copyPath(_ sender: Any?) {
@@ -806,6 +822,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             FileContextMenu.addItems(to: menu, for: targetURLs, target: self,
                                      folderTabs: rows.contains { items[$0].isFolder },
                                      customizableFolder: rows.count == 1 && rows.first.map { items[$0].isFolder } == true)
+            if search != nil, rows.count == 1, let open = menu.items.firstIndex(where: { $0.action == #selector(openSelected(_:)) }) {
+                // Search and tag results come from anywhere: Explorer's "Open file location"
+                let reveal = NSMenuItem(title: "Показать в папке", action: #selector(revealInFolder(_:)), keyEquivalent: "")
+                reveal.target = self
+                menu.insertItem(reveal, at: open + 1)
+            }
         } else {
             let viewItem = NSMenuItem(title: "Вид", action: nil, keyEquivalent: "")
             let viewMenu = NSMenu()
@@ -910,6 +932,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             cell.textField?.stringValue = item.typeDescription
         case "size":
             cell.textField?.stringValue = item.sizeDescription ?? ""
+        case "folder":
+            let folder = item.url.deletingLastPathComponent().path
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            cell.textField?.stringValue = folder.hasPrefix(home) ? "~" + folder.dropFirst(home.count) : folder
+            cell.textField?.toolTip = folder
         case "tags":
             let dots = FileTags.dots(for: item.tags, attributes: [.font: NSFont.systemFont(ofSize: 12)])
             cell.textField?.attributedStringValue = dots

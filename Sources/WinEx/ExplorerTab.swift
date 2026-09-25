@@ -28,6 +28,11 @@ final class ExplorerTab {
         url = target
     }
 
+    /// Shows another place without a history step (refining a search).
+    func replace(with newURL: URL) {
+        url = newURL.standardizedFileURL
+    }
+
     func goBack() {
         guard let previous = backStack.popLast() else { return }
         forwardStack.append(url)

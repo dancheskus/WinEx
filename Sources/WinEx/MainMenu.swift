@@ -63,6 +63,7 @@ enum MainMenu {
                 return alternate
             }(),
             item("Новая папка", #selector(FileListViewController.newFolder(_:)), "n", [.command, .shift]),
+            item("Найти", #selector(ExplorerWindowController.focusSearchField(_:)), "f"),
             renameItem,
             item("Переместить в корзину", #selector(FileListViewController.moveToTrash(_:)), key(NSBackspaceCharacter)),
             .separator(),

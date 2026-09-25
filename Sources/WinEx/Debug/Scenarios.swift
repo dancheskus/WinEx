@@ -17,7 +17,66 @@ enum Scenarios {
         "mousedrag": mouseDrag,
         "monitorgone": monitorGone,
         "fileops": fileOps,
+        "search": search,
     ]
+
+    /// Search in a folder (not indexed by Spotlight: the name walk), back to the folder, the whole
+    /// Mac; CPU while results are shown and after leaving them.
+    static func search(_ s: Scenario) {
+        let base = s.makeFiles(["Отчёт 2024.txt", "report.txt", "other.txt"])
+        s.makeFiles(["отчет старый.md"], in: "sub/deep")
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        func field() -> NSSearchField? { s.find(NSSearchField.self, in: s.window?.window?.contentView) }
+        func type(_ text: String) {
+            guard let field = field(), let action = field.action else { s.note("  (no search field)"); return }
+            field.stringValue = text
+            NSApp.sendAction(action, to: field.target, from: field)
+        }
+        func status() -> String {
+            (s.window?.window?.contentView).map { v in s.findAll(NSTextField.self, in: v) }?
+                .first { $0.stringValue.hasPrefix("Найдено") || $0.stringValue.contains("элемент") || $0.stringValue.hasPrefix("Введите") }?.stringValue ?? "?"
+        }
+        func names() -> [String] {
+            guard let table = s.table else { return [] }
+            return (0..<table.numberOfRows).compactMap { (table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue }.sorted()
+        }
+        func cpuSeconds() -> Double {
+            var usage = rusage()
+            getrusage(RUSAGE_SELF, &usage)
+            return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6
+        }
+        var cpuStart = 0.0
+        Settings.searchWholeMac = false
+        s.run([
+            (0.8, "type «отчёт»", { type("отчёт") }),
+            (2.5, "results", {
+                s.note("  \(s.window?.selectedTab.title ?? "?") | \(status())")
+                s.note("  \(names())  expect Отчёт 2024.txt, отчет старый.md")
+                let folderColumn = s.table?.tableColumn(withIdentifier: .init("folder"))
+                s.note("  folder column shown: \(folderColumn?.isHidden == false)")
+                cpuStart = cpuSeconds()
+            }),
+            (5.0, "CPU with results on screen (5 s)", { s.note(String(format: "  %.1f%% of one core", (cpuSeconds() - cpuStart) / 5 * 100)) }),
+            (0.1, "clear the field", { type("") }),
+            (0.8, "back in the folder", {
+                s.note("  \(s.window?.selectedTab.title ?? "?"), folder column hidden: \(s.table?.tableColumn(withIdentifier: .init("folder"))?.isHidden == true)")
+                cpuStart = cpuSeconds()
+            }),
+            (5.0, "CPU after leaving the results (5 s)", { s.note(String(format: "  %.1f%% of one core", (cpuSeconds() - cpuStart) / 5 * 100)) }),
+            (0.1, "whole Mac, 1 letter", { Settings.searchWholeMac = true; type("W") }),
+            (0.8, "too short", { s.note("  \(status())") }),
+            (0.1, "whole Mac: «WinEx»", {
+                cpuStart = cpuSeconds()
+                type("WinEx")
+            }),
+            (4.0, "results", {
+                s.note("  \(status()), CPU for the search: \(String(format: "%.2f", cpuSeconds() - cpuStart)) s")
+                s.note("  includes this project: \(names().contains("WinEx"))")
+                Settings.searchWholeMac = false
+            }),
+        ])
+    }
 
     /// Copy with the progress window (pause, resume), then a move with name clashes decided per file.
     static func fileOps(_ s: Scenario) {

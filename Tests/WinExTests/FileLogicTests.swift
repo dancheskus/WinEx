@@ -271,3 +271,47 @@ struct DesktopLabelTests {
         #expect(text.last?.string.hasSuffix(".png") == true)
     }
 }
+
+struct SearchRequestTests {
+    @Test func survivesTheTabURL() {
+        let request = SearchRequest(text: "отчёт 2024", folder: URL(fileURLWithPath: "/Users/me/Документы"), wholeMac: false, contents: false)
+        #expect(SearchRequest(url: request.url) == request)
+        #expect(Location(request.url) == .search(request))
+        #expect(Location(request.url).title == "Поиск «отчёт 2024»")
+        #expect(Location(request.url).directory == nil)
+    }
+
+    @Test func everyWordMustBeInTheName() {
+        let request = SearchRequest(text: "отчет 2024", folder: nil)
+        #expect(request.nameMatches("Годовой ОТЧЁТ за 2024.pdf"))  // case and diacritics don't matter
+        #expect(!request.nameMatches("Отчёт 2023.pdf"))
+    }
+
+    @Test func predicateMatchesNamesAndOptionallyContents() {
+        let names = SearchRequest(text: "a*b", folder: nil, contents: false).predicate.predicateFormat
+        #expect(names.contains("kMDItemFSName LIKE[cd]") && names.contains("a\\\\*b"))
+        let both = SearchRequest(text: "план", folder: nil).predicate.predicateFormat
+        #expect(both.contains("kMDItemTextContent CONTAINS[cd]"))
+    }
+
+    @Test func tooShortForTheWholeMac() {
+        #expect(SearchRequest(text: "a", folder: nil, wholeMac: true).isTooShort)
+        #expect(!SearchRequest(text: "a", folder: URL(fileURLWithPath: "/tmp")).isTooShort)
+    }
+}
+
+/// NSMetadataQuery throws (and takes the app down) on predicates it can't translate to Spotlight:
+/// start real queries with every shape of request.
+@MainActor
+struct SpotlightPredicateTests {
+    @Test(arguments: ["отчёт", "годовой отчёт 2024", "a*b?c"], [true, false])
+    func spotlightAcceptsThePredicate(_ text: String, _ contents: Bool) async {
+        let dir = tempFolder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let query = NSMetadataQuery()
+        query.predicate = SearchRequest(text: text, folder: dir, contents: contents).predicate
+        query.searchScopes = [dir]
+        #expect(query.start())
+        query.stop()
+    }
+}

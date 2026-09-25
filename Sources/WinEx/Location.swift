@@ -1,12 +1,14 @@
 import AppKit
 
 /// What a tab shows. Tabs, history and the sidebar store plain URLs; this decodes them:
-/// a folder, the Trash (a folder with its own menu), all files with a tag, or the network.
+/// a folder, the Trash (a folder with its own menu), all files with a tag, the network, or
+/// search results.
 enum Location: Equatable {
     case folder(URL)
     case trash
     case tag(String)
     case network
+    case search(SearchRequest)
 
     /// Tag locations use this URL scheme: `x-winex-tag://tag/<name>`.
     static let tagScheme = "x-winex-tag"
@@ -14,6 +16,8 @@ enum Location: Equatable {
     init(_ url: URL) {
         if url.scheme == Places.networkURL.scheme {
             self = .network
+        } else if let request = SearchRequest(url: url) {
+            self = .search(request)
         } else if url.scheme == Self.tagScheme {
             self = .tag(String(url.path.dropFirst()))
         } else if Places.isTrash(url) {
@@ -29,6 +33,7 @@ enum Location: Equatable {
         case .trash: Places.trashURL
         case .tag(let name): Self.tagURL(name)
         case .network: Places.networkURL
+        case .search(let request): request.url
         }
     }
 
@@ -37,6 +42,7 @@ enum Location: Equatable {
         switch (a, b) {
         case let (.folder(x), .folder(y)): x.path == y.path
         case (.trash, .trash), (.network, .network): true
+        case let (.search(x), .search(y)): x == y
         case let (.tag(x), .tag(y)): x == y
         default: false
         }
@@ -55,7 +61,7 @@ enum Location: Equatable {
         switch self {
         case .folder(let url): url
         case .trash: Places.trashURL
-        case .tag, .network: nil
+        case .tag, .network, .search: nil
         }
     }
 
@@ -66,6 +72,7 @@ enum Location: Equatable {
         case .trash: Places.trashURL.displayName
         case .tag(let name): name
         case .network: "Сеть"
+        case .search(let request): "Поиск «\(request.text)»"
         }
     }
 
@@ -74,6 +81,8 @@ enum Location: Equatable {
         switch self {
         case .tag(let name): "Теги: \(name)"
         case .network: "Сеть"
+        case .search(let request):
+            "Результаты поиска «\(request.text)» " + (request.wholeMac ? "на всём Mac" : "в «\(request.folder?.displayName ?? "")»")
         case .folder, .trash: url.path
         }
     }
@@ -82,7 +91,7 @@ enum Location: Equatable {
     var isBrowsable: Bool {
         switch self {
         case .folder(let url): url.isBrowsableDirectory
-        case .trash, .tag, .network: true
+        case .trash, .tag, .network, .search: true
         }
     }
 
@@ -93,6 +102,7 @@ enum Location: Equatable {
         case .trash: NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
         case .tag(let name): FileTags.dotImage(color: FileTags.tag(named: name, knownTags: []).color, size: 14)
         case .network: NSImage(systemSymbolName: "network", accessibilityDescription: nil)
+        case .search: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         }
     }
 }
