@@ -35,9 +35,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // The window in front is the one to come back next time
+        isTerminating = true
+        if let front = frontExplorerWindow { WindowPlacement.remember(front) }
         guard FinderReplacement.isApplied else { return }
         desktop?.hide()
         FinderReplacement.restore()
+    }
+
+    /// Windows closing because the app quits don't count as "closed last".
+    private(set) var isTerminating = false
+
+    /// The frontmost visible folder window.
+    private var frontExplorerWindow: NSWindow? {
+        NSApp.orderedWindows.first { $0 is ExplorerWindow && $0.isVisible && !$0.isMiniaturized }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -141,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let window = controller.window else { return controller }
         if let origin {
             window.setFrameOrigin(origin)
-        } else if let last = windowControllers.last?.window {
+        } else if let last = frontExplorerWindow ?? windowControllers.last?.window {
             window.setFrame(NSRect(origin: window.frame.origin, size: last.frame.size), display: false)
             window.setFrameTopLeftPoint(last.cascadeTopLeft(from: NSPoint(x: last.frame.minX, y: last.frame.maxY)))
         } else if let frame = WindowPlacement.restoredFrame() {

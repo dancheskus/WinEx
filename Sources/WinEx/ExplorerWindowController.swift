@@ -486,11 +486,11 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     // MARK: - NSWindowDelegate
 
-    // The window the user moved, resized or switched to last is where the next first window opens
+    // Where the next window opens when none is open: the window moved, resized or closed last.
+    // (Not "became active": closing a window activates another one by itself.)
     func windowDidMove(_ notification: Notification) { rememberPlacement() }
     func windowDidEndLiveResize(_ notification: Notification) { rememberPlacement() }
     func windowDidResize(_ notification: Notification) { if window?.inLiveResize == false { rememberPlacement() } }  // zoom
-    func windowDidBecomeMain(_ notification: Notification) { rememberPlacement() }
     func windowDidExitFullScreen(_ notification: Notification) { rememberPlacement() }
 
     private func rememberPlacement() {
@@ -498,6 +498,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     func windowWillClose(_ notification: Notification) {
+        if !AppDelegate.shared.isTerminating { rememberPlacement() }
         fileList.stopWatching()
         AppDelegate.shared.windowControllerDidClose(self)
     }

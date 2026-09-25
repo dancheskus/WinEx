@@ -13,7 +13,46 @@ enum Scenarios {
         "desktop": desktop,
         "placement": placement,
         "desktopreset": desktopReset,
+        "placement2": placementSecondScreen,
     ]
+
+    /// A window closed on the second monitor: the next one must open there. Logs every save.
+    static func placementSecondScreen(_ s: Scenario) {
+        let app = AppDelegate.shared
+        guard let second = NSScreen.screens.dropFirst().first else { s.note("  (one monitor only)"); s.run([]); return }
+        let target = CGRect(x: second.visibleFrame.minX + 200, y: second.visibleFrame.minY + 200, width: 900, height: 600)
+        func saved() -> String {
+            guard let p = WindowPlacement.saved else { return "-" }
+            let screen = NSScreen.screens.first { $0.displayUUID == p.screenID }?.localizedName ?? p.screenID
+            return "\(Int(p.frame.minX)),\(Int(p.frame.minY)) \(Int(p.frame.width))×\(Int(p.frame.height)) on \(screen)"
+        }
+        let main = CGRect(x: 300, y: 300, width: 640, height: 700)
+        var onSecond: ExplorerWindowController?
+        s.run([
+            (0.5, "window A on the main monitor, window B on the second", {
+                s.window?.window?.setFrame(main, display: true)
+                onSecond = app.openWindow(at: s.sandbox)
+                onSecond?.window?.setFrame(target, display: true)
+                s.note("  saved: \(saved())")
+            }),
+            (0.5, "close B (A becomes active by itself)", { onSecond?.window?.performClose(nil) }),
+            (0.5, "after close", { s.note("  saved: \(saved())  expect B on \(second.localizedName)  windows: \(app.windowControllers.count)") }),
+            (0.2, "open a window while A is open", {
+                let w = app.openWindow(at: s.sandbox).window
+                s.note("  cascades from A: \(w?.frame ?? .zero) on \(w?.screen?.localizedName ?? "?")")
+            }),
+            (0.5, "close A and the new one; move a last window to the second monitor and close it", {
+                app.windowControllers.forEach { $0.window?.performClose(nil) }
+                let last = app.openWindow(at: s.sandbox).window
+                last?.setFrame(target, display: true)
+                last?.performClose(nil)
+            }),
+            (0.5, "open after all closed", {
+                let w = app.openWindow(at: s.sandbox).window
+                s.note("  new: \(w?.frame ?? .zero) on \(w?.screen?.localizedName ?? "?")  expect \(target) on \(second.localizedName)")
+            }),
+        ])
+    }
 
     /// Settings ▸ "Сбросить рабочий стол как в Finder…": Cancel keeps the layout, Reset takes Finder's.
     static func desktopReset(_ s: Scenario) {
