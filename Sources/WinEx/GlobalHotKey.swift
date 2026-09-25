@@ -39,8 +39,10 @@ final class GlobalHotKey {
 
     private var hotKey: EventHotKeyRef?
     private var handler: EventHandlerRef?
-    /// False when another app already owns the shortcut.
     private(set) var isRegistered = false
+    /// Registration was tried and refused: another app already owns the shortcut.
+    var isTaken: Bool { attempted && !isRegistered && Self.preset != .off }
+    private var attempted = false
 
     /// (Re-)registers the chosen shortcut.
     func apply() {
@@ -49,6 +51,7 @@ final class GlobalHotKey {
         isRegistered = false
         let preset = Self.preset
         guard preset != .off else { return }
+        attempted = true
         installHandler()
         var reference: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(kVK_ANSI_E), preset.modifiers, EventHotKeyID(signature: fourCC("WnEx"), id: 1),

@@ -22,7 +22,31 @@ enum Scenarios {
         "drives": drives,
         "trashaccess": trashAccess,
         "update": update,
+        "settings": settingsTabs,
     ]
+
+    /// Opens Settings and shows each tab in turn, waiting for an outside `screencapture -l` of the
+    /// window (writes <out>/tab-N with the window number, waits for <out>/shot-N).
+    static func settingsTabs(_ s: Scenario) {
+        AppDelegate.shared.showSettings(nil)
+        func tabs() -> NSTabViewController? { NSApp.windows.first { $0.title.hasPrefix("Настройки") || $0.contentViewController is NSTabViewController }?.contentViewController as? NSTabViewController }
+        @MainActor func step(_ index: Int) {
+            guard let tabs = tabs(), let window = tabs.view.window else { s.note("  (no settings window)"); s.run([]); return }
+            guard index < tabs.tabViewItems.count else { window.close(); s.run([]); return }
+            tabs.selectedTabViewItemIndex = index
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                s.note("  \(tabs.tabViewItems[index].label): \(Int(window.frame.width))×\(Int(window.frame.height))")
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+                @MainActor func wait(_ tries: Int) {
+                    if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-\(index)").path) || tries == 0 { step(index + 1); return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { wait(tries - 1) }
+                }
+                wait(50)
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { step(0) }
+    }
 
     /// The updater's download and signature check (without the restart): a build signed with our
     /// certificate is accepted, an ad-hoc copy is refused. Uses this very app as the "release".
