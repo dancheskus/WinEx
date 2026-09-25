@@ -5,8 +5,7 @@ import UniformTypeIdentifiers
 /// "Свойства" (⌘I / ⌥↩): one file or a group. In WinEx's own look (the translucent material of
 /// its menus, rounded cards, roomy rows) with tabs like Explorer's: «Общие» (type, app, place,
 /// size, dates, attributes), «Подробно» (what matters for the kind of file: picture size and
-/// camera settings, durations and codecs, pages, app version, where it was downloaded from,
-/// checksums) and «Доступ» (owner and permissions).
+/// camera settings, durations and codecs, pages, app version, where it was downloaded from) and «Доступ» (owner and permissions).
 final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     private static var open: [PropertiesWindowController] = []
 
@@ -288,10 +287,6 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
                 }
                 detailsStack.addArrangedSubview(PropertiesUI.card(section.title, rows))
             }
-            // Checksums are for files (an app is a folder inside)
-            if !((try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false) {
-                detailsStack.addArrangedSubview(checksumCard())
-            }
             if detailsStack.arrangedSubviews.isEmpty {
                 let none = PropertiesUI.value(L("Других сведений об этом объекте нет"))
                 none.textColor = .secondaryLabelColor
@@ -303,36 +298,6 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func openLink(_ sender: NSButton) {
         if let link = sender.toolTip.flatMap(URL.init(string:)) { NSWorkspace.shared.open(link) }
-    }
-
-    private let shaValue = PropertiesUI.value("—")
-    private let md5Value = PropertiesUI.value("—")
-
-    /// Checksums on request (a big file takes a while): compare a download with the published one.
-    private func checksumCard() -> NSView {
-        let compute = PropertiesUI.linkButton(L("Вычислить"), target: self, action: #selector(computeChecksums(_:)))
-        let line = NSStackView(views: [shaValue, compute])
-        line.spacing = 8
-        for value in [shaValue, md5Value] {
-            value.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-            value.lineBreakMode = .byCharWrapping
-            value.maximumNumberOfLines = 2
-        }
-        return PropertiesUI.card(L("Контрольные суммы"), [PropertiesUI.row("SHA-256", line), PropertiesUI.row("MD5", md5Value)])
-    }
-
-    @objc private func computeChecksums(_ sender: NSButton) {
-        sender.isHidden = true
-        shaValue.stringValue = L("Вычисляется…")
-        let url = single, cancel = cancel
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let sums = FileDetails.checksums(of: url) { cancel.isCancelled }
-            DispatchQueue.main.async {
-                self?.shaValue.stringValue = sums?.sha256 ?? L("Не удалось прочитать файл")
-                self?.md5Value.stringValue = sums?.md5 ?? "—"
-                self?.fitWindow()
-            }
-        }
     }
 
     // MARK: - «Доступ»

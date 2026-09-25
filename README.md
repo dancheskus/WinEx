@@ -148,7 +148,7 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
     camera, lens, exposure, focal length, place with a map link), audio and video (duration,
     frame size and rate, codecs, bit rates, channels), PDF (pages, paper size, title, author,
     producer), text (lines, words, encoding), apps (version, identifier, processors, minimum
-    macOS), where a download came from, SHA-256 / MD5 checksums on request;
+    macOS), where a download came from;
   - Access: owner, group, permissions in words and as a code, what you may do; the Read Only and
     Hidden attributes.
 - Finder tags: the row of colored circles in the context menu, colored dots by the names, the Tags

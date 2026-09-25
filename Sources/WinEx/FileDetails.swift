@@ -1,6 +1,5 @@
 import AppKit
 import AVFoundation
-import CryptoKit
 import ImageIO
 import PDFKit
 import UniformTypeIdentifiers
@@ -274,23 +273,6 @@ enum FileDetails {
             section.rows.append(Row(label: index == 0 ? L("Откуда") : L("Страница"), value: source, link: URL(string: source)))
         }
         return section
-    }
-
-    // MARK: Checksums
-
-    /// SHA-256 and MD5 in one pass over the file.
-    static func checksums(of url: URL, cancelled: @escaping @Sendable () -> Bool) -> (sha256: String, md5: String)? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-        var sha = SHA256()
-        var md5 = Insecure.MD5()
-        while let chunk = try? handle.read(upToCount: 4 << 20), !chunk.isEmpty {
-            if cancelled() { return nil }
-            sha.update(data: chunk)
-            md5.update(data: chunk)
-        }
-        let hex = { (digest: any Digest) in digest.map { String(format: "%02x", $0) }.joined() }
-        return (hex(sha.finalize()), hex(md5.finalize()))
     }
 
     static func longDate(_ date: Date) -> String {
