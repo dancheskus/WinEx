@@ -123,18 +123,24 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func setUpTable(menu: NSMenu) {
-        let columns: [(id: String, title: String, width: CGFloat)] = [
-            ("name", "Имя", 320), ("date", "Дата изменения", 150), ("type", "Тип", 160), ("size", "Размер", 90),
-            ("tags", "Теги", 70), ("folder", "Папка", 220),
-        ]
-        for column in columns {
-            let tableColumn = NSTableColumn(identifier: .init(column.id))
+        // The user's columns, in the user's order and widths ("Папка" appears only in search results)
+        let layout = FileColumn.savedLayout
+        for column in layout.order {
+            let tableColumn = NSTableColumn(identifier: .init(column.rawValue))
             tableColumn.title = column.title
-            tableColumn.width = column.width
-            tableColumn.minWidth = 60
-            if column.id != "tags" { tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.id, ascending: true) }
-            if column.id == "size" { tableColumn.headerCell.alignment = .right }
+            tableColumn.width = layout.widths[column] ?? column.defaultWidth
+            tableColumn.minWidth = column == .name ? 120 : 50
+            tableColumn.isHidden = column == .folder || layout.hidden.contains(column)
+            if column.isSortable { tableColumn.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: true) }
+            if column == .size { tableColumn.headerCell.alignment = .right }
             tableView.addTableColumn(tableColumn)
+        }
+        headerMenu.delegate = self
+        let header = FileHeaderView()
+        header.menu = headerMenu
+        tableView.headerView = header
+        for name in [NSTableView.columnDidResizeNotification, NSTableView.columnDidMoveNotification] {
+            observers.add(name, object: tableView) { [weak self] in self?.saveColumns() }
         }
         tableView.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
         tableView.style = .fullWidth
@@ -427,6 +433,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     /// Results come from many folders: show where each one is.
     private func updateFolderColumn() {
+        // (Its own rule: shown in search results only; not a user choice)
         tableView.tableColumn(withIdentifier: .init("folder"))?.isHidden = search == nil
     }
 
@@ -987,6 +994,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        if menu === headerMenu { return fillHeaderMenu(menu) }
         // Like Explorer: right-clicking an item selects it (the menu acts on the selection)
         let clicked = clickedIndex
         if clicked >= 0 && !selectedIndexes.contains(clicked) { setSelection(IndexSet(integer: clicked)) }
@@ -1035,21 +1043,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             viewItem.submenu = viewMenu
             menu.addItem(viewItem)
 
-            let sortMenu = NSMenu()
-            let current = tableView.sortDescriptors.first
-            for (key, title) in [("name", "Имя"), ("date", "Дата изменения"), ("type", "Тип"), ("size", "Размер")] {
-                let item = sortMenu.addItem(withTitle: title, action: #selector(sortByKey(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = key
-                item.state = (current?.key ?? "name") == key ? .on : .off
-            }
-            sortMenu.addItem(.separator())
-            for (ascending, title) in [(true, "По возрастанию"), (false, "По убыванию")] {
-                let item = sortMenu.addItem(withTitle: title, action: #selector(sortOrder(_:)), keyEquivalent: "")
-                item.target = self
-                item.tag = ascending ? 1 : 0
-                item.state = (current?.ascending ?? true) == ascending ? .on : .off
-            }
+            let sortMenu = makeSortMenu()
             menu.addItem(withTitle: "Сортировка", action: nil, keyEquivalent: "").submenu = sortMenu
             add("Обновить", #selector(refresh(_:)))
             menu.addItem(.separator())
@@ -1060,6 +1054,59 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             add("Копировать путь к папке", #selector(copyPath(_:)))
             add("Свойства", #selector(showProperties(_:)))
         }
+    }
+
+    /// "Сортировка": the usual keys, the rarer ones under "Дополнительно", the direction.
+    func makeSortMenu() -> NSMenu {
+        let sortMenu = NSMenu()
+        let current = tableView.sortDescriptors.first
+        func addKey(_ key: FileColumn, to menu: NSMenu) {
+            let item = menu.addItem(withTitle: key.title, action: #selector(sortByKey(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = key.rawValue
+            item.state = (current?.key ?? "name") == key.rawValue ? .on : .off
+        }
+        for key in [FileColumn.name, .date, .type] { addKey(key, to: sortMenu) }
+        let more = NSMenu()
+        for key in [FileColumn.size, .created, .added] { addKey(key, to: more) }
+        let moreItem = sortMenu.addItem(withTitle: "Дополнительно", action: nil, keyEquivalent: "")
+        moreItem.submenu = more
+        if more.items.contains(where: { $0.state == .on }) { moreItem.state = .on }
+        sortMenu.addItem(.separator())
+        for (ascending, title) in [(true, "По возрастанию"), (false, "По убыванию")] {
+            let item = sortMenu.addItem(withTitle: title, action: #selector(sortOrder(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = ascending ? 1 : 0
+            item.state = (current?.ascending ?? true) == ascending ? .on : .off
+        }
+        return sortMenu
+    }
+
+    /// "Создать ▸": a folder and the document templates.
+    func makeNewItemMenu() -> NSMenu {
+        let item = NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)))
+        let menu = item.submenu ?? NSMenu()
+        item.submenu = nil
+        return menu
+    }
+
+    var canCreateItems: Bool { directory != nil && location != .trash && search == nil }
+
+    // MARK: - Selection commands
+
+    @objc func selectAllItems(_ sender: Any?) { setSelection(IndexSet(items.indices)) }
+    @objc func selectNone(_ sender: Any?) { setSelection(IndexSet()) }
+
+    @objc func invertSelection(_ sender: Any?) {
+        setSelection(IndexSet(items.indices).subtracting(selectedIndexes))
+    }
+
+    var hasSelection: Bool { !selectedIndexes.isEmpty }
+
+    /// "Добавить в избранное": the selected folders, or the folder shown when nothing is selected.
+    @objc func addToFavorites(_ sender: Any?) {
+        let folders = selectedIndexes.map { items[$0] }.filter(\.isFolder).map(\.url)
+        if !folders.isEmpty { folders.forEach { SidebarConfig.pin($0) } } else if let directory { SidebarConfig.pin(directory) }
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -1120,25 +1167,108 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             cell.imageView?.image = item.icon
             cell.imageView?.alphaValue = FileClipboard.shared.isCut(item.url) ? Self.cutAlpha : 1
             cell.textField?.stringValue = item.name
-        case "date":
-            cell.textField?.stringValue = item.modified.map(Self.dateFormatter.string(from:)) ?? ""
-        case "type":
-            cell.textField?.stringValue = item.typeDescription
-        case "size":
-            cell.textField?.stringValue = item.sizeDescription ?? ""
         case "folder":
-            let folder = item.url.deletingLastPathComponent().path
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            cell.textField?.stringValue = folder.hasPrefix(home) ? "~" + folder.dropFirst(home.count) : folder
-            cell.textField?.toolTip = folder
+            cell.textField?.stringValue = cellText(column, item)
+            cell.textField?.toolTip = item.url.deletingLastPathComponent().path
         case "tags":
             let dots = FileTags.dots(for: item.tags, attributes: [.font: NSFont.systemFont(ofSize: 12)])
             cell.textField?.attributedStringValue = dots
             cell.textField?.toolTip = item.tags.map(\.name).joined(separator: ", ")
         default:
-            break
+            cell.textField?.stringValue = cellText(column, item)
         }
         return cell
+    }
+
+    /// What a column shows for an item, as text.
+    private func cellText(_ column: String, _ item: FileItem) -> String {
+        switch FileColumn(rawValue: column) {
+        case .name: item.name
+        case .date: item.modified.map(Self.dateFormatter.string(from:)) ?? ""
+        case .created: item.created.map(Self.dateFormatter.string(from:)) ?? ""
+        case .added: item.added.map(Self.dateFormatter.string(from:)) ?? ""
+        case .type: item.typeDescription
+        case .size: item.sizeDescription ?? ""
+        case .tags: item.tags.map(\.name).joined(separator: ", ")
+        case .folder:
+            {
+                let folder = item.url.deletingLastPathComponent().path
+                let home = FileManager.default.homeDirectoryForCurrentUser.path
+                return folder.hasPrefix(home) ? "~" + folder.dropFirst(home.count) : folder
+            }()
+        case nil: ""
+        }
+    }
+
+    // MARK: - Columns
+
+    private let headerMenu = NSMenu()
+    private var headerMenuColumn: NSTableColumn?
+
+    /// Explorer's header menu: fit the column (or all of them) to their contents, show / hide columns.
+    private func fillHeaderMenu(_ menu: NSMenu) {
+        let clicked = (tableView.headerView as? FileHeaderView)?.menuColumn ?? -1
+        headerMenuColumn = tableView.tableColumns.indices.contains(clicked) ? tableView.tableColumns[clicked] : nil
+        @discardableResult
+        func add(_ title: String, _ action: Selector) -> NSMenuItem {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = self
+            return item
+        }
+        add("Столбец по размеру содержимого", #selector(fitClickedColumn(_:))).isEnabled = headerMenuColumn != nil
+        add("Все столбцы по размеру содержимого", #selector(fitAllColumns(_:)))
+        menu.addItem(.separator())
+        for column in FileColumn.allCases where column != .folder {
+            let item = add(column.title, #selector(toggleColumn(_:)))
+            item.representedObject = column.rawValue
+            item.state = tableView.tableColumn(withIdentifier: .init(column.rawValue))?.isHidden == false ? .on : .off
+        }
+        menu.autoenablesItems = false
+        // The name can't be hidden
+        menu.items.first { ($0.representedObject as? String) == FileColumn.name.rawValue }?.isEnabled = false
+        MenuStyle.decorate(menu)
+    }
+
+    @objc private func toggleColumn(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, id != FileColumn.name.rawValue,
+              let column = tableView.tableColumn(withIdentifier: .init(id)) else { return }
+        column.isHidden.toggle()
+        if !column.isHidden { tableView.scrollColumnToVisible(tableView.column(withIdentifier: column.identifier)) }
+        saveColumns()
+    }
+
+    @objc private func fitClickedColumn(_ sender: Any?) {
+        if let column = headerMenuColumn { fit(column) }
+        saveColumns()
+    }
+
+    @objc private func fitAllColumns(_ sender: Any?) {
+        tableView.tableColumns.filter { !$0.isHidden }.forEach(fit)
+        saveColumns()
+    }
+
+    /// As wide as its widest text (the first few thousand rows) or its title.
+    private func fit(_ column: NSTableColumn) {
+        let id = column.identifier.rawValue
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        var width = (column.title as NSString).size(withAttributes: [.font: column.headerCell.font ?? NSFont.systemFont(ofSize: 11)]).width + 24
+        for item in items.prefix(3000) {
+            let text = id == "tags" ? String(repeating: "●", count: item.tags.count) : cellText(id, item)
+            width = max(width, (text as NSString).size(withAttributes: [.font: font]).width + 12)
+        }
+        if id == FileColumn.name.rawValue { width += 32 }  // the icon
+        column.width = min(ceil(width), 700)
+    }
+
+    private func saveColumns() {
+        var layout = FileColumn.Layout(order: [], widths: [:], hidden: [])
+        for tableColumn in tableView.tableColumns {
+            guard let column = FileColumn(rawValue: tableColumn.identifier.rawValue) else { continue }
+            layout.order.append(column)
+            layout.widths[column] = tableColumn.width
+            if column != .folder, tableColumn.isHidden { layout.hidden.insert(column) }
+        }
+        FileColumn.savedLayout = layout
     }
 
     private func makeCell(identifier: String) -> NSTableCellView {
@@ -1379,4 +1509,76 @@ private final class TrashBar: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     @objc private func empty(_ sender: Any?) { onEmpty?() }
+}
+
+/// The columns of the "Таблица" view.
+enum FileColumn: String, CaseIterable {
+    case name, date, created, added, type, size, tags, folder
+
+    var title: String {
+        switch self {
+        case .name: "Имя"
+        case .date: "Дата изменения"
+        case .created: "Дата создания"
+        case .added: "Дата добавления"
+        case .type: "Тип"
+        case .size: "Размер"
+        case .tags: "Теги"
+        case .folder: "Папка"
+        }
+    }
+
+    var defaultWidth: CGFloat {
+        switch self {
+        case .name: 320
+        case .date, .created, .added: 150
+        case .type: 160
+        case .size: 90
+        case .tags: 70
+        case .folder: 220
+        }
+    }
+
+    var isSortable: Bool { self != .tags }
+
+    struct Layout {
+        var order: [FileColumn]
+        var widths: [FileColumn: CGFloat]
+        var hidden: Set<FileColumn>
+    }
+
+    private static let key = "listColumns"
+
+    /// Shared by every window; new columns (not in the saved order) come last, hidden.
+    static var savedLayout: Layout {
+        get {
+            let stored = AppDefaults.store.dictionary(forKey: key)
+            let order = (stored?["order"] as? [String])?.compactMap(FileColumn.init(rawValue:)) ?? []
+            let widths = (stored?["widths"] as? [String: Double] ?? [:]).reduce(into: [FileColumn: CGFloat]()) {
+                if let column = FileColumn(rawValue: $1.key) { $0[column] = $1.value }
+            }
+            var hidden = Set((stored?["hidden"] as? [String])?.compactMap(FileColumn.init(rawValue:)) ?? [.created, .added])
+            let missing = allCases.filter { !order.contains($0) }
+            if stored != nil { hidden.formUnion(missing.filter { $0 != .folder && $0 != .name }) }
+            hidden.remove(.name)
+            return Layout(order: order + missing, widths: widths, hidden: hidden)
+        }
+        set {
+            AppDefaults.store.set([
+                "order": newValue.order.map(\.rawValue),
+                "widths": Dictionary(uniqueKeysWithValues: newValue.widths.map { ($0.key.rawValue, Double($0.value)) }),
+                "hidden": newValue.hidden.map(\.rawValue),
+            ], forKey: key)
+        }
+    }
+}
+
+/// Remembers which column a right click hit (for "Столбец по размеру содержимого").
+final class FileHeaderView: NSTableHeaderView {
+    private(set) var menuColumn = -1
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuColumn = column(at: convert(event.locationInWindow, from: nil))
+        return super.menu(for: event)
+    }
 }

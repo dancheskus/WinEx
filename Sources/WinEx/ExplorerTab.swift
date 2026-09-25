@@ -45,6 +45,12 @@ final class ExplorerTab {
         url = next
     }
 
+    /// "Очистить историю переходов": back and forward lead nowhere any more.
+    func clearHistory() {
+        backStack.removeAll()
+        forwardStack.removeAll()
+    }
+
     func goUp() {
         guard canGoUp else { return }
         pendingSelection = [url]

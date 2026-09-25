@@ -12,6 +12,7 @@ final class SettingsWindowController: NSWindowController {
     private let hotKeyPopup = NSPopUpButton()
     private let hotKeyHint = SettingsForm.hint("")
     private let hiddenCheckbox = NSButton(checkboxWithTitle: "Показывать скрытые файлы", target: nil, action: nil)
+    private let commandBarCheckbox = NSButton(checkboxWithTitle: "Панель команд под адресной строкой", target: nil, action: nil)
     private let loginCheckbox = NSButton(checkboxWithTitle: "Открывать WinEx при входе в систему", target: nil, action: nil)
     private let loginHint = SettingsForm.hint("")
     private let loginApproveButton = NSButton(title: "Открыть «Объекты входа»…", target: nil, action: nil)
@@ -80,6 +81,8 @@ final class SettingsWindowController: NSWindowController {
         hotKeyPopup.action = #selector(changeHotKey(_:))
         hiddenCheckbox.target = self
         hiddenCheckbox.action = #selector(toggleHidden(_:))
+        commandBarCheckbox.target = self
+        commandBarCheckbox.action = #selector(toggleCommandBar(_:))
         loginCheckbox.target = self
         loginCheckbox.action = #selector(toggleLogin(_:))
         loginApproveButton.target = self
@@ -91,6 +94,7 @@ final class SettingsWindowController: NSWindowController {
             .row(nil, hotKeyHint),
             .gap,
             .row("Показ:", hiddenCheckbox),
+            .row(nil, commandBarCheckbox),
             .row("Запуск:", loginCheckbox),
             .row(nil, loginHint),
             .row(nil, loginApproveButton),
@@ -181,6 +185,7 @@ final class SettingsWindowController: NSWindowController {
         replaceCheckbox.state = Settings.replaceFinder ? .on : .off
         resetDesktopButton.isEnabled = Settings.replaceFinder
         hiddenCheckbox.state = Settings.showHidden ? .on : .off
+        commandBarCheckbox.state = Settings.showCommandBar ? .on : .off
         windowsKeysCheckbox.state = Settings.windowsKeys ? .on : .off
         updatesCheckbox.state = Updater.automaticChecks ? .on : .off
         syncHotKey()
@@ -303,6 +308,11 @@ final class SettingsWindowController: NSWindowController {
     @objc private func toggleWindowsKeys(_ sender: NSButton) {
         Settings.windowsKeys = sender.state == .on
         NotificationCenter.default.post(name: .keyboardSettingsChanged, object: nil)
+    }
+
+    @objc private func toggleCommandBar(_ sender: NSButton) {
+        Settings.showCommandBar = sender.state == .on
+        NotificationCenter.default.post(name: .commandBarSettingChanged, object: nil)
     }
 
     @objc private func toggleHidden(_ sender: NSButton) {

@@ -24,6 +24,7 @@ enum Scenarios {
         "update": update,
         "settings": settingsTabs,
         "sidebar": sidebar,
+        "commandbar": commandBarScenario,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -187,6 +188,93 @@ enum Scenarios {
             }),
             (1.5, "unpin the sandbox folders", { [alpha, target].forEach(SidebarConfig.unpin) }),
         ])
+    }
+
+    /// The command bar, its menus, the column header menu and the address bar menu, each
+    /// photographed by scripts/capture-window.sh commandbar 7.
+    static func commandBarScenario(_ s: Scenario) {
+        let base = s.makeFiles(["отчёт.docx", "заметки.txt", "фото.png"])
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        s.window?.window?.setFrame(NSRect(x: 150, y: 200, width: 1200, height: 560), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        let content = s.window?.window?.contentView
+        func bar() -> CommandBar? { s.find(CommandBar.self, in: content) }
+        /// Hands a window to the script and goes on once it has been photographed.
+        @MainActor func shot(_ index: Int, window number: Int?, then next: @escaping @MainActor () -> Void) {
+            if let number { try? "\(number)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8) }
+            @MainActor func wait(_ tries: Int) {
+                if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-\(index)").path) || tries == 0 || number == nil { return next() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { wait(tries - 1) }
+            }
+            wait(50)
+        }
+        /// Opens a menu (the call blocks while it tracks), photographs it, closes it with Esc.
+        @MainActor func menuShot(_ index: Int, open: () -> Void, then next: @escaping @MainActor () -> Void) {
+            let find = Timer(timeInterval: 0.6, repeats: false) { _ in
+                let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+                let menus = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid() && ($0[kCGWindowLayer as String] as? Int ?? 0) == 101 }
+                if let number = menus.first?[kCGWindowNumber as String] as? Int {
+                    try? "\(number)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+                } else {
+                    s.note("  (no menu window)")
+                }
+                let close = Timer(timeInterval: 0.2, repeats: true) { timer in
+                    guard FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-\(index)").path) || menus.isEmpty else { return }
+                    timer.invalidate()
+                    if let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: 0, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                                  isARepeat: false, keyCode: 53) {
+                        NSApp.postEvent(esc, atStart: false)
+                    }
+                }
+                RunLoop.main.add(close, forMode: .common)
+            }
+            RunLoop.main.add(find, forMode: .common)
+            open()
+            DispatchQueue.main.async { next() }
+        }
+        func rightClick(_ view: NSView, at point: NSPoint) -> NSEvent? {
+            guard let window = view.window else { return nil }
+            return NSEvent.mouseEvent(with: .rightMouseDown, location: view.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                      windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            s.select("заметки.txt")
+            s.note("  bar: \(bar() != nil), cut enabled: \(bar()?.cutButton.isEnabled == true), new enabled: \(bar()?.newButton.isEnabled == true)  expect true, true, true")
+            shot(0, window: s.window?.window?.windowNumber) {
+                menuShot(1, open: { bar()?.sortButton.onClick?() }) {
+                    menuShot(2, open: { bar()?.viewButton.onClick?() }) {
+                        menuShot(3, open: { bar()?.moreButton.onClick?() }) {
+                            guard let table = s.table, let header = table.headerView,
+                                  let typeColumn = Optional(table.column(withIdentifier: .init("type"))), typeColumn >= 0,
+                                  let event = rightClick(header, at: NSPoint(x: header.headerRect(ofColumn: typeColumn).midX, y: header.bounds.midY)) else {
+                                s.note("  (no header)"); s.run([]); return
+                            }
+                            menuShot(4, open: {
+                                if let menu = header.menu(for: event) { NSMenu.popUpContextMenu(menu, with: event, for: header) }
+                            }) {
+                                guard let crumbs = s.find(BreadcrumbBar.self, in: content),
+                                      let event = rightClick(crumbs, at: NSPoint(x: crumbs.bounds.maxX - 30, y: crumbs.bounds.midY)) else {
+                                    s.note("  (no address bar)"); s.run([]); return
+                                }
+                                menuShot(5, open: {
+                                    if let menu = crumbs.menu(for: event) { NSMenu.popUpContextMenu(menu, with: event, for: crumbs) }
+                                }) {
+                                    // Show "Дата создания", fit every column
+                                    guard let table = s.table else { s.run([]); return }
+                                    table.tableColumn(withIdentifier: .init("created"))?.isHidden = false
+                                    let before = table.tableColumns.filter { !$0.isHidden }.map { "\($0.identifier.rawValue) \(Int($0.width))" }
+                                    s.note("  columns: \(before)")
+                                    shot(6, window: s.window?.window?.windowNumber) { s.run([]) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.

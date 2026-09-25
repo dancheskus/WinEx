@@ -28,6 +28,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     /// The address bar's capsule (outlined in the accent colour while editing).
     private var addressCapsule = ToolbarCapsule(height: 32, views: [])
     private let breadcrumbs = BreadcrumbBar()
+    private let commandBar = CommandBar()
+    private var commandBarHeight = NSLayoutConstraint()
+    private let windowObservers = Observers()
     /// What the status bar says (item count, selection and its size).
     var statusText: String { statusLabel.stringValue }
 
@@ -158,6 +161,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         pathField.isHidden = true
         breadcrumbs.onNavigate = { [weak self] url in self?.navigate(to: url) }
         breadcrumbs.onEdit = { [weak self] in self?.focusPathField(nil) }
+        breadcrumbs.contextMenu = { [weak self] in self?.addressMenu() }
         addressCapsule = ToolbarCapsule(height: height, views: [addressArea], padding: 14)
         let refreshCapsule = ToolbarCapsule(height: height, views: [refreshButton], round: true)
         let viewCapsule = ToolbarCapsule(height: height, views: [viewModeButton], padding: 6)
@@ -204,11 +208,14 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let bottomSeparator = NSBox(); bottomSeparator.boxType = .separator
 
         let fileView = fileList.view
-        for view in [tabBar, navBar, navStack, topSeparator, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle, fileView] as [NSView] {
+        for view in [tabBar, navBar, navStack, topSeparator, commandBar, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle, fileView] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         content.addSubview(splitView)
-        [tabBar, navBar, topSeparator, fileView, bottomSeparator, statusBar].forEach(mainPane.addSubview)
+        [tabBar, navBar, topSeparator, commandBar, fileView, bottomSeparator, statusBar].forEach(mainPane.addSubview)
+        commandBarHeight = commandBar.heightAnchor.constraint(equalToConstant: Settings.showCommandBar ? CommandBar.height : 0)
+        commandBar.isHidden = !Settings.showCommandBar
+        setUpCommandBar()
         // The sidebar's top strip (under the window buttons) drags / zooms the window like a title bar
         let dragArea = WindowDragArea()
         (window as? ExplorerWindow)?.titleBarViews = [tabBar, dragArea]
@@ -244,7 +251,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             topSeparator.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
             topSeparator.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
 
-            fileView.topAnchor.constraint(equalTo: topSeparator.bottomAnchor),
+            commandBar.topAnchor.constraint(equalTo: topSeparator.bottomAnchor),
+            commandBar.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
+            commandBar.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
+            commandBarHeight,
+
+            fileView.topAnchor.constraint(equalTo: commandBar.bottomAnchor),
             fileView.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
             fileView.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
             fileView.bottomAnchor.constraint(equalTo: bottomSeparator.topAnchor),
@@ -273,6 +285,96 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             applyingSidebarWidth = false
         }
         window.initialFirstResponder = fileList.focusView
+    }
+
+    // MARK: - Command bar
+
+    private func setUpCommandBar() {
+        let buttons: [(CommandButton, Selector)] = [
+            (commandBar.cutButton, #selector(FileListViewController.cut(_:))),
+            (commandBar.copyButton, #selector(FileListViewController.copy(_:))),
+            (commandBar.pasteButton, #selector(FileListViewController.paste(_:))),
+            (commandBar.renameButton, #selector(FileListViewController.renameSelected(_:))),
+            (commandBar.shareButton, #selector(FileListViewController.share(_:))),
+            (commandBar.deleteButton, #selector(FileListViewController.moveToTrash(_:))),
+        ]
+        for (button, action) in buttons {
+            button.target = fileList
+            button.action = action
+        }
+        commandBar.newItemMenu = { [weak self] in self?.fileList.makeNewItemMenu() }
+        commandBar.sortMenu = { [weak self] in self?.fileList.makeSortMenu() }
+        commandBar.viewMenu = { [weak self] in self?.commandViewMenu() }
+        commandBar.moreMenu = { [weak self] in self?.commandMoreMenu() }
+        windowObservers.add(FileClipboard.didChange) { [weak self] in self?.updateCommandBar() }
+        windowObservers.add(.commandBarSettingChanged) { [weak self] in
+            guard let self else { return }
+            commandBar.isHidden = !Settings.showCommandBar
+            commandBarHeight.constant = Settings.showCommandBar ? CommandBar.height : 0
+        }
+    }
+
+    /// What the commands can act on right now.
+    private func updateCommandBar() {
+        let selected = fileList.hasSelection && fileList.location != .trash
+        for button in [commandBar.cutButton, commandBar.copyButton, commandBar.renameButton, commandBar.shareButton, commandBar.deleteButton] {
+            button.isEnabled = selected
+        }
+        commandBar.pasteButton.isEnabled = FileClipboard.shared.canPaste && fileList.canCreateItems
+        commandBar.newButton.isEnabled = fileList.canCreateItems
+    }
+
+    /// "Просмотреть": every view, the hidden files, "apply to all folders".
+    private func commandViewMenu() -> NSMenu {
+        let menu = NSMenu()
+        for mode in ViewMode.allCases {
+            let item = menu.addItem(withTitle: mode.title, action: #selector(selectViewMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = mode.rawValue
+            item.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: nil)
+            item.state = fileList.viewMode == mode ? .on : .off
+        }
+        menu.addItem(.separator())
+        let show = NSMenu()
+        let hidden = show.addItem(withTitle: "Скрытые файлы", action: #selector(AppDelegate.toggleHiddenFiles(_:)), keyEquivalent: "")
+        hidden.target = AppDelegate.shared
+        hidden.state = Settings.showHidden ? .on : .off
+        let bar = show.addItem(withTitle: "Панель команд", action: #selector(toggleCommandBar(_:)), keyEquivalent: "")
+        bar.target = self
+        bar.state = Settings.showCommandBar ? .on : .off
+        menu.addItem(withTitle: "Показать", action: nil, keyEquivalent: "").submenu = show
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Применить ко всем папкам", action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
+        return menu
+    }
+
+    /// "…": the less frequent commands.
+    private func commandMoreMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        func add(_ title: String, _ action: Selector, _ symbol: String, target: AnyObject? = nil, enabled: Bool = true) {
+            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
+            item.target = target ?? fileList
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            item.isEnabled = enabled
+        }
+        let selected = fileList.hasSelection
+        add("Сжать в ZIP-файл", #selector(FileListViewController.compress(_:)), "archivebox", enabled: selected)
+        add("Добавить в избранное", #selector(FileListViewController.addToFavorites(_:)), "star", enabled: fileList.directory != nil || selected)
+        add("Скопировать путь", #selector(FileListViewController.copyPath(_:)), "link", enabled: fileList.directory != nil || selected)
+        menu.addItem(.separator())
+        add("Выделить всё", #selector(FileListViewController.selectAllItems(_:)), "checkmark.circle")
+        add("Снять выделение", #selector(FileListViewController.selectNone(_:)), "circle", enabled: selected)
+        add("Обратить выделение", #selector(FileListViewController.invertSelection(_:)), "circle.lefthalf.filled")
+        menu.addItem(.separator())
+        add("Свойства", #selector(FileListViewController.showProperties(_:)), "info.circle")
+        add("Параметры", #selector(AppDelegate.showSettings(_:)), "gearshape", target: AppDelegate.shared)
+        return menu
+    }
+
+    @objc func toggleCommandBar(_ sender: Any?) {
+        Settings.showCommandBar.toggle()
+        NotificationCenter.default.post(name: .commandBarSettingChanged, object: nil)
     }
 
     // MARK: - View mode controls
@@ -476,6 +578,51 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         pathField.isHidden = false
         window?.makeFirstResponder(pathField)
         pathField.currentEditor()?.selectAll(nil)
+    }
+
+    /// Explorer's address bar menu.
+    private func addressMenu() -> NSMenu {
+        let menu = NSMenu()
+        let url = selectedTab.url
+        let path = url.isFileURL ? url.path : nil
+        func add(_ title: String, _ action: Selector, enabled: Bool = true) {
+            let item = menu.addItem(withTitle: title, action: enabled ? action : nil, keyEquivalent: "")
+            item.target = self
+        }
+        add("Копировать адрес", #selector(copyAddress(_:)), enabled: path != nil)
+        add("Копировать адрес как URL", #selector(copyAddressAsURL(_:)), enabled: path != nil)
+        add("Изменить адрес", #selector(focusPathField(_:)))
+        menu.addItem(.separator())
+        if let path, URL(fileURLWithPath: path).isBrowsableDirectory, !SidebarConfig.isFavorite(url) {
+            add("Добавить в избранное", #selector(addCurrentFolderToFavorites(_:)))
+        }
+        add("Очистить историю переходов", #selector(clearBrowsingHistory(_:)), enabled: tabs.contains { $0.canGoBack || $0.canGoForward })
+        MenuStyle.decorate(menu)
+        return menu
+    }
+
+    @objc private func copyAddress(_ sender: Any?) {
+        guard selectedTab.url.isFileURL else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(selectedTab.url.path, forType: .string)
+    }
+
+    @objc private func copyAddressAsURL(_ sender: Any?) {
+        guard selectedTab.url.isFileURL else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(selectedTab.url.absoluteString, forType: .string)
+    }
+
+    @objc func addCurrentFolderToFavorites(_ sender: Any?) {
+        guard selectedTab.url.isFileURL else { return }
+        SidebarConfig.pin(selectedTab.url)
+    }
+
+    /// Back / forward of every tab of this window start afresh.
+    @objc private func clearBrowsingHistory(_ sender: Any?) {
+        tabs.forEach { $0.clearHistory() }
+        backButton.isEnabled = false
+        forwardButton.isEnabled = false
     }
 
     /// Back to the breadcrumbs once the field lets go.
@@ -747,6 +894,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     func fileList(_ list: FileListViewController, didUpdateStatus status: String) {
         statusLabel.stringValue = status
+        updateCommandBar()
     }
 
     func fileList(_ list: FileListViewController, didChangeViewMode mode: ViewMode) {

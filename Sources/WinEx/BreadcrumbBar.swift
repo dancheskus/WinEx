@@ -17,6 +17,8 @@ final class BreadcrumbBar: NSView {
 
     var onNavigate: ((URL) -> Void)?
     var onEdit: (() -> Void)?
+    /// The right-click menu (on a step as well: the steps pass right clicks up).
+    var contextMenu: (() -> NSMenu?)?
 
     private var rootIcon: NSImage?
     private var rootURL = Places.computerURL
@@ -240,6 +242,10 @@ final class BreadcrumbBar: NSView {
     /// A click beside the steps: type a path instead.
     override func mouseDown(with event: NSEvent) {
         onEdit?()
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        contextMenu?() ?? super.menu(for: event)
     }
 }
 

@@ -22,6 +22,12 @@ enum Settings {
         set { defaults.set(newValue, forKey: "replaceFinder") }
     }
 
+    /// Explorer's command bar under the address row.
+    static var showCommandBar: Bool {
+        get { defaults.object(forKey: "showCommandBar") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "showCommandBar") }
+    }
+
     /// Settings ▸ Теги: folders take the colour of their first coloured tag, as in macOS 26 Finder.
     static var tintFoldersByTags: Bool {
         get { defaults.object(forKey: "tintFoldersByTags") as? Bool ?? true }
@@ -81,6 +87,7 @@ enum Settings {
 extension Notification.Name {
     static let showHiddenChanged = Notification.Name("WinExShowHiddenChanged")
     static let keyboardSettingsChanged = Notification.Name("WinExKeyboardSettingsChanged")
+    static let commandBarSettingChanged = Notification.Name("WinExCommandBarSettingChanged")
 }
 
 extension URL {
@@ -100,12 +107,16 @@ final class FileItem {
     static let keys: [URLResourceKey] = [
         .isDirectoryKey, .isPackageKey, .contentModificationDateKey,
         .localizedTypeDescriptionKey, .fileSizeKey, .localizedNameKey, .tagNamesKey,
+        .creationDateKey, .addedToDirectoryDateKey,
     ]
 
     let url: URL
     let name: String
     let isFolder: Bool
     let modified: Date?
+    let created: Date?
+    /// When it was put into its folder (Finder's "Дата добавления").
+    let added: Date?
     let typeDescription: String
     let size: Int?
     let tagNames: [String]
@@ -116,6 +127,8 @@ final class FileItem {
         self.name = name
         isFolder = true
         modified = nil
+        created = nil
+        added = nil
         typeDescription = kind
         size = nil
         tagNames = []
@@ -130,6 +143,8 @@ final class FileItem {
         // Localized names for folders ("Загрузки"), real names for files so extensions stay visible
         name = isFolder ? (values?.localizedName ?? url.lastPathComponent) : url.lastPathComponent
         modified = values?.contentModificationDate
+        created = values?.creationDate
+        added = values?.addedToDirectoryDate
         typeDescription = values?.localizedTypeDescription ?? ""
         size = isDirectory ? nil : values?.fileSize
         tagNames = values?.tagNames ?? []
@@ -154,7 +169,7 @@ final class FileItem {
         size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
     }
 
-    /// A column to sort by ("name", "date", "type", "size") and a direction.
+    /// A column to sort by ("name", "date", "created", "added", "type", "size") and a direction.
     struct SortOrder: Equatable, Sendable {
         var key: String
         var ascending: Bool
@@ -170,6 +185,8 @@ final class FileItem {
             let result: ComparisonResult
             switch order.key {
             case "date": result = compare(a.modified ?? .distantPast, b.modified ?? .distantPast)
+            case "created": result = compare(a.created ?? .distantPast, b.created ?? .distantPast)
+            case "added": result = compare(a.added ?? .distantPast, b.added ?? .distantPast)
             case "type": result = a.typeDescription.localizedStandardCompare(b.typeDescription)
             case "size": result = compare(a.size ?? -1, b.size ?? -1)
             case "folder": result = a.url.deletingLastPathComponent().path.localizedStandardCompare(b.url.deletingLastPathComponent().path)
