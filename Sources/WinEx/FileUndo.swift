@@ -50,15 +50,30 @@ enum FileUndo {
         manager.setActionName(name)
     }
 
+    /// File work of undo / redo runs here, in order: a move across volumes or a copy can take long.
+    private static let queue = DispatchQueue(label: "dev.winex.undo", qos: .userInitiated)
+
+    /// Runs `work` off the main thread; the first error stops it and is shown.
+    private static func perform(_ work: @escaping @Sendable () throws -> Void) {
+        queue.async {
+            do {
+                try work()
+            } catch {
+                let error = error as NSError
+                DispatchQueue.main.async { NSAlert(error: error).runModal() }
+            }
+        }
+    }
+
+    /// Waits until undo / redo file work in progress is done (tests).
+    nonisolated static func waitForFileWork() {
+        queue.sync {}
+    }
+
     /// Moves files; on failure shows the error and stops.
     private static func move(_ pairs: [(from: URL, to: URL)]) {
-        for pair in pairs {
-            do {
-                try FileManager.default.moveItem(at: pair.from, to: pair.to)
-            } catch {
-                NSAlert(error: error).runModal()
-                return
-            }
+        perform {
+            for pair in pairs { try FileManager.default.moveItem(at: pair.from, to: pair.to) }
         }
     }
 
@@ -80,8 +95,8 @@ enum FileUndo {
         register("Копирование", undo: {
             silentlyTrash(pairs.map(\.to))
         }, redo: {
-            for pair in pairs {
-                do { try FileManager.default.copyItem(at: pair.from, to: pair.to) } catch { NSAlert(error: error).runModal(); return }
+            perform {
+                for pair in pairs { try FileManager.default.copyItem(at: pair.from, to: pair.to) }
             }
         })
     }
@@ -118,7 +133,8 @@ enum FileUndo {
     /// Moves to the Trash right away and returns the new locations.
     @discardableResult
     private static func silentlyTrash(_ urls: [URL]) -> [URL] {
-        urls.compactMap { url in
+        waitForFileWork()  // an earlier undo may still be moving these files
+        return urls.compactMap { url in
             var result: NSURL?
             do { try FileManager.default.trashItem(at: url, resultingItemURL: &result) } catch { NSAlert(error: error).runModal() }
             return result as URL?

@@ -62,14 +62,13 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         ])
         view = background
 
-        let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.rebuild() }
-            }
+            observers.add(name, center: NSWorkspace.shared.notificationCenter) { [weak self] in self?.rebuild() }
         }
         rebuild()
     }
+
+    private let observers = Observers()
 
     private func rebuild() {
         let fm = FileManager.default

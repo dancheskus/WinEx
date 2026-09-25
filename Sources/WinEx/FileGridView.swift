@@ -38,6 +38,7 @@ enum ViewMode: Int, CaseIterable {
     }
 
     private static let folderModesKey = "folderViewModes"
+    static let maxRememberedFolders = 1000
 
     /// The view remembered for `folder`, like Explorer does per folder.
     static func forFolder(_ folder: URL) -> ViewMode {
@@ -48,6 +49,13 @@ enum ViewMode: Int, CaseIterable {
     static func remember(_ mode: ViewMode, forFolder folder: URL) {
         var modes = AppDefaults.store.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]
         modes[folder.standardizedFileURL.path] = mode == saved ? nil : mode.rawValue
+        if modes.count > maxRememberedFolders {
+            // Forget folders that are gone first, then any others
+            modes = modes.filter { FileManager.default.fileExists(atPath: $0.key) }
+            while modes.count > maxRememberedFolders, let key = modes.keys.first(where: { $0 != folder.standardizedFileURL.path }) {
+                modes[key] = nil
+            }
+        }
         AppDefaults.store.set(modes, forKey: folderModesKey)
     }
 

@@ -8,7 +8,7 @@ import QuickLookThumbnailing
 final class DesktopController {
     private var window: DesktopWindow?
     private let desktopView = DesktopView()
-    private var screenObserver: NSObjectProtocol?
+    private let observers = Observers()
 
     func show() {
         guard window == nil else { return }
@@ -26,16 +26,11 @@ final class DesktopController {
         desktopView.start()
         window.orderFront(nil)
 
-        screenObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateFrame() }
-        }
+        observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.updateFrame() }
     }
 
     func hide() {
-        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
-        screenObserver = nil
+        observers.removeAll()
         desktopView.stop()
         window?.orderOut(nil)
         window = nil
@@ -64,7 +59,7 @@ final class DesktopWindow: NSWindow {
 }
 
 final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuItemValidation,
-    QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    QLPreviewPanelDataSource, QLPreviewPanelDelegate, FileMenuActions {
     /// Screen area not covered by the menu bar and Dock (view coordinates, y from the top).
     var iconArea: NSRect = .zero { didSet { if iconArea != oldValue { relayout() } } }
 
@@ -117,11 +112,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         registerForDraggedTypes([.fileURL])
         reload()
         watcher = DirectoryWatcher(url: desktopURL) { [weak self] in self?.reload() }
-        let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
-            workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reload() }
-            }
+            observers.add(name, center: NSWorkspace.shared.notificationCenter) { [weak self] in self?.reload() }
         }
         // System Settings has no change notification for these; poll cheaply
         settingsTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -135,17 +127,16 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                 }
             }
         }
-        NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.needsDisplay = true }
-        }
-        NotificationCenter.default.addObserver(forName: .fileTagsChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reload() }
-        }
+        observers.add(FileClipboard.didChange) { [weak self] in self?.needsDisplay = true }
+        observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
     }
+
+    private let observers = Observers()
 
     func stop() {
         endRename()
         watcher = nil
+        observers.removeAll()
         settingsTimer?.invalidate()
         settingsTimer = nil
     }
@@ -658,10 +649,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         slowClick.cancel()
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         switch (event.keyCode, modifiers) {
-        case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameAction(nil) }
+        case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameSelected(nil) }
         case (51, [.command]): trashSelection()
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
-        case (120, []) where Settings.windowsKeys: renameAction(nil)                  // F2
+        case (120, []) where Settings.windowsKeys: renameSelected(nil)                  // F2
         case (125, [.command]): openSelection()                                       // ⌘↓ (Finder)
         case (53, []): selection = []; needsDisplay = true                           // Esc
         case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }                    // Space
@@ -687,12 +678,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
         if let i = index(at: point), isVolume(i) {
             if !selection.contains(i) { selection = [i]; needsDisplay = true }
-            add("Открыть", #selector(openSelectionAction(_:)))
+            add("Открыть", #selector(openSelected(_:)))
             if let openWith = OpenWithMenu.item(for: selectedURLs) { menu.addItem(openWith) }
             menu.addItem(.separator())
-            add("Копировать путь", #selector(copyPathAction(_:)))
+            add("Копировать путь", #selector(copyPath(_:)))
             menu.addItem(.separator())
-            add("Извлечь «\(items[i].name)»", #selector(trashAction(_:)))
+            add("Извлечь «\(items[i].name)»", #selector(moveToTrash(_:)))
             menu.addItem(.separator())
             add("Свойства", #selector(showProperties(_:)))
             return menu
@@ -700,26 +691,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
         if let i = index(at: point) {
             if !selection.contains(i) { selection = [i]; needsDisplay = true }
-            menu.addItem(TagRowMenuView.menuItem(for: selectedFileURLs))
-            menu.addItem(.separator())
-            add("Открыть", #selector(openSelectionAction(_:)))
-            add("Быстрый просмотр", #selector(quickLookAction(_:)))
-            if let openWith = OpenWithMenu.item(for: selectedURLs) { menu.addItem(openWith) }
-            menu.addItem(.separator())
-            add("Вырезать", #selector(cut(_:)))
-            add("Копировать", #selector(copy(_:)))
-            add("Копировать путь", #selector(copyPathAction(_:)))
-            menu.addItem(.separator())
-            add("Переименовать", #selector(renameAction(_:)))
-            add("Переместить в корзину", #selector(trashAction(_:)))
-            add("Поделиться…", #selector(shareAction(_:)))
-            menu.addItem(.separator())
-            menu.addItem(FileTags.menuItem(for: selectedFileURLs, target: self, action: #selector(toggleTag(_:))))
-            if selection.count == 1, items[i].isFolder {
-                add("Настроить папку…", #selector(customizeFolder(_:)))
-            }
-            menu.addItem(.separator())
-            add("Свойства", #selector(showProperties(_:)))
+            FileContextMenu.addItems(to: menu, for: selectedFileURLs, target: self, folderTabs: false,
+                                     customizableFolder: selection.count == 1 && items[i].isFolder)
             return menu
         }
 
@@ -788,7 +761,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// Selected desktop files (volumes can't be cut or renamed).
     private var selectedFileURLs: [URL] { selection.sorted().filter { !isVolume($0) }.map { items[$0].url } }
 
-    @objc private func openSelectionAction(_ sender: Any?) { openSelection() }
+    @objc func openSelected(_ sender: Any?) { openSelection() }
 
     /// ⇧⌘N on the desktop: a new folder in the first free spot, straight into renaming.
     @objc func newFolder(_ sender: Any?) {
@@ -814,22 +787,18 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         PropertiesWindowController.show(for: selectedURLs.isEmpty ? [desktopURL] : selectedURLs)
     }
 
-    @objc private func shareAction(_ sender: Any?) {
+    @objc func share(_ sender: Any?) {
         guard let i = selection.sorted().first else { return }
         NSSharingServicePicker(items: selectedFileURLs).show(relativeTo: iconRect(at: centers[i]), of: self, preferredEdge: .maxY)
     }
 
-    @objc private func customizeFolder(_ sender: Any?) {
+    @objc func customizeFolder(_ sender: Any?) {
         guard let i = selection.first, items.indices.contains(i) else { return }
         FolderCustomizationController.show(for: items[i].url, relativeTo: iconRect(at: centers[i]), of: self)
     }
 
-    @objc private func toggleTag(_ sender: NSMenuItem) {
-        guard let toggle = sender.representedObject as? FileTags.TagToggle else { return }
-        FileTags.toggle(toggle.tag, on: toggle.urls, add: toggle.add)
-        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
-    }
-    @objc private func quickLookAction(_ sender: Any?) { QuickLook.toggle(for: self) }
+    @objc func toggleTag(_ sender: NSMenuItem) { FileContextMenu.toggleTag(sender) }
+    @objc func quickLook(_ sender: Any?) { QuickLook.toggle(for: self) }
 
     /// Arrow keys pick the nearest icon in that direction (icons are freely placed, so by geometry).
     /// With ⇧ the next icon is added to the selection (the keyboard focus moves on from it).
@@ -901,8 +870,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         contentRect?.pointee = NSRect(origin: .zero, size: image.size)
         return image
     }
-    @objc private func copyPathAction(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
-    @objc private func trashAction(_ sender: Any?) { trashSelection() }
+    @objc func copyPath(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
+    @objc func moveToTrash(_ sender: Any?) { trashSelection() }
     @objc private func refreshAction(_ sender: Any?) { reload() }
     @objc private func openDesktopAction(_ sender: Any?) { AppDelegate.shared.openWindow(at: desktopURL) }
 
@@ -911,7 +880,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     @objc func copy(_ sender: Any?) { FileClipboard.shared.copy(selectedURLs) }
     @objc func paste(_ sender: Any?) { FileClipboard.shared.paste(into: desktopURL) }
 
-    @objc private func renameAction(_ sender: Any?) {
+    @objc func renameSelected(_ sender: Any?) {
         if let i = selection.sorted().first(where: { !isVolume($0) }) { beginRename(i) }
     }
 

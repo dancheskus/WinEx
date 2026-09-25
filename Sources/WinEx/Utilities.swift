@@ -142,6 +142,27 @@ final class FileItem {
     }
 }
 
+/// Block-based notification observers owned by one object: all removed by `removeAll()` or when
+/// the owner (and so this bag) goes away. Blocks run on the main thread.
+final class Observers: @unchecked Sendable {
+    private var tokens: [(center: NotificationCenter, token: NSObjectProtocol)] = []
+
+    func add(_ name: Notification.Name, center: NotificationCenter = .default, object: Any? = nil,
+             _ block: @escaping @MainActor () -> Void) {
+        let token = center.addObserver(forName: name, object: object, queue: .main) { _ in
+            MainActor.assumeIsolated { block() }
+        }
+        tokens.append((center, token))
+    }
+
+    func removeAll() {
+        tokens.forEach { $0.center.removeObserver($0.token) }
+        tokens = []
+    }
+
+    deinit { removeAll() }
+}
+
 /// Calls `onChange` when the contents of a directory change. Events are coalesced: the first one
 /// schedules a call `delay` later and everything arriving meanwhile rides along with it, so a
 /// burst (a copy of thousands of files) costs a few reloads, not thousands.

@@ -1,6 +1,66 @@
 import AppKit
 import UniformTypeIdentifiers
 
+// MARK: - File context menu
+
+/// Actions of the context menu for files, shared by folder windows and the desktop.
+@MainActor @objc protocol FileMenuActions {
+    func openSelected(_ sender: Any?)
+    func quickLook(_ sender: Any?)
+    func cut(_ sender: Any?)
+    func copy(_ sender: Any?)
+    func copyPath(_ sender: Any?)
+    func renameSelected(_ sender: Any?)
+    func moveToTrash(_ sender: Any?)
+    func share(_ sender: Any?)
+    func toggleTag(_ sender: NSMenuItem)
+    func customizeFolder(_ sender: Any?)
+    func showProperties(_ sender: Any?)
+    @objc optional func openInNewTab(_ sender: Any?)
+    @objc optional func openInNewWindow(_ sender: Any?)
+}
+
+@MainActor
+enum FileContextMenu {
+    /// The Explorer-like menu for right-clicked files: tag colors, Open, Open with, clipboard,
+    /// rename / trash / share, tags, folder look, properties.
+    static func addItems(to menu: NSMenu, for urls: [URL], target: FileMenuActions, folderTabs: Bool, customizableFolder: Bool) {
+        func add(_ title: String, _ action: Selector) {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = target
+        }
+        // Finder's row of tag colors on top
+        menu.addItem(TagRowMenuView.menuItem(for: urls))
+        menu.addItem(.separator())
+        add("Открыть", #selector(FileMenuActions.openSelected(_:)))
+        add("Быстрый просмотр", #selector(FileMenuActions.quickLook(_:)))
+        if let openWith = OpenWithMenu.item(for: urls) { menu.addItem(openWith) }
+        if folderTabs {
+            add("Открыть в новой вкладке", #selector(FileMenuActions.openInNewTab(_:)))
+            add("Открыть в новом окне", #selector(FileMenuActions.openInNewWindow(_:)))
+        }
+        menu.addItem(.separator())
+        add("Вырезать", #selector(FileMenuActions.cut(_:)))
+        add("Копировать", #selector(FileMenuActions.copy(_:)))
+        add("Копировать путь", #selector(FileMenuActions.copyPath(_:)))
+        menu.addItem(.separator())
+        add("Переименовать", #selector(FileMenuActions.renameSelected(_:)))
+        add("Переместить в корзину", #selector(FileMenuActions.moveToTrash(_:)))
+        add("Поделиться…", #selector(FileMenuActions.share(_:)))
+        menu.addItem(.separator())
+        menu.addItem(FileTags.menuItem(for: urls, target: target, action: #selector(FileMenuActions.toggleTag(_:))))
+        if customizableFolder { add("Настроить папку…", #selector(FileMenuActions.customizeFolder(_:))) }
+        menu.addItem(.separator())
+        add("Свойства", #selector(FileMenuActions.showProperties(_:)))
+    }
+
+    /// Body of every `toggleTag(_:)`: applies the tag change a "Теги ▸" item stands for.
+    static func toggleTag(_ sender: NSMenuItem) {
+        guard let toggle = sender.representedObject as? FileTags.TagToggle else { return }
+        FileTags.toggle(toggle.tag, on: toggle.urls, add: toggle.add)
+        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
+    }
+}
+
 // MARK: - "Открыть с помощью"
 
 /// Builds the "Open with" submenu from the apps LaunchServices knows for the file.

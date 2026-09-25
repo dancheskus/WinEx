@@ -76,8 +76,9 @@ enum Scenarios {
         let base = s.makeFiles(["a.txt", "b.txt", "dir/"])
         s.window?.navigate(to: base)
         s.setViewMode(.details)
-        func undo() { s.key("z", code: 6, modifiers: .command, viaMenu: true) }
-        func redo() { s.key("Z", code: 6, modifiers: [.command, .shift], viaMenu: true) }
+        // File work of undo / redo runs in the background: wait for it before looking at the files
+        func undo() { s.key("z", code: 6, modifiers: .command, viaMenu: true); FileUndo.waitForFileWork() }
+        func redo() { s.key("Z", code: 6, modifiers: [.command, .shift], viaMenu: true); FileUndo.waitForFileWork() }
         s.run([
             (0.8, "start", { s.note("  \(s.files())") }),
             (0.1, "rename a.txt → renamed.txt", {

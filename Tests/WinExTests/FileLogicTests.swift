@@ -121,9 +121,9 @@ struct UndoTests {
         try FileManager.default.moveItem(at: old, to: new)
         step { FileUndo.recordRename(from: old, to: new) }
         #expect(FileUndo.manager.undoActionName == "Переименование")
-        FileUndo.manager.undo()
+        FileUndo.manager.undo(); FileUndo.waitForFileWork()
         #expect(FileManager.default.fileExists(atPath: old.path) && !FileManager.default.fileExists(atPath: new.path))
-        FileUndo.manager.redo()
+        FileUndo.manager.redo(); FileUndo.waitForFileWork()
         #expect(FileManager.default.fileExists(atPath: new.path))
     }
 
@@ -136,7 +136,7 @@ struct UndoTests {
         FileManager.default.createFile(atPath: from.path, contents: nil)
         try FileManager.default.moveItem(at: from, to: to)
         step { FileUndo.recordMove([(from, to)]) }
-        FileUndo.manager.undo()
+        FileUndo.manager.undo(); FileUndo.waitForFileWork()
         #expect(FileManager.default.fileExists(atPath: from.path))
     }
 }
@@ -153,5 +153,39 @@ struct ShortcutTests {
         }
         #expect(items.contains { $0.title == "Новая папка" && $0.keyEquivalent == "N" })
         #expect(items.contains { $0.title == "Повторить" && $0.keyEquivalent == "Z" })
+    }
+}
+
+@MainActor
+struct ContextMenuTests {
+    final class Actions: NSObject, FileMenuActions {
+        func openSelected(_ sender: Any?) {}
+        func quickLook(_ sender: Any?) {}
+        func cut(_ sender: Any?) {}
+        func copy(_ sender: Any?) {}
+        func copyPath(_ sender: Any?) {}
+        func renameSelected(_ sender: Any?) {}
+        func moveToTrash(_ sender: Any?) {}
+        func share(_ sender: Any?) {}
+        func toggleTag(_ sender: NSMenuItem) {}
+        func customizeFolder(_ sender: Any?) {}
+        func showProperties(_ sender: Any?) {}
+    }
+
+    /// Folder windows and the desktop build the file menu the same way; every action reaches the target.
+    @Test func fileMenuItemsAreWiredToTheTarget() {
+        let target = Actions()
+        let menu = NSMenu()
+        FileContextMenu.addItems(to: menu, for: [URL(fileURLWithPath: "/Users")], target: target, folderTabs: true, customizableFolder: true)
+        let titles = menu.items.map(\.title)
+        for title in ["Открыть", "Открыть в новой вкладке", "Вырезать", "Переименовать", "Настроить папку…", "Свойства"] {
+            #expect(titles.contains(title))
+        }
+        for item in menu.items where item.action != nil && item.submenu == nil {
+            #expect(item.target === target, "«\(item.title)»")
+        }
+        let desktop = NSMenu()
+        FileContextMenu.addItems(to: desktop, for: [URL(fileURLWithPath: "/Users")], target: target, folderTabs: false, customizableFolder: false)
+        #expect(!desktop.items.contains { $0.title == "Открыть в новой вкладке" || $0.title == "Настроить папку…" })
     }
 }

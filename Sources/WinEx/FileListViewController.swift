@@ -13,7 +13,7 @@ protocol FileListDelegate: AnyObject {
 /// or in a collection view (icons, list, tiles); selection and actions work on both.
 final class FileListViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate,
     NSCollectionViewDataSource, NSCollectionViewDelegate, NSMenuDelegate, NSMenuItemValidation,
-    QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    QLPreviewPanelDataSource, QLPreviewPanelDelegate, FileMenuActions {
 
     enum OpenTarget { case current, newTab, newWindow }
 
@@ -30,6 +30,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private var items: [FileItem] = []
     private var watcher: DirectoryWatcher?
     private var errorMessage: String?
+    private let observers = Observers()
     private let thumbnails = NSCache<NSString, NSImage>()
     private var requestedThumbnails = Set<NSString>()
 
@@ -74,28 +75,18 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         view = container
         applyViewMode(previous: nil)
 
-        NotificationCenter.default.addObserver(forName: .showHiddenChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reload() }
-        }
-        NotificationCenter.default.addObserver(forName: NSControl.textDidEndEditingNotification, object: nil, queue: .main) { [weak self] _ in
+        observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
+        observers.add(NSControl.textDidEndEditingNotification) { [weak self] in
             // Catch up on changes that arrived during a rename (after the field has resigned)
             DispatchQueue.main.async {
                 guard let self, self.reloadAfterEditing else { return }
                 self.reload()
             }
         }
-        NotificationCenter.default.addObserver(forName: .folderViewDefaultsChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.showFolderView() }
-        }
-        NotificationCenter.default.addObserver(forName: NetworkBrowser.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { if self?.showingNetwork == true { self?.reload() } }
-        }
-        NotificationCenter.default.addObserver(forName: .fileTagsChanged, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reload() }
-        }
-        NotificationCenter.default.addObserver(forName: FileClipboard.didChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateCutAppearance() }
-        }
+        observers.add(.folderViewDefaultsChanged) { [weak self] in self?.showFolderView() }
+        observers.add(NetworkBrowser.didChange) { [weak self] in if self?.showingNetwork == true { self?.reload() } }
+        observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
+        observers.add(FileClipboard.didChange) { [weak self] in self?.updateCutAppearance() }
     }
 
     private func setUpTable(menu: NSMenu) {
@@ -361,7 +352,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private var tagQuery: NSMetadataQuery?
     private var tagResults: [URL] = []
-    private var tagQueryObservers: [NSObjectProtocol] = []
+    private let tagQueryObservers = Observers()
 
     private func startTagQuery(_ tag: String) {
         let query = NSMetadataQuery()
@@ -371,9 +362,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tagResults = []
         allItems = []
         for name in [Notification.Name.NSMetadataQueryDidFinishGathering, .NSMetadataQueryDidUpdate] {
-            tagQueryObservers.append(NotificationCenter.default.addObserver(forName: name, object: query, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.tagQueryChanged() }
-            })
+            tagQueryObservers.add(name, object: query) { [weak self] in self?.tagQueryChanged() }
         }
         query.start()
     }
@@ -391,8 +380,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func stopTagQuery() {
         tagQuery?.stop()
         tagQuery = nil
-        tagQueryObservers.forEach(NotificationCenter.default.removeObserver)
-        tagQueryObservers = []
+        tagQueryObservers.removeAll()
     }
 
     func stopWatching() {
@@ -509,11 +497,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
     }
 
-    @objc private func openInNewTab(_ sender: Any?) {
+    @objc func openInNewTab(_ sender: Any?) {
         targetURLs.forEach { delegate?.fileList(self, open: $0, in: .newTab) }
     }
 
-    @objc private func openInNewWindow(_ sender: Any?) {
+    @objc func openInNewWindow(_ sender: Any?) {
         targetURLs.forEach { delegate?.fileList(self, open: $0, in: .newWindow) }
     }
 
@@ -632,7 +620,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         reload()
     }
 
-    @objc private func quickLook(_ sender: Any?) {
+    @objc func quickLook(_ sender: Any?) {
         // A right-clicked item that isn't selected becomes the selection, so the panel shows it
         if clickedIndex >= 0 && !selectedIndexes.contains(clickedIndex) { setSelection(IndexSet(integer: clickedIndex)) }
         QuickLook.toggle(for: self)
@@ -719,7 +707,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     /// "Поделиться…": the system share picker (AirDrop, Messages, Mail…) next to the item.
-    @objc private func share(_ sender: Any?) {
+    @objc func share(_ sender: Any?) {
         guard let index = targetRows.first else { return }
         let picker = NSSharingServicePicker(items: targetURLs)
         if viewMode == .details {
@@ -729,7 +717,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
     }
 
-    @objc private func customizeFolder(_ sender: Any?) {
+    @objc func customizeFolder(_ sender: Any?) {
         guard let index = targetRows.first ?? selectedIndexes.first, items.indices.contains(index) else { return }
         let anchor: NSView, rect: NSRect
         if viewMode == .details {
@@ -742,11 +730,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         FolderCustomizationController.show(for: items[index].url, relativeTo: rect, of: anchor)
     }
 
-    @objc private func toggleTag(_ sender: NSMenuItem) {
-        guard let toggle = sender.representedObject as? FileTags.TagToggle else { return }
-        FileTags.toggle(toggle.tag, on: toggle.urls, add: toggle.add)
-        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
-    }
+    @objc func toggleTag(_ sender: NSMenuItem) { FileContextMenu.toggleTag(sender) }
 
     @objc private func sortByKey(_ sender: NSMenuItem) {
         guard let key = sender.representedObject as? String else { return }
@@ -818,31 +802,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             return
         }
         if clickedIndex >= 0 {
-            // Finder's row of tag colors on top
-            menu.addItem(TagRowMenuView.menuItem(for: targetURLs))
-            menu.addItem(.separator())
-            add("Открыть", #selector(openSelected(_:)))
-            add("Быстрый просмотр", #selector(quickLook(_:)))
-            if let openWith = OpenWithMenu.item(for: targetURLs) { menu.addItem(openWith) }
-            if targetRows.contains(where: { items[$0].isFolder }) {
-                add("Открыть в новой вкладке", #selector(openInNewTab(_:)))
-                add("Открыть в новом окне", #selector(openInNewWindow(_:)))
-            }
-            menu.addItem(.separator())
-            add("Вырезать", #selector(cut(_:)))
-            add("Копировать", #selector(copy(_:)))
-            add("Копировать путь", #selector(copyPath(_:)))
-            menu.addItem(.separator())
-            add("Переименовать", #selector(renameSelected(_:)))
-            add("Переместить в корзину", #selector(moveToTrash(_:)))
-            add("Поделиться…", #selector(share(_:)))
-            menu.addItem(.separator())
-            menu.addItem(FileTags.menuItem(for: targetURLs, target: self, action: #selector(toggleTag(_:))))
-            if targetRows.count == 1, let row = targetRows.first, items[row].isFolder {
-                add("Настроить папку…", #selector(customizeFolder(_:)))
-            }
-            menu.addItem(.separator())
-            add("Свойства", #selector(showProperties(_:)))
+            let rows = targetRows
+            FileContextMenu.addItems(to: menu, for: targetURLs, target: self,
+                                     folderTabs: rows.contains { items[$0].isFolder },
+                                     customizableFolder: rows.count == 1 && rows.first.map { items[$0].isFolder } == true)
         } else {
             let viewItem = NSMenuItem(title: "Вид", action: nil, keyEquivalent: "")
             let viewMenu = NSMenu()
