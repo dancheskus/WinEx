@@ -70,13 +70,24 @@ final class DesktopLayout {
             stored = Stored()
         }
         if !stored.importedFromFinder {
-            // First run: keep the arrangement the user had in Finder
+            // First run (or after a reset): take the arrangement and view options the user has in Finder
             for (name, point) in FinderDesktopLayout.iconCenters(in: desktop, screenSize: screenSize) {
                 stored.positions[name] = [point.x, point.y]
             }
+            let options = FinderDesktopLayout.viewOptions(
+                UserDefaults(suiteName: "com.apple.finder")?.dictionary(forKey: "DesktopViewSettings"))
+            stored.iconSize = options.iconSize.rawValue
+            stored.alignToGrid = options.alignToGrid
+            stored.autoArrange = options.autoArrange
+            stored.sortKey = options.sortKey.rawValue
             stored.importedFromFinder = true
             save()
         }
+    }
+
+    /// Forgets everything WinEx changed on the desktop; the next `DesktopLayout` takes Finder's again.
+    static func forget() {
+        AppDefaults.store.removeObject(forKey: defaultsKey)
     }
 
     var iconSize: DesktopIconSize {
@@ -141,6 +152,33 @@ final class DesktopLayout {
 ///  - bytes 8…15: Int32 x, y offset in points from the anchor (y grows downwards);
 ///  - bytes 16…23: the same point as fractions of the screen × 100 000 (can be stale, used as a fallback).
 enum FinderDesktopLayout {
+    struct ViewOptions: Equatable {
+        var iconSize = DesktopIconSize.medium
+        var alignToGrid = true
+        var autoArrange = false
+        var sortKey = DesktopSortKey.name
+    }
+
+    /// Finder's desktop "Show View Options" (`com.apple.finder` → `DesktopViewSettings`):
+    /// icon size in points and "Sort by" (none / snap to grid / name / kind / date / size).
+    static func viewOptions(_ settings: [String: Any]?) -> ViewOptions {
+        var options = ViewOptions()
+        guard let icon = settings?["IconViewSettings"] as? [String: Any] else { return options }
+        if let size = (icon["iconSize"] as? NSNumber)?.doubleValue {
+            options.iconSize = DesktopIconSize.allCases.min { abs($0.iconSide - size) < abs($1.iconSide - size) } ?? .medium
+        }
+        switch icon["arrangeBy"] as? String {
+        case "none": options.alignToGrid = false
+        case "name": options.autoArrange = true; options.sortKey = .name
+        case "kind": options.autoArrange = true; options.sortKey = .type
+        case "dateModified", "dateCreated", "dateAdded", "dateLastOpened": options.autoArrange = true; options.sortKey = .date
+        case "size": options.autoArrange = true; options.sortKey = .size
+        default: break  // "grid", tags: kept where they are, snapped to the grid
+        }
+        return options
+    }
+
+
     /// Icon centers as fractions of the screen (y from the top).
     static func iconCenters(in desktop: URL, screenSize: CGSize) -> [String: CGPoint] {
         guard let data = try? Data(contentsOf: desktop.appendingPathComponent(".DS_Store")),

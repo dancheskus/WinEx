@@ -248,6 +248,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
+    /// Puts the WinEx desktop back the way Finder has it (icon places, size, sorting).
+    func resetDesktopToFinder() {
+        if let desktop { desktop.resetToFinder() } else { DesktopLayout.forget() }
+    }
+
     func setShowHidden(_ on: Bool) {
         Settings.showHidden = on
         NotificationCenter.default.post(name: .showHiddenChanged, object: nil)

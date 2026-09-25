@@ -7,6 +7,7 @@ final class SettingsWindowController: NSWindowController {
     private let loginCheckbox = NSButton(checkboxWithTitle: "Открывать WinEx при входе в систему", target: nil, action: nil)
     private let loginHint = NSTextField(wrappingLabelWithString: "")
     private let loginApproveButton = NSButton(title: "Открыть «Объекты входа»…", target: nil, action: nil)
+    private let resetDesktopButton = NSButton(title: "Сбросить рабочий стол как в Finder…", target: nil, action: nil)
 
     init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240),
@@ -29,6 +30,8 @@ final class SettingsWindowController: NSWindowController {
         loginApproveButton.target = self
         loginApproveButton.action = #selector(openLoginItems(_:))
         loginApproveButton.controlSize = .small
+        resetDesktopButton.target = self
+        resetDesktopButton.action = #selector(resetDesktop(_:))
         let keysHint = NSTextField(wrappingLabelWithString:
             "Enter — открыть, F2 — переименовать, Backspace — на уровень выше. Выключено: как в Finder — Enter переименовывает, ⌘↓ или ⌘O открывают, ⌘↑ — вверх.")
         keysHint.font = .systemFont(ofSize: 12)
@@ -51,7 +54,7 @@ final class SettingsWindowController: NSWindowController {
         let separator2 = NSBox()
         separator2.boxType = .separator
         let stack = NSStackView(views: [loginCheckbox, loginHint, loginApproveButton, separator2,
-                                        replaceCheckbox, explanation, separator, hiddenCheckbox, windowsKeysCheckbox, keysHint])
+                                        replaceCheckbox, explanation, resetDesktopButton, separator, hiddenCheckbox, windowsKeysCheckbox, keysHint])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -103,6 +106,20 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func toggleReplace(_ sender: NSButton) {
         AppDelegate.shared.setReplaceFinder(sender.state == .on)
+    }
+
+    @objc private func resetDesktop(_ sender: Any?) {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Сбросить рабочий стол WinEx?"
+        alert.informativeText = "Значки встанут туда, где они у Finder, а размер значков и сортировка станут как в Finder. Ваша расстановка на рабочем столе WinEx будет потеряна. Файлы не изменятся."
+        alert.addButton(withTitle: "Сбросить")
+        alert.addButton(withTitle: "Отмена")
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            MainActor.assumeIsolated { AppDelegate.shared.resetDesktopToFinder() }
+        }
     }
 
     @objc private func toggleWindowsKeys(_ sender: NSButton) {

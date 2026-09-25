@@ -216,3 +216,16 @@ struct WindowPlacementTests {
         #expect(frame == CGRect(x: 0, y: 0, width: 1920, height: 1050))
     }
 }
+
+struct FinderDesktopOptionsTests {
+    @Test func mapsFindersViewOptions() {
+        func options(_ size: Int, _ arrange: String) -> FinderDesktopLayout.ViewOptions {
+            FinderDesktopLayout.viewOptions(["IconViewSettings": ["iconSize": size, "arrangeBy": arrange]])
+        }
+        #expect(options(64, "grid") == .init(iconSize: .medium, alignToGrid: true, autoArrange: false, sortKey: .name))
+        #expect(options(100, "none") == .init(iconSize: .large, alignToGrid: false, autoArrange: false, sortKey: .name))
+        #expect(options(36, "kind") == .init(iconSize: .small, alignToGrid: true, autoArrange: true, sortKey: .type))
+        #expect(options(64, "dateAdded").sortKey == .date)
+        #expect(FinderDesktopLayout.viewOptions(nil) == .init())
+    }
+}

@@ -16,7 +16,7 @@ open build/WinEx.app
 ```sh
 swift test                         # модульные тесты логики (имена, теги, .DS_Store, отмена, горячие клавиши)
 scripts/run-scenario.sh undo       # сценарий в самом приложении: undo, newfolder, slowclick, perf,
-                                   # desktop (картинка в build/scenario-desktop/), hittest, placement
+                                   # desktop (картинка в build/scenario-desktop/), hittest, placement, desktopreset
 ```
 
 Сценарии есть только в отладочной сборке: приложение управляет собой изнутри (без настоящей мыши и
@@ -87,6 +87,8 @@ WinEx и режим «вместо Finder» тест не трогает.
 
 - «Открывать WinEx при входе в систему» — объект входа (Системные настройки ▸ Основные ▸ Объекты входа);
   при входе WinEx запускается без окна.
+- «Сбросить рабочий стол как в Finder…» (с подтверждением) — забывает расстановку WinEx и берёт
+  у Finder места значков (`~/Desktop/.DS_Store`), размер значков и сортировку (`DesktopViewSettings`).
 
 ## Режим «вместо Finder» (Настройки)
 

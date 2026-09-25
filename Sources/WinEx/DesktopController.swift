@@ -29,6 +29,8 @@ final class DesktopController {
         observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.updateFrame() }
     }
 
+    func resetToFinder() { desktopView.resetToFinder() }
+
     func hide() {
         observers.removeAll()
         desktopView.stop()
@@ -206,6 +208,17 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
         if !unplaced.isEmpty { layout.save() }
         needsDisplay = true
+    }
+
+    /// Settings ▸ reset: positions and view options as Finder has them.
+    func resetToFinder() {
+        endRename()
+        DesktopLayout.forget()
+        layout = DesktopLayout(desktop: desktopURL, screenSize: window?.frame.size ?? NSScreen.screens.first?.frame.size ?? .zero)
+        thumbnails = [:]
+        requestedThumbnails = []
+        selection = []
+        reload()
     }
 
     private func storePosition(of index: Int) {

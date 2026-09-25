@@ -12,7 +12,62 @@ enum Scenarios {
         "hittest": hitTest,
         "desktop": desktop,
         "placement": placement,
+        "desktopreset": desktopReset,
     ]
+
+    /// Settings ▸ "Сбросить рабочий стол как в Finder…": Cancel keeps the layout, Reset takes Finder's.
+    static func desktopReset(_ s: Scenario) {
+        let desktop = DesktopController()
+        desktop.show()
+        let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+        func stored() -> String {
+            guard let data = AppDefaults.store.data(forKey: "desktopLayout"),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return "-" }
+            return "iconSize=\(json["iconSize"] ?? "?") positions=\((json["positions"] as? [String: Any])?.count ?? 0)"
+        }
+        func settingsWindow() -> NSWindow? { NSApp.windows.first { $0.title == "Настройки WinEx" } }
+        func press(_ title: String, in view: NSView?) -> Bool {
+            guard let view else { return false }
+            if let button = view as? NSButton, button.title == title { button.performClick(nil); return true }
+            return view.subviews.contains { press(title, in: $0) }
+        }
+        func answer(_ title: String) {
+            guard let sheet = settingsWindow()?.attachedSheet else { s.note("  (no confirmation shown)"); return }
+            s.note("  asked: \(sheet.contentView.flatMap { v in s.find(NSTextField.self, in: v)?.stringValue } ?? "?")")
+            if !press(title, in: sheet.contentView) { s.note("  (no \(title) button)") }
+        }
+        s.run([
+            (1.0, "scramble the WinEx layout", {
+                s.note("  imported: \(stored())")
+                let scrambled: [String: Any] = ["positions": ["x": [0.5, 0.5]], "iconSize": 2, "autoArrange": false,
+                                                "alignToGrid": true, "showIcons": true, "sortKey": "name", "importedFromFinder": true]
+                AppDefaults.store.set(try? JSONSerialization.data(withJSONObject: scrambled), forKey: "desktopLayout")
+                s.note("  scrambled: \(stored())")
+                AppDelegate.shared.showSettings(nil)
+            }),
+            (0.5, "settings layout", {
+                guard let stack = settingsWindow()?.contentView as? NSStackView else { s.note("  (no stack)"); return }
+                for v in stack.arrangedSubviews {
+                    let title = (v as? NSButton)?.title ?? (v as? NSTextField)?.stringValue.prefix(30).description ?? "—"
+                    s.note("  \(Int(v.frame.minY))…\(Int(v.frame.maxY)) x\(Int(v.frame.minX)) w\(Int(v.frame.width)) \(title)")
+                }
+                s.note("  window content: \(Int(stack.bounds.width))×\(Int(stack.bounds.height))")
+            }),
+            (0.5, "press reset", { if !press("Сбросить рабочий стол как в Finder…", in: settingsWindow()?.contentView) { s.note("  (no button)") } }),
+            (0.5, "Cancel", { answer("Отмена") }),
+            (0.5, "check", { s.note("  after cancel: \(stored())  expect scrambled") }),
+            (0.2, "press reset", { _ = press("Сбросить рабочий стол как в Finder…", in: settingsWindow()?.contentView) }),
+            (0.5, "Reset", { answer("Сбросить") }),
+            (0.5, "check", {
+                let finder = FinderDesktopLayout.iconCenters(in: desktopURL, screenSize: NSScreen.screens.first?.frame.size ?? .zero)
+                s.note("  after reset (WinEx desktop off): \(stored())  expect - (imported on next start)")
+                AppDefaults.store.set(try? JSONSerialization.data(withJSONObject: ["iconSize": 2, "importedFromFinder": true, "positions": [:]]), forKey: "desktopLayout")
+                desktop.resetToFinder()
+                s.note("  reset of a running desktop: \(stored())  expect like imported (Finder knows \(finder.count) places, some gone)")
+                desktop.hide()
+            }),
+        ])
+    }
 
     /// Two windows moved around; after both close, a new window opens where the last used one was.
     static func placement(_ s: Scenario) {
