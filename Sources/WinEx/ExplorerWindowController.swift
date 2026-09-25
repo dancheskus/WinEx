@@ -63,14 +63,15 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let button = NSButton()
         // Grey like Finder's toolbar (the toolbar bezel ignores contentTintColor)
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
                 .applying(.init(hierarchicalColor: .secondaryLabelColor)))
         // Toolbar buttons like Finder's: plain until hovered
         button.bezelStyle = .toolbar
         button.contentTintColor = .secondaryLabelColor
         button.toolTip = tip
-        button.widthAnchor.constraint(equalToConstant: 32).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        button.controlSize = .large
+        button.widthAnchor.constraint(equalToConstant: 38).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 34).isActive = true
         return button
     }
 
@@ -100,7 +101,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         settingsButton.target = AppDelegate.shared; settingsButton.action = #selector(AppDelegate.showSettings(_:))
 
         pathField.bezelStyle = .roundedBezel
-        pathField.font = .systemFont(ofSize: 13)
+        pathField.controlSize = .large
+        pathField.font = .systemFont(ofSize: 14)
         pathField.usesSingleLineMode = true
         pathField.cell?.isScrollable = true
         pathField.cell?.wraps = false
@@ -114,6 +116,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         searchField.sendsSearchStringImmediately = true
         searchField.recentsAutosaveName = "WinExRecentSearches"
         searchField.maximumRecents = 10
+        searchField.controlSize = .large
+        searchField.font = .systemFont(ofSize: 14)
         searchField.widthAnchor.constraint(equalToConstant: 220).isActive = true
         updateSearchMenu()
 
@@ -186,7 +190,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             navBar.topAnchor.constraint(equalTo: tabBar.bottomAnchor),
             navBar.leadingAnchor.constraint(equalTo: mainPane.leadingAnchor),
             navBar.trailingAnchor.constraint(equalTo: mainPane.trailingAnchor),
-            navBar.heightAnchor.constraint(equalToConstant: 42),
+            navBar.heightAnchor.constraint(equalToConstant: 50),
             navStack.leadingAnchor.constraint(equalTo: navBar.leadingAnchor),
             navStack.trailingAnchor.constraint(equalTo: navBar.trailingAnchor),
             navStack.centerYAnchor.constraint(equalTo: navBar.centerYAnchor),
@@ -224,6 +228,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private func setUpViewModeControls() {
         // Pull-down with every view (Explorer's "View" button)
         viewModeButton.bezelStyle = .toolbar
+        viewModeButton.controlSize = .large
         viewModeButton.contentTintColor = .secondaryLabelColor
         viewModeButton.toolTip = "Вид"
         let menu = viewModeButton.menu!
@@ -694,15 +699,29 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 /// Address bar: the first click selects the whole path, like a browser's address bar.
 /// Clicks while already editing place the caret as usual.
 final class AddressField: NSTextField {
+    /// When this field last became the first responder (system uptime). The window does that
+    /// while handling the mouse-down, before `mouseDown` runs — so "was it editing already?"
+    /// can't be asked there, only "did the focus arrive with this very click?".
+    private var focusedAt: TimeInterval = 0
+
     override func becomeFirstResponder() -> Bool {
         guard super.becomeFirstResponder() else { return false }
-        // The click that focused us is still being tracked by the field editor and will place
-        // the caret; select everything once it's done, unless the user dragged out a selection.
-        DispatchQueue.main.async { [weak self] in
-            guard let editor = self?.currentEditor(), editor.selectedRange.length == 0 else { return }
-            editor.selectAll(nil)
-        }
+        focusedAt = ProcessInfo.processInfo.systemUptime
         return true
+    }
+
+    /// The click that focuses the field selects the whole path, like a browser's address bar.
+    /// `super.mouseDown` returns once the click is over (the field editor tracks it until the
+    /// button goes up), so this runs after the caret was placed — a deferred selectAll could run
+    /// while the button was still down and be undone by the mouse-up.
+    override func mouseDown(with event: NSEvent) {
+        let sinceClick = focusedAt - event.timestamp
+        let focusing = sinceClick >= 0 && sinceClick < 0.5
+        focusedAt = 0
+        super.mouseDown(with: event)
+        // A drag that selected part of the path keeps its selection
+        guard focusing, let editor = currentEditor(), editor.selectedRange.length == 0 else { return }
+        editor.selectAll(nil)
     }
 }
 

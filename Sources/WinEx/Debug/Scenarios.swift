@@ -24,9 +24,59 @@ enum Scenarios {
         "update": update,
         "settings": settingsTabs,
         "look": look,
+        "addressclick": addressClick,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// A click on the address bar with the button held a moment (like a real click): the whole
+    /// path must end up selected. Repeated, and once with a drag that selects part of it.
+    static func addressClick(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt"])
+        s.window?.navigate(to: base)
+        func field() -> AddressField? { s.find(AddressField.self, in: s.window?.window?.contentView) }
+        func press(at x: CGFloat, dragTo: CGFloat? = nil, then check: @escaping () -> Void) {
+            guard let field = field(), let window = field.window else { s.note("  (no address field)"); return }
+            window.makeFirstResponder(s.table)   // not editing before the click
+            let down = field.convert(NSPoint(x: x, y: field.bounds.midY), to: nil)
+            let up = field.convert(NSPoint(x: dragTo ?? x, y: field.bounds.midY), to: nil)
+            func event(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {
+                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            }
+            // The button comes up 0.15 s later, while the field editor is tracking the click. A timer
+            // in the common modes fires inside that tracking loop (a main-queue block couldn't).
+            let release = Timer(timeInterval: 0.15, repeats: false) { _ in
+                if dragTo != nil, let drag = event(.leftMouseDragged, up) { NSApp.postEvent(drag, atStart: false) }
+                if let upEvent = event(.leftMouseUp, up) { NSApp.postEvent(upEvent, atStart: false) }
+            }
+            RunLoop.main.add(release, forMode: .common)
+            // Through the application, like a real click (it sets NSApp.currentEvent)
+            if let downEvent = event(.leftMouseDown, down) { NSApp.sendEvent(downEvent) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { check() }
+        }
+        func selection() -> String {
+            guard let editor = field()?.currentEditor() else { return "not editing" }
+            let range = editor.selectedRange, length = (editor.string as NSString).length
+            return range.length == length ? "all" : "\(range.length) of \(length)"
+        }
+        var results: [String] = []
+        func round(_ n: Int) {
+            guard n < 5 else {
+                s.note("  5 clicks: \(results)  expect all")
+                press(at: 40, dragTo: 120) {
+                    s.note("  drag: \(selection())  expect part")
+                    s.run([])
+                }
+                return
+            }
+            press(at: CGFloat(30 + n * 25)) {
+                results.append(selection())
+                round(n + 1)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { round(0) }
+    }
 
     /// A window to photograph (scripts/capture-window.sh look): two tabs, some files, the icon view.
     static func look(_ s: Scenario) {
