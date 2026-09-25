@@ -17,4 +17,8 @@ if kill -0 $PID 2>/dev/null; then echo "!! timeout — stopping pid $PID"; kill 
 cat "$OUT/log.txt" 2>/dev/null || echo "(no log)"
 CRASHES_AFTER=$(ls ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -c -i winex)
 [ "$CRASHES_AFTER" -gt "$CRASHES_BEFORE" ] && echo "!! the scenario crashed — see ~/Library/Logs/DiagnosticReports"
+# Pictures a scenario saved are kept in build/scenario-<name>/
+if ls "$OUT"/*.png >/dev/null 2>&1; then
+  mkdir -p "build/scenario-$NAME" && cp "$OUT"/*.png "build/scenario-$NAME/" && echo "pictures: build/scenario-$NAME/"
+fi
 rm -rf "$OUT"

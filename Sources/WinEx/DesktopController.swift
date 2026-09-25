@@ -113,6 +113,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func start() {
+        wantsLayer = true
         registerForDraggedTypes([.fileURL])
         reload()
         watcher = DirectoryWatcher(url: desktopURL) { [weak self] in self?.reload() }
@@ -161,6 +162,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         volumePaths = Set(volumes.map(\.path))
         items = volumes.map(FileItem.init) + urls.map(FileItem.init).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         layout.prune(keeping: Set(items.indices.map(name(of:))))
+        // Drop previews of files that are gone or changed
+        let live = Set(items.map(thumbnailKey))
+        thumbnails = thumbnails.filter { live.contains($0.key) }
+        requestedThumbnails.formIntersection(live)
         selection = Set(items.indices.filter { selectedNames.contains(name(of: $0)) })
         relayout()
     }
@@ -380,45 +385,67 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                 .foregroundColor: NSColor.white, .paragraphStyle: paragraph, .shadow: shadow]
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        // Almost-transparent fill so clicks on empty desktop reach us (context menu, rubber band)
-        NSColor(white: 0, alpha: 0.005).setFill()
-        dirtyRect.fill(using: .copy)
+    // MARK: - Drawing
+    //
+    // The view itself has no bitmap: a full-screen backing store would cost tens of megabytes.
+    // Its layer is an almost-transparent color (enough for the window server to send us clicks on
+    // empty desktop — context menu, rubber band), and each icon is drawn by a small tile view.
 
-        if iconsVisible {
-            let attributes = labelAttributes()
-            let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
-            for (i, item) in items.enumerated() where hitRect(i).insetBy(dx: -4, dy: -4).intersects(dirtyRect) {
-                let iconRect = iconRect(at: centers[i])
-                let labelRect = labelRect(at: centers[i])
-                let isRenaming = renamingName == name(of: i)
-                let label = labelText(for: item, attributes: attributes)
+    override var wantsUpdateLayer: Bool { true }
 
-                if selection.contains(i) || dropTarget == i {
-                    NSColor.white.withAlphaComponent(dropTarget == i ? 0.35 : 0.2).setFill()
-                    NSBezierPath(roundedRect: iconRect.insetBy(dx: -4, dy: -4), xRadius: 6, yRadius: 6).fill()
-                }
-                if selection.contains(i) && !isRenaming {
-                    let textBounds = label.boundingRect(with: labelRect.size, options: options)
-                    let highlight = NSRect(x: labelRect.midX - textBounds.width / 2 - 4, y: labelRect.minY - 1,
-                                           width: textBounds.width + 8, height: textBounds.height + 2)
-                    NSColor.selectedContentBackgroundColor.setFill()
-                    NSBezierPath(roundedRect: highlight, xRadius: 4, yRadius: 4).fill()
-                }
-                let alpha = FileClipboard.shared.isCut(item.url) ? FileListViewController.cutAlpha : 1
-                let image = image(for: i)
-                image.draw(in: Self.aspectFit(image.size, in: iconRect), from: .zero, operation: .sourceOver,
-                           fraction: alpha, respectFlipped: true, hints: nil)
-                if !isRenaming { label.draw(with: labelRect, options: options) }
+    /// Any `needsDisplay = true` lands here: match the tiles to the items and redraw them.
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor(white: 0, alpha: 0.005).cgColor
+        let count = iconsVisible ? items.count : 0
+        while tiles.count > count { tiles.removeLast().removeFromSuperview() }
+        while tiles.count < count {
+            let tile = DesktopIconTile(owner: self, index: tiles.count)
+            // Later items on top (as `index(at:)` assumes), all under the rename field
+            if let other = subviews.first(where: { !($0 is DesktopIconTile) }) {
+                addSubview(tile, positioned: .below, relativeTo: other)
+            } else {
+                addSubview(tile)
             }
+            tiles.append(tile)
         }
+        for (i, tile) in tiles.enumerated() {
+            tile.frame = hitRect(i).insetBy(dx: -6, dy: -6)
+            tile.needsDisplay = true
+        }
+        rubberBandView.frame = rubberBand ?? .zero
+        rubberBandView.isHidden = rubberBand == nil
+        if rubberBand != nil { addSubview(rubberBandView) } // on top of the icons
+    }
 
-        if let rubberBand {
-            NSColor.selectedContentBackgroundColor.withAlphaComponent(0.2).setFill()
-            rubberBand.fill(using: .sourceOver)
-            NSColor.selectedContentBackgroundColor.withAlphaComponent(0.8).setStroke()
-            NSBezierPath(rect: rubberBand.insetBy(dx: 0.5, dy: 0.5)).stroke()
+    private var tiles: [DesktopIconTile] = []
+    private let rubberBandView = DesktopRubberBandView()
+
+    fileprivate func drawIcon(_ i: Int) {
+        guard items.indices.contains(i) else { return }
+        let item = items[i]
+        let attributes = labelAttributes()
+        let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+        let iconRect = iconRect(at: centers[i])
+        let labelRect = labelRect(at: centers[i])
+        let isRenaming = renamingName == name(of: i)
+        let label = labelText(for: item, attributes: attributes)
+
+        if selection.contains(i) || dropTarget == i {
+            NSColor.white.withAlphaComponent(dropTarget == i ? 0.35 : 0.2).setFill()
+            NSBezierPath(roundedRect: iconRect.insetBy(dx: -4, dy: -4), xRadius: 6, yRadius: 6).fill()
         }
+        if selection.contains(i) && !isRenaming {
+            let textBounds = label.boundingRect(with: labelRect.size, options: options)
+            let highlight = NSRect(x: labelRect.midX - textBounds.width / 2 - 4, y: labelRect.minY - 1,
+                                   width: textBounds.width + 8, height: textBounds.height + 2)
+            NSColor.selectedContentBackgroundColor.setFill()
+            NSBezierPath(roundedRect: highlight, xRadius: 4, yRadius: 4).fill()
+        }
+        let alpha = FileClipboard.shared.isCut(item.url) ? FileListViewController.cutAlpha : 1
+        let image = image(for: i)
+        image.draw(in: Self.aspectFit(image.size, in: iconRect), from: .zero, operation: .sourceOver,
+                   fraction: alpha, respectFlipped: true, hints: nil)
+        if !isRenaming { label.draw(with: labelRect, options: options) }
     }
 
     /// Largest rect with the image's proportions inside `rect` (previews aren't square).
@@ -436,12 +463,16 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return text
     }
 
+    private func thumbnailKey(_ item: FileItem) -> String {
+        "\(Int(iconSide))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.url.path)"
+    }
+
     /// Previews for pictures, PDFs, documents… like Finder's "Show icon preview"; icons for folders and apps.
     private func image(for index: Int) -> NSImage {
         let item = items[index]
         guard !item.isFolder, !isVolume(index), item.url.pathExtension != "app" else { return item.icon }
         let side = iconSide
-        let key = "\(Int(side))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.url.path)"
+        let key = thumbnailKey(item)
         if let cached = thumbnails[key] { return cached }
         if !requestedThumbnails.contains(key) {
             requestedThumbnails.insert(key)
@@ -997,5 +1028,38 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 }
 
+/// Draws one desktop icon with its label; the desktop view does the drawing, in its coordinates.
+private final class DesktopIconTile: NSView {
+    private unowned let owner: DesktopView
+    private let index: Int
 
+    init(owner: DesktopView, index: Int) {
+        self.owner = owner
+        self.index = index
+        super.init(frame: .zero)
+    }
 
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let shift = NSAffineTransform()
+        shift.translateX(by: -frame.minX, yBy: -frame.minY)
+        shift.concat()
+        owner.drawIcon(index)
+    }
+}
+
+/// The desktop's selection rectangle.
+private final class DesktopRubberBandView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.selectedContentBackgroundColor.withAlphaComponent(0.2).setFill()
+        bounds.fill(using: .sourceOver)
+        NSColor.selectedContentBackgroundColor.withAlphaComponent(0.8).setStroke()
+        NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5)).stroke()
+    }
+}

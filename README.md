@@ -15,7 +15,8 @@ open build/WinEx.app
 
 ```sh
 swift test                         # модульные тесты логики (имена, теги, .DS_Store, отмена, горячие клавиши)
-scripts/run-scenario.sh undo       # сценарий в самом приложении: undo, newfolder, slowclick, perf
+scripts/run-scenario.sh undo       # сценарий в самом приложении: undo, newfolder, slowclick, perf,
+                                   # desktop (картинка в build/scenario-desktop/), hittest
 ```
 
 Сценарии есть только в отладочной сборке: приложение управляет собой изнутри (без настоящей мыши и

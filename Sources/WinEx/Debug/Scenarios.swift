@@ -9,7 +9,67 @@ enum Scenarios {
         "newfolder": newFolder,
         "slowclick": slowClick,
         "perf": perf,
+        "hittest": hitTest,
+        "desktop": desktop,
     ]
+
+    /// Shows the WinEx desktop, selects everything (⌘A) and saves a picture of it as desktop.png.
+    static func desktop(_ s: Scenario) {
+        let controller = DesktopController()
+        controller.show()
+        var view: DesktopView? { NSApp.windows.lazy.compactMap { $0.contentView as? DesktopView }.first }
+        s.run([
+            (2.0, "⌘A", {
+                guard let view, let window = view.window,
+                      let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                                                   windowNumber: window.windowNumber, context: nil, characters: "a",
+                                                   charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0) else { s.note("  (no desktop)"); return }
+                view.keyDown(with: event)
+                s.note("  icons: \(view.subviews.count) subviews")
+            }),
+            (1.0, "snapshot", {
+                guard let view, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("desktop.png"))
+                controller.hide()
+            }),
+        ])
+    }
+
+    /// Does the window server count a nearly transparent window as "there" (so it gets clicks)?
+    /// Asks it for the window under a point — no real mouse involved.
+    static func hitTest(_ s: Scenario) {
+        final class LayerFill: NSView {
+            var alpha: CGFloat = 0
+            override var wantsUpdateLayer: Bool { true }
+            override func updateLayer() { layer?.backgroundColor = NSColor(white: 0, alpha: alpha).cgColor }
+        }
+        final class DrawFill: NSView {
+            override func draw(_ dirtyRect: NSRect) { NSColor(white: 0, alpha: 0.005).setFill(); dirtyRect.fill(using: .copy) }
+        }
+        let clear = LayerFill(), layer = LayerFill()
+        layer.alpha = 0.005
+        let cases: [(String, NSView)] = [("clear layer (control)", clear), ("layer 0.005", layer), ("draw 0.005", DrawFill())]
+        let screen = NSScreen.screens.first?.frame ?? .zero
+        let windows = cases.enumerated().map { n, c -> NSWindow in
+            let w = NSWindow(contentRect: NSRect(x: screen.minX + 20 + CGFloat(n) * 120, y: screen.minY + 200, width: 100, height: 100),
+                             styleMask: .borderless, backing: .buffered, defer: false)
+            w.isOpaque = false; w.backgroundColor = .clear; w.hasShadow = false; w.isReleasedWhenClosed = false
+            w.level = .floating
+            w.contentView = c.1
+            w.orderFront(nil)
+            return w
+        }
+        s.run([
+            (1.0, "query", {
+                for (w, c) in zip(windows, cases) {
+                    let hit = NSWindow.windowNumber(at: NSPoint(x: w.frame.midX, y: w.frame.midY), belowWindowWithWindowNumber: 0)
+                    s.note("  \(c.0): \(hit == w.windowNumber ? "catches clicks" : "clicks pass through")")
+                }
+                windows.forEach { $0.orderOut(nil) }
+            }),
+        ])
+    }
 
     /// ⌘Z / ⇧⌘Z for rename, trash, move, new folder, tags; ⌘Z in a text field undoes typing.
     static func undo(_ s: Scenario) {
