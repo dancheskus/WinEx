@@ -103,6 +103,7 @@ final class SettingsWindowController: NSWindowController {
         hiddenCheckbox.state = Settings.showHidden ? .on : .off
         windowsKeysCheckbox.state = Settings.windowsKeys ? .on : .off
         syncHotKey()
+        syncStartFolder()
         syncLogin()
     }
 
@@ -194,7 +195,6 @@ final class SettingsWindowController: NSWindowController {
         GlobalHotKey.preset = GlobalHotKey.Preset.allCases[max(0, sender.indexOfSelectedItem)]
         GlobalHotKey.shared.apply()
         syncHotKey()
-        syncStartFolder()
     }
 
     @objc private func toggleWindowsKeys(_ sender: NSButton) {

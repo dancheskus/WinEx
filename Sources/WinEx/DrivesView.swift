@@ -61,11 +61,13 @@ final class DrivesView: NSScrollView {
         let token = generation
         let urls = drives.map(\.url)
         DispatchQueue.global(qos: .utility).async { [weak self] in
-            // Free space as Finder counts it: with purgeable space (caches, iCloud copies)
+            // Free space as Finder counts it: with purgeable space (caches, iCloud copies). Network
+            // volumes report 0 for that figure — then the plain free space
             let sizes = urls.map { url -> (Int64?, Int64?) in
                 let values = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey,
                                                                .volumeAvailableCapacityKey])
-                let free = values?.volumeAvailableCapacityForImportantUsage ?? values?.volumeAvailableCapacity.map(Int64.init)
+                let important = values?.volumeAvailableCapacityForImportantUsage.flatMap { $0 > 0 ? $0 : nil }
+                let free = important ?? values?.volumeAvailableCapacity.map(Int64.init)
                 return (values?.volumeTotalCapacity.map(Int64.init), free)
             }
             DispatchQueue.main.async {

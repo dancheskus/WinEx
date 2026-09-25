@@ -91,6 +91,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         applyViewMode(previous: nil)
 
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
+        // Back from System Settings with access granted: try the Trash again
+        observers.add(NSApplication.didBecomeActiveNotification) { [weak self] in
+            if self?.location == .trash, self?.errorMessage != nil { self?.reload() }
+        }
         observers.add(NSControl.textDidEndEditingNotification) { [weak self] in
             // Catch up on changes that arrived during a rename (after the field has resigned)
             DispatchQueue.main.async {

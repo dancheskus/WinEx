@@ -65,6 +65,14 @@ enum Scenarios {
                 s.note("  new window: \(AppDelegate.shared.windowControllers.last?.selectedTab.title ?? "?")  expect Рабочий стол / Desktop")
                 Settings.startFolder = "home"
             }),
+            (0.3, "the start folder menu in Settings", {
+                AppDelegate.shared.showSettings(nil)
+                let window = NSApp.windows.first { $0.title == "Настройки WinEx" }
+                let popups = (window?.contentView).map { s.findAll(NSPopUpButton.self, in: $0) } ?? []
+                let start = popups.first { $0.itemTitles.contains("Рабочий стол") }
+                s.note("  items: \(start?.itemTitles ?? [])  selected: \(start?.titleOfSelectedItem ?? "-")")
+                window?.close()
+            }),
         ])
     }
 
