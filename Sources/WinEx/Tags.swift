@@ -104,7 +104,8 @@ enum FileTags {
         }
     }
 
-    /// "●● " in the tags' colors, to put before a name.
+    /// "●● " in the tags' colors, to put before a name. Glued to it with a no-break space: a long
+    /// name wraps after its own words, the dots stay on its first line (as in Finder).
     static func dots(for tags: [Tag], attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
         let text = NSMutableAttributedString()
         for tag in tags {
@@ -113,7 +114,7 @@ enum FileTags {
             dot[.foregroundColor] = color
             text.append(NSAttributedString(string: "●", attributes: dot))
         }
-        if text.length > 0 { text.append(NSAttributedString(string: " ", attributes: attributes)) }
+        if text.length > 0 { text.append(NSAttributedString(string: "\u{00A0}", attributes: attributes)) }
         return text
     }
 

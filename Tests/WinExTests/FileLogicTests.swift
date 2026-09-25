@@ -282,6 +282,17 @@ struct DesktopLabelTests {
         #expect(style?.lineBreakMode == .byTruncatingMiddle)
         #expect(text.last?.string.hasSuffix(".png") == true)
     }
+
+    /// Finder keeps the tag dot in front of the name, not alone on the line above it.
+    @Test func tagDotStaysWithTheName() {
+        let text = NSMutableAttributedString(attributedString: FileTags.dots(for: [FileTags.Tag(name: "Зелёный", color: 2)], attributes: attributes))
+        text.append(NSAttributedString(string: "Lugsy_icon.png", attributes: attributes))
+        for name in ["Lugsy_icon.png", "Tabletop Simulator.docx"] {
+            text.replaceCharacters(in: NSRange(location: 2, length: text.length - 2), with: name)
+            let result = DesktopLabel.lines(text, width: 96).map(\.string)
+            #expect(result.first?.hasPrefix("●\u{00A0}") == true && (result.first?.count ?? 0) > 2)
+        }
+    }
 }
 
 struct SearchRequestTests {
