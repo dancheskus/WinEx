@@ -28,6 +28,7 @@ enum Scenarios {
         "menuswitch": menuSwitch,
         "properties": properties,
         "terminal": terminalMenu,
+        "session": session,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -457,6 +458,40 @@ enum Scenarios {
                 try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
             }),
             (2.0, "photographed", {}),
+        ])
+    }
+
+    /// A language change restarts WinEx with the same windows: saved, closed, restored here
+    /// (without the restart itself). Also: «Как в системе» follows macOS, not WinEx's language.
+    static func session(_ s: Scenario) {
+        let a = s.makeFiles(["1.txt"], in: "A"), b = s.makeFiles(["2.txt"], in: "B")
+        s.note("  running English: \(Localization.isEnglish); system language means: \(Localization.resolved(.system))")
+        let app = AppDelegate.shared
+        app.windowControllers.forEach { $0.window?.close() }
+        let first = app.openWindow(at: a)
+        first.addTab(url: b)
+        first.window?.setFrame(NSRect(x: 120, y: 140, width: 900, height: 560), display: true)
+        let second = app.openWindow(at: b)
+        second.window?.setFrame(NSRect(x: 300, y: 200, width: 820, height: 500), display: true)
+        func describe() -> [String] {
+            app.windowControllers.filter { $0.window?.isVisible == true }.map {
+                "\($0.tabs.map(\.url.lastPathComponent)) sel \($0.selectedIndex) \(Int($0.window?.frame.minX ?? 0)),\(Int($0.window?.frame.minY ?? 0)) \(Int($0.window?.frame.width ?? 0))"
+            }.sorted()
+        }
+        s.run([
+            (0.8, "save and close", {
+                s.note("  before: \(describe())")
+                app.saveSession(settingsOpen: true)
+                app.windowControllers.forEach { $0.window?.close() }
+            }),
+            (0.8, "restore", {
+                s.note("  restored something: \(app.restoreSession())")
+            }),
+            (0.8, "compare", {
+                s.note("  after:  \(describe())  expect the same")
+                s.note("  settings open: \(NSApp.windows.contains { $0.isVisible && $0.contentViewController is NSTabViewController })  expect true")
+                s.note("  session cleared: \(!app.restoreSession())  expect true")
+            }),
         ])
     }
 

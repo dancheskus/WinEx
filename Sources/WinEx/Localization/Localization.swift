@@ -26,6 +26,18 @@ enum Localization {
     /// The language this run speaks (fixed at launch).
     nonisolated(unsafe) private(set) static var isEnglish = false
 
+    /// The system's language, read before WinEx sets its own (after that the system answers
+    /// with WinEx's language).
+    nonisolated(unsafe) private(set) static var systemIsRussian = Locale.preferredLanguages.first?.hasPrefix("ru") == true
+
+    /// "ru" or "en": what `language` means on this Mac.
+    static func resolved(_ language: Language) -> String {
+        language == .system ? (systemIsRussian ? "ru" : "en") : language.rawValue
+    }
+
+    /// Whether the chosen language differs from the one this run speaks (a restart applies it).
+    static var needsRestart: Bool { resolved(chosen) != (isEnglish ? "en" : "ru") }
+
     /// Called first thing at launch.
     static func start() {
         var language = chosen
@@ -33,9 +45,8 @@ enum Localization {
         // Scenario runs: WINEX_LANG=en
         if let forced = ProcessInfo.processInfo.environment["WINEX_LANG"].flatMap(Language.init(rawValue:)) { language = forced }
         #endif
-        let resolved = language == .system
-            ? (Locale.preferredLanguages.first?.hasPrefix("ru") == true ? "ru" : "en")
-            : language.rawValue
+        systemIsRussian = Locale.preferredLanguages.first?.hasPrefix("ru") == true
+        let resolved = resolved(language)
         isEnglish = resolved == "en"
         if language != .system {
             // AppKit's own texts (standard buttons, panels) and the size units follow it too

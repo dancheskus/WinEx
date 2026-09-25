@@ -42,8 +42,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         #endif
         // Tags already on files join the sidebar's list (one quick Spotlight query)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { TagLibrary.discover() }
+        // Back from a restart (a new language): the same windows as before
+        if restoreSession() { return }
         // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
         if !openedByEvent && !launchedAtLogin { openWindow(at: Settings.startURL) }
+    }
+
+    // MARK: - Restart with the same windows
+
+    private static let sessionKey = "restartSession"
+
+    /// Quits and starts again with the same windows (their tabs, the current tab, the frames)
+    /// and, if asked, the settings — for a new language.
+    func restartKeepingWindows(settingsOpen: Bool) {
+        saveSession(settingsOpen: settingsOpen)
+        Updater.shared.restart()
+    }
+
+    func saveSession(settingsOpen: Bool) {
+        let windows: [[String: Any]] = windowControllers.compactMap { controller in
+            guard let window = controller.window, window.isVisible else { return nil }
+            return ["tabs": controller.tabs.map(\.url.absoluteString), "selected": controller.selectedIndex,
+                    "frame": NSStringFromRect(window.frame)]
+        }
+        AppDefaults.store.set(["windows": windows, "settings": settingsOpen] as [String: Any], forKey: Self.sessionKey)
+    }
+
+    /// Opens the windows saved by `restartKeepingWindows`; false when there are none.
+    func restoreSession() -> Bool {
+        guard let session = AppDefaults.store.dictionary(forKey: Self.sessionKey) else { return false }
+        AppDefaults.store.removeObject(forKey: Self.sessionKey)
+        for saved in session["windows"] as? [[String: Any]] ?? [] {
+            let tabs = (saved["tabs"] as? [String] ?? []).compactMap(URL.init(string:)).map(ExplorerTab.init(url:))
+            guard !tabs.isEmpty else { continue }
+            let controller = openWindow(with: tabs)
+            if let frame = (saved["frame"] as? String).map(NSRectFromString), frame.width > 0 {
+                controller.window?.setFrame(frame, display: true)
+                controller.keepOnScreen()
+            }
+            controller.selectTab(at: saved["selected"] as? Int ?? 0)
+        }
+        if session["settings"] as? Bool == true { showSettings(tab: .general) }
+        return true
     }
 
     func applicationWillTerminate(_ notification: Notification) {

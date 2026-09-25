@@ -11,7 +11,6 @@ final class SettingsWindowController: NSWindowController {
     private let startPopup = NSPopUpButton()
     private let languagePopup = NSPopUpButton()
     private let languageHint = SettingsForm.hint("")
-    private let restartButton = NSButton(title: L("Перезапустить WinEx"), target: nil, action: nil)
     private let hotKeyPopup = NSPopUpButton()
     private let hotKeyHint = SettingsForm.hint("")
     private let hiddenCheckbox = NSButton(checkboxWithTitle: L("Показывать скрытые файлы"), target: nil, action: nil)
@@ -103,13 +102,8 @@ final class SettingsWindowController: NSWindowController {
         }
         languagePopup.target = self
         languagePopup.action = #selector(changeLanguage(_:))
-        restartButton.target = self
-        restartButton.action = #selector(restartForLanguage(_:))
-        restartButton.controlSize = .small
-        let languageRow = NSStackView(views: [languagePopup, restartButton])
-        languageRow.spacing = 10
         return SettingsForm.build([
-            .row(L("Язык:"), languageRow),
+            .row(L("Язык:"), languagePopup),
             .row(nil, languageHint),
             .gap,
             .row(L("Новые окна открываются в:"), startPopup),
@@ -203,24 +197,17 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func syncLanguage() {
-        let chosen = Localization.chosen
-        languagePopup.selectItem(at: Localization.Language.allCases.firstIndex(of: chosen) ?? 0)
-        // The language this run speaks vs the one chosen
-        let running = Localization.isEnglish ? "en" : "ru"
-        let wanted = chosen == .system ? (Locale.preferredLanguages.first?.hasPrefix("ru") == true ? "ru" : "en") : chosen.rawValue
-        let pending = running != wanted
-        languageHint.stringValue = pending ? L("Язык сменится после перезапуска WinEx.")
-            : L("«Как в системе»: русский, если macOS на русском, иначе английский.")
-        restartButton.isHidden = !pending
+        languagePopup.selectItem(at: Localization.Language.allCases.firstIndex(of: Localization.chosen) ?? 0)
+        languageHint.stringValue = L("«Как в системе»: русский, если macOS на русском, иначе английский.")
     }
 
+    /// A new language: WinEx restarts at once and comes back with the same windows, tabs and
+    /// these settings.
     @objc private func changeLanguage(_ sender: NSPopUpButton) {
         Localization.chosen = Localization.Language(rawValue: sender.selectedItem?.representedObject as? String ?? "") ?? .system
         syncLanguage()
-    }
-
-    @objc private func restartForLanguage(_ sender: Any?) {
-        Updater.shared.restart()
+        guard Localization.needsRestart else { return }
+        AppDelegate.shared.restartKeepingWindows(settingsOpen: true)
     }
 
     func sync() {

@@ -545,8 +545,6 @@ enum English {
         " - копия (%@)": " copy %@",
         "Язык:": "Language:",
         "Как в системе": "System Language",
-        "Перезапустить WinEx": "Restart WinEx",
-        "Язык сменится после перезапуска WinEx.": "The language changes when WinEx restarts.",
         "«Как в системе»: русский, если macOS на русском, иначе английский.": "“System Language”: Russian if macOS is in Russian, English otherwise.",
     ]
 }
