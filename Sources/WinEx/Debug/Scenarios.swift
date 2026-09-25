@@ -114,12 +114,12 @@ enum Scenarios {
         watchdog.start()
         var worst: TimeInterval { watchdog.worst }
         func loaded() -> Int { s.table?.numberOfRows ?? 0 }
-        func measure(_ title: String, _ action: @escaping () -> Void, then next: @escaping () -> Void) {
+        func measure(_ title: String, count: Int = 10_000, _ action: @escaping () -> Void, then next: @escaping () -> Void) {
             watchdog.reset()
             let start = Date()
             action()
             func poll() {
-                if loaded() == 10_000 || Date().timeIntervalSince(start) > 10 {
+                if loaded() == count || Date().timeIntervalSince(start) > 10 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                         s.note(String(format: "%@: %.0f ms until listed, longest UI stall %.0f ms", title, Date().timeIntervalSince(start) * 1000 - 50, worst * 1000))
                         next()
@@ -132,10 +132,9 @@ enum Scenarios {
         }
         s.setViewMode(.details)
         measure("open 10 000 files", { s.window?.navigate(to: big) }) {
-            // A burst of 200 new files, like a copy in progress
-            measure("200 files added in a burst", {
+            // A burst of 200 new files, like a copy in progress: wait until they're all listed
+            measure("200 files added in a burst", count: 10_200, {
                 for i in 1...200 { FileManager.default.createFile(atPath: big.appendingPathComponent("new-\(i).txt").path, contents: nil) }
-                for i in 1...200 { try? FileManager.default.removeItem(at: big.appendingPathComponent("new-\(i).txt")) }
             }) {
                 s.note(String(format: "in the big folder: %.0f MB", s.footprintMB))
                 let desktop = DesktopController()

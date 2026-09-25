@@ -249,13 +249,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func load(_ url: URL, select: [URL]) {
         stopTagQuery()
+        loader.cancel()
+        reloadCompletions = []
         if Places.isNetwork(url) {
             // "Сеть": servers found by Bonjour; double-click mounts one
             directory = nil
             watcher = nil
             showingNetwork = true
             NetworkBrowser.shared.start()
-            readDirectory()
+            showNetworkServers()
             refilter(keepSelection: false)
             return
         }
@@ -264,33 +266,76 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             // A tag location: every file with the tag, found by Spotlight (updates live)
             directory = nil
             watcher = nil
+            allItems = []
+            allItemsOrder = nil
             startTagQuery(tag)
             refilter(keepSelection: false)
             return
         }
         directory = url
         watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
-        readDirectory()
-        refilter(keepSelection: false)
         showFolderView()
         // Compare resolved paths: /tmp/x and /private/tmp/x are the same item
         let paths = Set(select.map { $0.resolvingSymlinksInPath().path })
-        let indexes = IndexSet(items.indices.filter { paths.contains(items[$0].url.resolvingSymlinksInPath().path) })
-        setSelection(indexes, scrollTo: indexes.first ?? 0)
+        let (showHidden, order) = (Settings.showHidden, sortOrder)
+        loader.read({ FolderLoader.contents(of: url, showHidden: showHidden, sortedBy: order) }) { [weak self] listing in
+            guard let self else { return }
+            apply(listing)
+            refilter(keepSelection: false)
+            let indexes = paths.isEmpty ? IndexSet()
+                : IndexSet(items.indices.filter { paths.contains(self.items[$0].url.resolvingSymlinksInPath().path) })
+            setSelection(indexes, scrollTo: indexes.first ?? 0)
+        }
+        // A slow folder: show it empty (not the previous folder's files) until the listing arrives
+        if loader.isWaiting {
+            allItems = []
+            errorMessage = nil
+            refilter(keepSelection: false)
+        }
     }
 
-    /// Re-reads the current folder, keeping the selection. Postponed while a name is being edited
-    /// (a reload would end the edit — e.g. the watcher firing right after "New ▸ …").
-    func reload() {
+    /// Re-reads the current folder in the background, keeping the selection; `then` runs once the
+    /// new listing is on screen. Postponed while a name is being edited (a reload would end the
+    /// edit — e.g. the watcher firing right after "New ▸ …").
+    func reload(then completion: (() -> Void)? = nil) {
         guard !isEditingName else {
             reloadAfterEditing = true
             return
         }
         reloadAfterEditing = false
-        readDirectory()
+        if let completion { reloadCompletions.append(completion) }
+        if showingNetwork {
+            showNetworkServers()
+            finishReload()
+            return
+        }
+        let produce: FolderLoader.Produce
+        if tagQuery != nil {
+            let urls = tagResults
+            let order = sortOrder
+            produce = { FolderLoader.Listing(items: FileItem.sorted(urls.map(FileItem.init), by: order), order: order) }
+        } else if let directory {
+            let (showHidden, order) = (Settings.showHidden, sortOrder)
+            produce = { FolderLoader.contents(of: directory, showHidden: showHidden, sortedBy: order) }
+        } else {
+            return
+        }
+        loader.refresh(produce) { [weak self] listing in
+            self?.apply(listing)
+            self?.finishReload()
+        }
+    }
+
+    private func finishReload() {
         refilter(keepSelection: true)
         selectPendingItem()
+        let completions = reloadCompletions
+        reloadCompletions = []
+        completions.forEach { $0() }
     }
+
+    private let loader = FolderLoader()
+    private var reloadCompletions: [() -> Void] = []
 
     /// An item to select once the list is reloaded (the renamed file: the reload that shows its
     /// new name can be postponed until the name field has let go).
@@ -350,72 +395,52 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func stopWatching() {
         stopTagQuery()
+        loader.cancel()
         watcher = nil
     }
 
     private var showingNetwork = false
 
-    private func readDirectory() {
-        if showingNetwork {
-            let icon = NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
-                .map { symbol in NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
-                    symbol.withSymbolConfiguration(.init(pointSize: 40, weight: .light))?.draw(in: DesktopView.aspectFit(symbol.size, in: rect.insetBy(dx: 8, dy: 8)))
-                    return true
-                } } ?? NSImage()
-            allItems = NetworkBrowser.shared.servers.map { FileItem(virtual: $0.name, url: $0.url, icon: icon, kind: "Сервер (\($0.url.scheme?.uppercased() ?? ""))") }
-            errorMessage = nil
-            return
-        }
-        if tagQuery != nil {
-            allItems = tagResults.map(FileItem.init)
-            errorMessage = nil
-            return
-        }
-        guard let directory else { return }
-        var options: FileManager.DirectoryEnumerationOptions = []
-        if !Settings.showHidden { options.insert(.skipsHiddenFiles) }
-        do {
-            let urls = try FileManager.default.contentsOfDirectory(
-                at: directory, includingPropertiesForKeys: FileItem.keys, options: options)
-            allItems = urls.map(FileItem.init)
-            errorMessage = nil
-        } catch {
-            allItems = []
-            errorMessage = Places.isTrash(directory)
+    private func showNetworkServers() {
+        let icon = NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
+            .map { symbol in NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
+                symbol.withSymbolConfiguration(.init(pointSize: 40, weight: .light))?.draw(in: DesktopView.aspectFit(symbol.size, in: rect.insetBy(dx: 8, dy: 8)))
+                return true
+            } } ?? NSImage()
+        allItems = NetworkBrowser.shared.servers.map { FileItem(virtual: $0.name, url: $0.url, icon: icon, kind: "Сервер (\($0.url.scheme?.uppercased() ?? ""))") }
+        allItemsOrder = nil
+        errorMessage = nil
+    }
+
+    private func apply(_ listing: FolderLoader.Listing) {
+        allItems = listing.items
+        allItemsOrder = listing.order
+        errorMessage = listing.error.map { error in
+            directory.map(Places.isTrash) == true
                 ? "WinEx нужен «Полный доступ к диску», чтобы показать Корзину (правый клик → открыть настройки)"
                 : error.localizedDescription
         }
     }
 
+    /// The order `allItems` is sorted in (listings arrive sorted from the background).
+    private var allItemsOrder: FileItem.SortOrder?
+
     private func refilter(keepSelection: Bool) {
         let selectedPaths = keepSelection ? Set(selectedURLs.map(\.path)) : []
+        let order = sortOrder
+        if allItemsOrder != order {
+            FileItem.sort(&allItems, by: order)
+            allItemsOrder = order
+        }
         let query = filter.trimmingCharacters(in: .whitespaces)
         items = query.isEmpty ? allItems : allItems.filter { $0.name.localizedCaseInsensitiveContains(query) }
-        sortItems()
         if viewMode == .details { tableView.reloadData() } else { collectionView.reloadData() }
         setSelection(IndexSet(items.indices.filter { selectedPaths.contains(items[$0].url.path) }))
     }
 
-    private func sortItems() {
-        let descriptor = tableView.sortDescriptors.first ?? NSSortDescriptor(key: "name", ascending: true)
-        let ascending = descriptor.ascending
-        items.sort { a, b in
-            // Folders always come first, like in Explorer
-            if a.isFolder != b.isFolder { return a.isFolder }
-            let result: ComparisonResult
-            switch descriptor.key {
-            case "date": result = compare(a.modified ?? .distantPast, b.modified ?? .distantPast)
-            case "type": result = a.typeDescription.localizedStandardCompare(b.typeDescription)
-            case "size": result = compare(a.size ?? -1, b.size ?? -1)
-            default: result = a.name.localizedStandardCompare(b.name)
-            }
-            if result == .orderedSame { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
-    }
-
-    private func compare<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult {
-        a < b ? .orderedAscending : (a > b ? .orderedDescending : .orderedSame)
+    private var sortOrder: FileItem.SortOrder {
+        let descriptor = tableView.sortDescriptors.first
+        return FileItem.SortOrder(key: descriptor?.key ?? "name", ascending: descriptor?.ascending ?? true)
     }
 
     private func updateStatus() {
@@ -509,11 +534,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             NSAlert(error: error).runModal()
             return
         }
-        reload()
-        if let index = items.firstIndex(where: { $0.url.lastPathComponent == url.lastPathComponent }) {
-            setSelection(IndexSet(integer: index), scrollTo: index)
-            beginRename(at: index)
-        }
+        reload { [weak self] in self?.renameNewItem(url) }
+    }
+
+    /// Selects a just-created item and starts renaming it.
+    private func renameNewItem(_ url: URL) {
+        // Match by name: the listing may spell the folder differently (/tmp vs /private/tmp)
+        guard let index = items.firstIndex(where: { $0.url.lastPathComponent == url.lastPathComponent }) else { return }
+        setSelection(IndexSet(integer: index), scrollTo: index)
+        beginRename(at: index)
     }
 
     @objc func renameSelected(_ sender: Any?) {
@@ -562,7 +591,6 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let renamed = FileManager.default.fileExists(atPath: destination.path) && !newName.isEmpty
         pendingSelectionName = renamed ? destination.lastPathComponent : url.lastPathComponent
         reload()
-        selectPendingItem()
     }
 
     @objc func cut(_ sender: Any?) {
@@ -732,12 +760,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         do {
             let url = try template.create(in: directory)
             FileUndo.recordCreate(url)
-            reload()
-            // Match by name: the listing may spell the folder differently (/tmp vs /private/tmp)
-            if let index = items.firstIndex(where: { $0.url.lastPathComponent == url.lastPathComponent }) {
-                setSelection(IndexSet(integer: index), scrollTo: index)
-                beginRename(at: index)
-            }
+            reload { [weak self] in self?.renameNewItem(url) }
         } catch {
             NSAlert(error: error).runModal()
         }

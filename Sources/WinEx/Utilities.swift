@@ -109,19 +109,65 @@ final class FileItem {
     var sizeDescription: String? {
         size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
     }
+
+    /// A column to sort by ("name", "date", "type", "size") and a direction.
+    struct SortOrder: Equatable, Sendable {
+        var key: String
+        var ascending: Bool
+    }
+
+    /// Folders first, like in Explorer; ties are broken by name.
+    static func sort(_ items: inout [FileItem], by order: SortOrder) {
+        func compare<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult {
+            a < b ? .orderedAscending : (a > b ? .orderedDescending : .orderedSame)
+        }
+        items.sort { a, b in
+            if a.isFolder != b.isFolder { return a.isFolder }
+            let result: ComparisonResult
+            switch order.key {
+            case "date": result = compare(a.modified ?? .distantPast, b.modified ?? .distantPast)
+            case "type": result = a.typeDescription.localizedStandardCompare(b.typeDescription)
+            case "size": result = compare(a.size ?? -1, b.size ?? -1)
+            default: result = a.name.localizedStandardCompare(b.name)
+            }
+            if result == .orderedSame { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
+            return order.ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+    }
+
+    static func sorted(_ items: [FileItem], by order: SortOrder) -> [FileItem] {
+        var items = items
+        sort(&items, by: order)
+        return items
+    }
 }
 
-/// Calls `onChange` whenever the contents of a directory change.
+/// Calls `onChange` when the contents of a directory change. Events are coalesced: the first one
+/// schedules a call `delay` later and everything arriving meanwhile rides along with it, so a
+/// burst (a copy of thousands of files) costs a few reloads, not thousands.
 @MainActor
 final class DirectoryWatcher {
     private let source: DispatchSourceFileSystemObject
+    private var scheduled = false
 
-    init?(url: URL, onChange: @escaping @MainActor () -> Void) {
+    init?(url: URL, delay: TimeInterval = 0.15, onChange: @escaping @MainActor () -> Void) {
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else { return nil }
         source = DispatchSource.makeFileSystemObjectSource(
             fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { MainActor.assumeIsolated { onChange() } }
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, !self.scheduled else { return }
+                self.scheduled = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.scheduled = false
+                        onChange()
+                    }
+                }
+            }
+        }
         source.setCancelHandler { close(fd) }
         source.resume()
     }
