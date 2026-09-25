@@ -135,7 +135,7 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
 - Files: sorting, search by name, context menu, rename (F2), new folder (⇧⌘N), copy / cut / paste
   files (⌘C / ⌘X / ⌘V; cut files fade until they're pasted or something else is copied; pasting
   moves them), to the Trash (⌘⌫), drag files to other apps.
-- A Dock icon (a yellow folder; redraw it with `swift Resources/make-icon.swift`). A click brings
+- A Dock icon (Explorer's yellow folder with its blue band, on a blue squircle; redraw it with `swift Resources/make-icon.swift`). A click brings
   the windows forward, unminimizes, or opens a new one; right-click lists the open folders (tabs
   grouped by window) and “New Window”. The menu bar icon stays: “Quit” there brings Finder back.
 - Undo / Redo (⌘Z / ⇧⌘Z): renaming, moving to the Trash, moving, copying, creating folders and
