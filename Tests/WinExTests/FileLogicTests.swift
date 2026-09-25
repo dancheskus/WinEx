@@ -189,3 +189,30 @@ struct ContextMenuTests {
         #expect(!desktop.items.contains { $0.title == "Открыть в новой вкладке" || $0.title == "Настроить папку…" })
     }
 }
+
+struct WindowPlacementTests {
+    let left = WindowPlacement.Screen(id: "L", frame: CGRect(x: 0, y: 0, width: 1920, height: 1080),
+                                      visibleFrame: CGRect(x: 0, y: 0, width: 1920, height: 1050))
+    let right = WindowPlacement.Screen(id: "R", frame: CGRect(x: 1920, y: 0, width: 2560, height: 1440),
+                                       visibleFrame: CGRect(x: 1920, y: 0, width: 2560, height: 1410))
+    let onRight = WindowPlacement.Saved(frame: CGRect(x: 2100, y: 200, width: 1000, height: 640), screenID: "R",
+                                        screenFrame: CGRect(x: 1920, y: 0, width: 2560, height: 1440))
+
+    @Test func sameMonitorSameSpot() {
+        #expect(WindowPlacement.frame(for: onRight, screens: [left, right]) == onRight.frame)
+    }
+
+    @Test func followsTheMonitorWhenRearranged() {
+        var moved = right
+        moved.frame.origin.x = -2560
+        moved.visibleFrame.origin.x = -2560
+        #expect(WindowPlacement.frame(for: onRight, screens: [left, moved]) == CGRect(x: -2380, y: 200, width: 1000, height: 640))
+    }
+
+    @Test func missingMonitorFallsBackToMainAndFits() {
+        var big = onRight
+        big.frame = CGRect(x: 1920 + 2000, y: 100, width: 2400, height: 1300)
+        let frame = WindowPlacement.frame(for: big, screens: [left])
+        #expect(frame == CGRect(x: 0, y: 0, width: 1920, height: 1050))
+    }
+}

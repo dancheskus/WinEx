@@ -11,7 +11,38 @@ enum Scenarios {
         "perf": perf,
         "hittest": hitTest,
         "desktop": desktop,
+        "placement": placement,
     ]
+
+    /// Two windows moved around; after both close, a new window opens where the last used one was.
+    static func placement(_ s: Scenario) {
+        let app = AppDelegate.shared
+        let visible = NSScreen.screens.first?.visibleFrame ?? .zero
+        let first = CGRect(x: visible.minX + 40, y: visible.minY + 60, width: 800, height: 500)
+        let second = CGRect(x: visible.minX + 300, y: visible.minY + 120, width: 900, height: 560)
+        var other: ExplorerWindowController?
+        func describe(_ r: CGRect?) -> String { r.map { "\(Int($0.minX)),\(Int($0.minY)) \(Int($0.width))×\(Int($0.height))" } ?? "-" }
+        s.run([
+            (0.5, "move first window", { s.window?.window?.setFrame(first, display: true) }),
+            (0.3, "open a second window, move it", {
+                other = app.openWindow(at: s.sandbox)
+                other?.window?.setFrame(second, display: true)
+            }),
+            (0.3, "focus the first again, then the second", {
+                s.window?.window?.makeKeyAndOrderFront(nil)
+                other?.window?.makeKeyAndOrderFront(nil)
+            }),
+            (0.3, "close all", { app.windowControllers.forEach { $0.window?.close() } }),
+            (0.3, "open a new window", {
+                let frame = app.openWindow(at: s.sandbox).window?.frame
+                s.note("  new: \(describe(frame))  expect \(describe(second))")
+            }),
+            (0.3, "a second new window cascades", {
+                let frame = app.openWindow(at: s.sandbox).window?.frame
+                s.note("  cascaded: \(describe(frame))  expect shifted, 900×560")
+            }),
+        ])
+    }
 
     /// Shows the WinEx desktop, selects everything (⌘A) and saves a picture of it as desktop.png.
     static func desktop(_ s: Scenario) {

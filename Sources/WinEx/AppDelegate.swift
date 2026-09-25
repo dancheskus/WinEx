@@ -142,7 +142,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let origin {
             window.setFrameOrigin(origin)
         } else if let last = windowControllers.last?.window {
+            window.setFrame(NSRect(origin: window.frame.origin, size: last.frame.size), display: false)
             window.setFrameTopLeftPoint(last.cascadeTopLeft(from: NSPoint(x: last.frame.minX, y: last.frame.maxY)))
+        } else if let frame = WindowPlacement.restoredFrame() {
+            // The first window comes back where the last used one was
+            window.setFrame(frame, display: false)
         } else {
             window.center()
         }

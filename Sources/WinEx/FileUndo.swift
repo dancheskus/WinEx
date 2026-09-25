@@ -51,7 +51,7 @@ enum FileUndo {
     }
 
     /// File work of undo / redo runs here, in order: a move across volumes or a copy can take long.
-    private static let queue = DispatchQueue(label: "dev.winex.undo", qos: .userInitiated)
+    nonisolated private static let queue = DispatchQueue(label: "dev.winex.undo", qos: .userInitiated)
 
     /// Runs `work` off the main thread; the first error stops it and is shown.
     private static func perform(_ work: @escaping @Sendable () throws -> Void) {
