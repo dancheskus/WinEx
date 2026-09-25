@@ -23,9 +23,9 @@ enum DesktopIconSize: Int, CaseIterable {
     /// Grid cell: icon plus a two-line label.
     var cellSize: NSSize {
         switch self {
-        case .large: NSSize(width: 124, height: 140)
-        case .medium: NSSize(width: 100, height: 106)
-        case .small: NSSize(width: 84, height: 80)
+        case .large: NSSize(width: 124, height: 148)
+        case .medium: NSSize(width: 100, height: 114)
+        case .small: NSSize(width: 84, height: 88)
         }
     }
 }

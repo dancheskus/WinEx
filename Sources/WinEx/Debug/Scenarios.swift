@@ -875,7 +875,12 @@ enum Scenarios {
                 guard let item = grid.item(at: IndexPath(item: i, section: 0)) as? FileGridItem,
                       item.textField?.stringValue.hasSuffix(name) == true,
                       let frame = grid.layoutAttributesForItem(at: IndexPath(item: i, section: 0))?.frame else { continue }
-                return (grid, NSPoint(x: frame.midX, y: label ? frame.maxY - 14 : frame.minY + 28))
+                // The name's area (from the item's label frame) or the icon's middle
+                if label, let field = item.textField {
+                    let rect = field.convert(field.bounds, to: grid)
+                    return (grid, NSPoint(x: rect.midX, y: rect.midY - 4))
+                }
+                return (grid, NSPoint(x: frame.midX, y: frame.minY + 40))
             }
             s.note("  (\(name) not found)")
             return nil

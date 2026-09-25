@@ -355,7 +355,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func labelRect(at center: CGPoint) -> NSRect {
-        NSRect(x: center.x - cellSize.width / 2 + 2, y: center.y + iconSide / 2 + 4, width: cellSize.width - 4, height: 32)
+        // Below the selection square (6 pt around the icon) with a clear gap, like Finder
+        NSRect(x: center.x - cellSize.width / 2 + 2, y: center.y + iconSide / 2 + 9, width: cellSize.width - 4, height: 32)
     }
 
     private func hitRect(_ index: Int) -> NSRect {
@@ -372,7 +373,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func clamp(_ point: CGPoint) -> CGPoint {
         let iconArea = screen(at: point).iconArea
         let minX = iconArea.minX + cellSize.width / 2, maxX = iconArea.maxX - cellSize.width / 2
-        let minY = iconArea.minY + iconSide / 2 + 4, maxY = iconArea.maxY - iconSide / 2 - 38
+        let minY = iconArea.minY + iconSide / 2 + 8, maxY = iconArea.maxY - iconSide / 2 - 46
         return CGPoint(x: min(max(point.x, minX), max(minX, maxX)), y: min(max(point.y, minY), max(minY, maxY)))
     }
 
@@ -389,7 +390,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for column in 0..<columns {
             for row in 0..<rows {
                 cells.append(CGPoint(x: iconArea.maxX - 12 - cellSize.width * (CGFloat(column) + 0.5),
-                                     y: iconArea.minY + 12 + iconSide / 2 + 4 + cellSize.height * CGFloat(row)))
+                                     y: iconArea.minY + 12 + iconSide / 2 + 8 + cellSize.height * CGFloat(row)))
             }
         }
         return cells
@@ -559,7 +560,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
         if selection.contains(i) || dropTarget == i {
             // Finder's desktop: a dark translucent square with a light border
-            let square = NSBezierPath(roundedRect: iconRect.insetBy(dx: -6, dy: -6), xRadius: 10, yRadius: 10)
+            let square = NSBezierPath(roundedRect: iconRect.insetBy(dx: -5, dy: -5), xRadius: 10, yRadius: 10)
             NSColor.black.withAlphaComponent(dropTarget == i ? 0.45 : 0.3).setFill()
             square.fill()
             NSColor.white.withAlphaComponent(0.4).setStroke()

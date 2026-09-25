@@ -25,6 +25,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let sidebar = SidebarViewController()
     private let fileList = FileListViewController()
     private let statusLabel = NSTextField(labelWithString: "")
+    /// The address bar's capsule (outlined in the accent colour while editing).
+    private var addressCapsule = ToolbarCapsule(height: 32, views: [])
     /// What the status bar says (item count, selection and its size).
     var statusText: String { statusLabel.stringValue }
 
@@ -65,13 +67,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
                 .applying(.init(hierarchicalColor: .secondaryLabelColor)))
-        // Toolbar buttons like Finder's: plain until hovered
-        button.bezelStyle = .toolbar
-        button.contentTintColor = .secondaryLabelColor
+        // Borderless: the capsule around it (ToolbarCapsule) is the shape
+        button.isBordered = false
+        button.bezelStyle = .regularSquare
+        button.imagePosition = .imageOnly
         button.toolTip = tip
-        button.controlSize = .large
-        button.widthAnchor.constraint(equalToConstant: 38).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 40).isActive = true
         return button
     }
 
@@ -100,7 +101,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         refreshButton.target = self; refreshButton.action = #selector(refresh(_:))
         settingsButton.target = AppDelegate.shared; settingsButton.action = #selector(AppDelegate.showSettings(_:))
 
-        pathField.bezelStyle = .roundedBezel
+        // The capsule around it draws the field (same shape as the search field's)
+        pathField.isBordered = false
+        pathField.drawsBackground = false
+        pathField.focusRingType = .none
         pathField.controlSize = .extraLarge
         pathField.font = .systemFont(ofSize: 14)
         pathField.usesSingleLineMode = true
@@ -123,7 +127,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         // narrow windows down to a usable minimum
         searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 300).isActive = true
         searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
-        pathField.widthAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
+        pathField.widthAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
         let preferred = searchField.widthAnchor.constraint(equalToConstant: 300)
         preferred.priority = .defaultLow + 1
         preferred.isActive = true
@@ -131,13 +135,19 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
         setUpViewModeControls()
 
-        let navStack = NSStackView(views: [backButton, forwardButton, upButton, pathField, refreshButton, searchField, viewModeButton, settingsButton])
+        // One style for the whole row, sized like the search field: capsules with a light fill
+        let height = max(searchField.intrinsicContentSize.height, 32)
+        let navGroup = ToolbarCapsule(height: height, views: [backButton, forwardButton, upButton], separators: true)
+        addressCapsule = ToolbarCapsule(height: height, views: [pathField], padding: 14)
+        let refreshCapsule = ToolbarCapsule(height: height, views: [refreshButton], round: true)
+        let viewCapsule = ToolbarCapsule(height: height, views: [viewModeButton], padding: 6)
+        let settingsCapsule = ToolbarCapsule(height: height, views: [settingsButton], round: true)
+        let navStack = NSStackView(views: [navGroup, addressCapsule, refreshCapsule, searchField, viewCapsule, settingsCapsule])
         // Both are in the stack now (a constraint between views without a common ancestor throws)
-        searchField.widthAnchor.constraint(lessThanOrEqualTo: pathField.widthAnchor).isActive = true
+        searchField.widthAnchor.constraint(lessThanOrEqualTo: addressCapsule.widthAnchor).isActive = true
+        addressCapsule.setContentHuggingPriority(.defaultLow, for: .horizontal)
         navStack.orientation = .horizontal
-        navStack.spacing = 4
-        navStack.setCustomSpacing(10, after: upButton)
-        navStack.setCustomSpacing(10, after: refreshButton)
+        navStack.spacing = 8
         navStack.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
         navStack.alignment = .centerY
 
@@ -237,8 +247,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private func setUpViewModeControls() {
         // Pull-down with every view (Explorer's "View" button)
-        viewModeButton.bezelStyle = .toolbar
-        viewModeButton.controlSize = .large
+        // Borderless inside its capsule, with the pull-down arrow
+        viewModeButton.isBordered = false
+        (viewModeButton.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtCenter
         viewModeButton.contentTintColor = .secondaryLabelColor
         viewModeButton.toolTip = "Вид"
         let menu = viewModeButton.menu!
@@ -565,8 +576,13 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         }
     }
 
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        if (obj.object as? NSTextField) === pathField { addressCapsule.isFocused = true }
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         guard (obj.object as? NSTextField) === pathField else { return }
+        addressCapsule.isFocused = false
         pathField.stringValue = Location(selectedTab.url).addressText
     }
 
@@ -849,5 +865,57 @@ final class RoomySearchFieldCell: NSSearchFieldCell {
         }
         image.isTemplate = true
         return image
+    }
+}
+
+/// The toolbar's one shape: a capsule with a light fill and a hairline, as tall as the search
+/// field. Holds borderless buttons (with thin separators between them) or the address field.
+final class ToolbarCapsule: NSView {
+    var isFocused = false { didSet { needsDisplay = true } }
+    private let round: Bool
+
+    init(height: CGFloat, views: [NSView], separators: Bool = false, padding: CGFloat = 0, round: Bool = false) {
+        self.round = round
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: height).isActive = true
+        if round { widthAnchor.constraint(equalToConstant: height).isActive = true }
+        var arranged: [NSView] = []
+        for (n, view) in views.enumerated() {
+            if separators && n > 0 {
+                let line = ColorView()
+                line.color = .separatorColor
+                line.translatesAutoresizingMaskIntoConstraints = false
+                line.widthAnchor.constraint(equalToConstant: 1).isActive = true
+                line.heightAnchor.constraint(equalToConstant: height * 0.5).isActive = true
+                arranged.append(line)
+            }
+            arranged.append(view)
+        }
+        let stack = NSStackView(views: arranged)
+        stack.spacing = 0
+        stack.alignment = .centerY
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: padding),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -padding),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        for view in views where view is NSButton { view.heightAnchor.constraint(equalTo: heightAnchor).isActive = true }
+        if round, let only = views.first { only.widthAnchor.constraint(equalTo: widthAnchor).isActive = true }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let shape = NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2)
+        NSColor.labelColor.withAlphaComponent(0.06).setFill()
+        shape.fill()
+        (isFocused ? NSColor.controlAccentColor : NSColor.labelColor.withAlphaComponent(0.12)).setStroke()
+        shape.lineWidth = isFocused ? 2 : 1
+        shape.stroke()
     }
 }
