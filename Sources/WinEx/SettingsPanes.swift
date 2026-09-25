@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import AppKit
 
 /// Settings ▸ Боковое меню: what the sidebar lists, like Finder's own list of checkboxes.
@@ -343,10 +344,11 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     private let hiddenTable = NSTableView()
     private let templatesTable = NSTableView()
     private let removeApp = NSButton()
-    private let removeHidden = NSButton()
     private let removeTemplate = NSButton()
     private var apps: [AppsConfig.App] = []
     private var hiddenList: [String] = []
+    /// Every app macOS offers to open common kinds of files or folders, by name.
+    private var offered: [URL] = []
     /// Built-ins first (they can only be switched off), then the user's own.
     private var rows: [(builtin: NewItemTemplate?, custom: AppsConfig.Template?)] = []
 
@@ -364,11 +366,10 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         stack.addArrangedSubview(buttons(add: #selector(addApp(_:)), remove: removeApp, action: #selector(removeApp(_:))))
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
 
-        stack.addArrangedSubview(SettingsForm.wideHint(L("Не предлагать в «Открыть с помощью»:")))
-        setUp(hiddenTable, columns: [("hidden", L("Программа"), 590)])
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Программы, которые macOS предлагает в «Открыть с помощью» (снимите флажок — не предлагать):")))
+        setUp(hiddenTable, columns: [("shown", "", 34), ("hidden", L("Программа"), 560)])
         hiddenTable.headerView = nil
-        stack.addArrangedSubview(Self.scroll(hiddenTable, height: 90))
-        stack.addArrangedSubview(buttons(add: #selector(addHidden(_:)), remove: removeHidden, action: #selector(removeHidden(_:))))
+        stack.addArrangedSubview(Self.scroll(hiddenTable, height: 200))
         stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
 
         stack.addArrangedSubview(Self.heading(L("Создать")))
@@ -440,6 +441,7 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     private func reload() {
         apps = AppsConfig.apps
         hiddenList = AppsConfig.hiddenApps
+        if offered.isEmpty { offered = Self.offeredApps() }
         rows = NewItemTemplate.files.map { ($0, nil) } + AppsConfig.templates.map { (nil, $0) }
         [appsTable, hiddenTable, templatesTable].forEach { $0.reloadData() }
         updateButtons()
@@ -447,14 +449,13 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
 
     private func updateButtons() {
         removeApp.isEnabled = appsTable.selectedRow >= 0
-        removeHidden.isEnabled = hiddenTable.selectedRow >= 0
         removeTemplate.isEnabled = rows.indices.contains(templatesTable.selectedRow) && rows[templatesTable.selectedRow].custom != nil
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { updateButtons() }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-        tableView === appsTable ? apps.count : tableView === hiddenTable ? hiddenList.count : rows.count
+        tableView === appsTable ? apps.count : tableView === hiddenTable ? offered.count : rows.count
     }
 
     // MARK: Cells
@@ -480,9 +481,9 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     private func cell(_ tableView: NSTableView, _ tableColumn: NSTableColumn?, _ row: Int) -> NSView? {
         let id = tableColumn?.identifier.rawValue ?? ""
         if tableView === hiddenTable {
-            let identity = hiddenList[row]
-            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identity) ?? URL(fileURLWithPath: identity)
-            return appCell(url)
+            let app = offered[row]
+            if id == "shown" { return checkbox(!hiddenList.contains(AppsConfig.identity(of: app)), tag: row, action: #selector(toggleOffered(_:))) }
+            return appCell(app)
         }
         if tableView === appsTable {
             let app = apps[row]
@@ -589,17 +590,31 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         reload()
     }
 
-    @objc private func addHidden(_ sender: Any?) {
-        guard let app = chooseApp() else { return }
-        let identity = AppsConfig.identity(of: app)
-        if !AppsConfig.hiddenApps.contains(identity) { AppsConfig.hiddenApps += [identity] }
-        reload()
+    @objc private func toggleOffered(_ sender: NSButton) {
+        guard offered.indices.contains(sender.tag) else { return }
+        let identity = AppsConfig.identity(of: offered[sender.tag])
+        var list = AppsConfig.hiddenApps.filter { $0 != identity }
+        if sender.state == .off { list.append(identity) }
+        AppsConfig.hiddenApps = list
+        hiddenList = list
     }
 
-    @objc private func removeHidden(_ sender: Any?) {
-        guard hiddenList.indices.contains(hiddenTable.selectedRow) else { return }
-        AppsConfig.hiddenApps = hiddenList.enumerated().filter { $0.offset != hiddenTable.selectedRow }.map(\.element)
-        reload()
+    /// The apps of "Открыть с помощью" for folders and the usual kinds of files (text, documents,
+    /// pictures, sound, video, archives, code, web pages), without WinEx, each once.
+    private static func offeredApps() -> [URL] {
+        let types: [UTType] = [.folder, .plainText, .rtf, .pdf, .image, .png, .jpeg, .movie, .mpeg4Movie, .audio, .mp3,
+                               .html, .json, .xml, .zip, .sourceCode, .shellScript, .spreadsheet, .presentation,
+                               UTType("org.openxmlformats.wordprocessingml.document"), UTType("net.daringfireball.markdown")].compactMap { $0 }
+        var seen = Set<String>()
+        var apps: [URL] = []
+        for type in types {
+            for app in NSWorkspace.shared.urlsForApplications(toOpen: type) {
+                let identity = AppsConfig.identity(of: app)
+                guard app.standardizedFileURL != Bundle.main.bundleURL.standardizedFileURL, seen.insert(identity).inserted else { continue }
+                apps.append(app)
+            }
+        }
+        return apps.sorted { OpenWithMenu.appName($0).localizedStandardCompare(OpenWithMenu.appName($1)) == .orderedAscending }
     }
 
     private func chooseApp() -> URL? {

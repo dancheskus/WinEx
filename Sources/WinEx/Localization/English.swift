@@ -548,7 +548,6 @@ enum English {
         "Для": "For",
         "Имя файла": "File Name",
         "Какие файлы предлагать в «Создать ▸». Свой тип — название, имя нового файла с расширением и, если нужно, файл-образец, который будет копироваться.": "Which files New ▸ offers. Your own type: a title, the new file's name with its extension and, if you like, a sample file to copy.",
-        "Не предлагать в «Открыть с помощью»:": "Don’t offer in “Open With”:",
         "Новый тип": "New Type",
         "Новый файл.txt": "New File.txt",
         "Образец": "Sample",
@@ -560,5 +559,6 @@ enum English {
         "Файлы и папки": "Files and Folders",
         "любые": "any",
         "пустой": "empty",
+        "Программы, которые macOS предлагает в «Открыть с помощью» (снимите флажок — не предлагать):": "Apps macOS offers in “Open With” (uncheck to leave one out):",
     ]
 }
