@@ -75,7 +75,8 @@ enum MenuStyle {
         // Roomier than the stock menu, like Explorer's: bigger text, a tall frame per icon.
         // The shortcut is drawn in the title too (right-aligned at a tab stop): then text and
         // shortcut share one line, centred in the row — AppKit places its own shortcut by other rules.
-        let font = NSFont.menuFont(ofSize: 14)
+        // Lists of options without icons (sort keys, "Показать") are quieter: a size smaller
+        let font = NSFont.menuFont(ofSize: withIcons ? 14 : 13)
         let widest = todo.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
         let paragraph = NSMutableParagraphStyle()
         // At the menu's right edge: the button row (if any) makes the menu wider than the texts
@@ -88,7 +89,7 @@ enum MenuStyle {
         let rowFont = NSFont.menuFont(ofSize: rowFontSize)
         menu.font = rowFont
         // Measured on screenshots (text, icon, arrow and checkmark centred in the highlight)
-        let raise: CGFloat = 4
+        let raise: CGFloat = 2
         let middle = (font.ascender + font.descender) / 2
         for item in todo {
             let title = NSMutableAttributedString()
@@ -127,6 +128,9 @@ enum MenuStyle {
             title.addAttribute(decoratedKey, value: true, range: all)
             item.attributedTitle = title
             item.image = nil
+            // A quieter checkmark than AppKit's: smaller, in the secondary text colour
+            item.onStateImage = checkmark
+            item.mixedStateImage = mixedMark
         }
     }
 
@@ -135,6 +139,28 @@ enum MenuStyle {
     static let rowFontSize: CGFloat = 16
     /// Row height beyond the font's: an invisible strut in each title (see `decorate`).
     private static let strutHeight: CGFloat = 24
+
+    private static var checkmark: NSImage { stateMark("checkmark") }
+    private static var mixedMark: NSImage { stateMark("minus") }
+
+    private static func stateMark(_ name: String) -> NSImage {
+        let color = menuTextColor.withAlphaComponent(0.6)
+        let size = NSSize(width: 12, height: 12)
+        return NSImage(size: size, flipped: false) { rect in
+            guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold)) else { return false }
+            let s = symbol.size
+            let target = NSRect(x: rect.midX - s.width / 2, y: rect.midY - s.height / 2, width: s.width, height: s.height)
+            let tinted = NSImage(size: s, flipped: false) { area in
+                symbol.draw(in: area)
+                color.set()
+                area.fill(using: .sourceAtop)
+                return true
+            }
+            tinted.draw(in: target)
+            return true
+        }
+    }
 
     private static let decoratedKey = NSAttributedString.Key("WinExMenuDecorated")
 
