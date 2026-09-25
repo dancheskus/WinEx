@@ -538,6 +538,43 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         }
     }
 
+    // MARK: - Shortcuts from Windows
+
+    /// Keys handled before the focused view sees them. Always: ⌃Tab / ⌃⇧Tab switch tabs, ⌃1…9
+    /// picks a tab. With "Клавиши как в Windows": F3 search, F4 / ⌥D address bar, F5 refresh,
+    /// F11 full screen, Delete → Trash, ⇧Delete → delete for good, ⌥← ⌥→ ⌥↑ back / forward / up,
+    /// ⇧F10 context menu. Keys that edit text (arrows, Delete, ⌥D) are left to text fields.
+    func handleShortcut(_ event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        let typing = window?.firstResponder is NSTextView
+        switch (event.keyCode, modifiers) {
+        case (48, [.control]): selectNextTab(nil); return true                       // ⌃Tab
+        case (48, [.control, .shift]): selectPreviousTab(nil); return true           // ⌃⇧Tab
+        case (_, [.control]) where Int(event.charactersIgnoringModifiers ?? "").map({ (1...9).contains($0) }) == true:
+            guard let number = Int(event.charactersIgnoringModifiers ?? "") else { return false }
+            // ⌃9 is the last tab, like in browsers
+            selectTab(at: number == 9 ? tabs.count - 1 : min(number - 1, tabs.count - 1))
+            return true
+        default: break
+        }
+        guard Settings.windowsKeys else { return false }
+        switch (event.keyCode, modifiers) {
+        case (99, []): focusSearchField(nil)                                          // F3
+        case (118, []): focusPathField(nil)                                           // F4
+        case (96, []): refresh(nil)                                                   // F5
+        case (103, []): window?.toggleFullScreen(nil)                                 // F11
+        case (109, [.shift]): fileList.showContextMenuForSelection()                  // ⇧F10
+        case (2, [.option]) where !typing: focusPathField(nil)                        // ⌥D
+        case (123, [.option]) where !typing: goBack(nil)                              // ⌥←
+        case (124, [.option]) where !typing: goForward(nil)                           // ⌥→
+        case (126, [.option]) where !typing: goUp(nil)                                // ⌥↑
+        case (117, []) where !typing: fileList.moveToTrash(nil)                       // Delete
+        case (117, [.shift]) where !typing: fileList.deleteSelectedForever()          // ⇧Delete
+        default: return false
+        }
+        return true
+    }
+
     // MARK: - FileListDelegate
 
     func fileList(_ list: FileListViewController, open url: URL, in target: FileListViewController.OpenTarget) {
@@ -547,6 +584,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
                 guard let self, let mounted else { return }
                 self.fileList(list, open: mounted, in: target)
             }
+            return
+        }
+        // An alias opens what it points to; a ZIP is extracted next to itself, like Finder
+        let url = FileCommands.resolved(url)
+        if FileCommands.isZip(url), target == .current {
+            FileCommands.extract(url)
             return
         }
         guard url.isBrowsableDirectory else {
@@ -564,6 +607,16 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     func fileList(_ list: FileListViewController, reveal url: URL) {
         selectedTab.pendingSelection = [url]
         navigate(to: url.deletingLastPathComponent())
+    }
+
+    func fileList(_ list: FileListViewController, browse package: URL) {
+        browse(package)
+    }
+
+    /// Shows a package (an app, a bundle) as a folder — `navigate` would open it.
+    func browse(_ package: URL) {
+        selectedTab.navigate(to: package)
+        showSelectedTab()
     }
 
     func fileListGoUp(_ list: FileListViewController) {
@@ -656,6 +709,8 @@ final class ExplorerWindow: NSWindow {
     }
 
     override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, let controller = windowController as? ExplorerWindowController,
+           controller.handleShortcut(event) { return }
         let routed: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]
         guard routed.contains(event.type), let target = titleBarTarget(for: event) else {
             return super.sendEvent(event)

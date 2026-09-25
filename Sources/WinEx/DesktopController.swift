@@ -724,7 +724,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // MARK: - Dragging source
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? [.copy, .move, .generic, .delete] : [.copy, .move, .generic]
+        context == .outsideApplication ? [.copy, .move, .link, .generic, .delete] : [.copy, .move, .link, .generic]
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
@@ -808,6 +808,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         case (51, [.command]): trashSelection()
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
         case (120, []) where Settings.windowsKeys: renameSelected(nil)                  // F2
+        case (117, []) where Settings.windowsKeys: trashSelection()                     // Delete
+        case (117, [.shift]) where Settings.windowsKeys:                                 // ⇧Delete
+            Places.deleteForever(selectedFileURLs, emptying: false)
+        case (96, []) where Settings.windowsKeys: reload()                              // F5
         case (125, [.command]): openSelection()                                       // ⌘↓ (Finder)
         case (53, []): selection = []; needsDisplay = true                           // Esc
         case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }                    // Space
@@ -886,7 +890,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(paste(_:)): return FileClipboard.shared.canPaste
-        case #selector(cut(_:)), #selector(copy(_:)): return !selection.isEmpty
+        case #selector(cut(_:)), #selector(copy(_:)), #selector(duplicate(_:)), #selector(compress(_:)),
+             #selector(makeAlias(_:)): return !selection.isEmpty
+        case #selector(showOriginal(_:)): return selectedFileURLs.contains(where: FileCommands.isAlias)
+        case #selector(showPackageContents(_:)): return selectedFileURLs.contains(where: FileCommands.isPackage)
+        case #selector(extractArchive(_:)): return selectedFileURLs.contains(where: FileCommands.isZip)
         default: return true
         }
     }
@@ -953,6 +961,23 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     @objc func toggleTag(_ sender: NSMenuItem) { FileContextMenu.toggleTag(sender) }
+
+    // MARK: Finder file commands
+
+    @objc func duplicate(_ sender: Any?) { FileCommands.duplicate(selectedFileURLs) }
+    @objc func compress(_ sender: Any?) { FileCommands.compress(selectedFileURLs) }
+    @objc func makeAlias(_ sender: Any?) { FileCommands.makeAliases(selectedFileURLs) }
+    @objc func extractArchive(_ sender: Any?) { selectedFileURLs.filter(FileCommands.isZip).forEach(FileCommands.extract) }
+
+    @objc func showOriginal(_ sender: Any?) {
+        guard let url = selectedFileURLs.first else { return }
+        FileCommands.showOriginal(of: url) { AppDelegate.shared.reveal($0) }
+    }
+
+    @objc func showPackageContents(_ sender: Any?) {
+        guard let url = selectedFileURLs.first(where: FileCommands.isPackage) else { return }
+        AppDelegate.shared.openWindow(at: url.deletingLastPathComponent()).browse(url)
+    }
     @objc func quickLook(_ sender: Any?) { QuickLook.toggle(for: self) }
 
     /// Arrow keys pick the nearest icon in that direction (icons are freely placed, so by geometry).

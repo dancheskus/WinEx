@@ -155,6 +155,12 @@ final class Scenario {
         }
     }
 
+    /// Names shown in the table, sorted.
+    func names() -> [String] {
+        guard let table else { return [] }
+        return (0..<table.numberOfRows).compactMap { (table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue }.sorted()
+    }
+
     /// Names selected in the current view.
     var selectedNames: [String] {
         if let table, !(table.enclosingScrollView?.isHidden ?? true) {

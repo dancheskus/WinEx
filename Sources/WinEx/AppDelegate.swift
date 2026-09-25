@@ -30,6 +30,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Scenario.startIfRequested()
         #endif
         if Settings.replaceFinder { enableFinderReplacement() }
+        #if DEBUG
+        // Scenario runs must not take the shortcut from the user's WinEx
+        if !Scenario.isRequested { GlobalHotKey.shared.apply() }
+        #else
+        GlobalHotKey.shared.apply()
+        #endif
         // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
         if !openedByEvent && !launchedAtLogin { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
     }
@@ -173,6 +179,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Folders open in a new WinEx window, everything else in its default app.
     func open(_ url: URL) {
+        let url = FileCommands.resolved(url)
+        if FileCommands.isZip(url) { return FileCommands.extract(url) }
         if url.isBrowsableDirectory { openWindow(at: url) } else { NSWorkspace.shared.open(url) }
     }
 

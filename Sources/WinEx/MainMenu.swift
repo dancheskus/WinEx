@@ -63,6 +63,12 @@ enum MainMenu {
                 return alternate
             }(),
             item("Новая папка", #selector(FileListViewController.newFolder(_:)), "n", [.command, .shift]),
+            item("Дублировать", #selector(FileListViewController.duplicate(_:)), "d"),
+            item("Создать псевдоним", #selector(FileListViewController.makeAlias(_:)), "a", [.command, .control]),
+            item("Показать оригинал", #selector(FileListViewController.showOriginal(_:)), ""),
+            item("Показать содержимое пакета", #selector(FileListViewController.showPackageContents(_:)), ""),
+            item("Сжать", #selector(FileListViewController.compress(_:)), ""),
+            item("Распаковать", #selector(FileListViewController.extractArchive(_:)), ""),
             item("Найти", #selector(ExplorerWindowController.focusSearchField(_:)), "f"),
             renameItem,
             item("Переместить в корзину", #selector(FileListViewController.moveToTrash(_:)), key(NSBackspaceCharacter)),

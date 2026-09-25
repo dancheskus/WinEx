@@ -5,6 +5,8 @@ import QuickLookThumbnailing
 protocol FileListDelegate: AnyObject {
     func fileList(_ list: FileListViewController, open url: URL, in target: FileListViewController.OpenTarget)
     func fileList(_ list: FileListViewController, reveal url: URL)
+    /// Shows a package (an app, a bundle) as a folder.
+    func fileList(_ list: FileListViewController, browse package: URL)
     func fileListGoUp(_ list: FileListViewController)
     func fileList(_ list: FileListViewController, didUpdateStatus status: String)
     func fileList(_ list: FileListViewController, didChangeViewMode mode: ViewMode)
@@ -110,8 +112,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tableView.target = self
         tableView.doubleAction = #selector(doubleClicked(_:))
         tableView.menu = menu
-        tableView.setDraggingSourceOperationMask([.copy, .move, .generic, .delete], forLocal: false)
-        tableView.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
+        tableView.setDraggingSourceOperationMask([.copy, .move, .link, .generic, .delete], forLocal: false)
+        tableView.setDraggingSourceOperationMask([.copy, .move, .link, .generic], forLocal: true)
         tableView.registerForDraggedTypes([.fileURL])
         tableView.onOpen = { [weak self] in self?.openSelected(nil) }
         tableView.onGoUp = { [weak self] in
@@ -479,7 +481,35 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private var clickedIndex: Int {
-        viewMode == .details ? tableView.clickedRow : collectionView.clickedIndex
+        keyboardMenuIndex ?? (viewMode == .details ? tableView.clickedRow : collectionView.clickedIndex)
+    }
+
+    /// The item a context menu opened from the keyboard (⇧F10) is for.
+    private var keyboardMenuIndex: Int?
+
+    /// ⇧F10: the context menu of the selected item (or of the folder), at the item.
+    func showContextMenuForSelection() {
+        let view = focusView
+        guard let menu = view.menu, let window = view.window else { return }
+        let index = selectedIndexes.first
+        keyboardMenuIndex = index ?? -1
+        var rect = view.visibleRect
+        if let index {
+            rect = viewMode == .details ? tableView.rect(ofRow: index)
+                : collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame ?? rect
+        }
+        let point = view.convert(NSPoint(x: rect.minX + 24, y: rect.midY), to: nil)
+        guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        // Actions run after the menu closes
+        DispatchQueue.main.async { [weak self] in self?.keyboardMenuIndex = nil }
+    }
+
+    /// ⇧Delete with Windows keys: delete for good, after confirmation.
+    func deleteSelectedForever() {
+        let urls = selectedIndexes.map { items[$0].url }
+        Places.deleteForever(urls, emptying: false)
     }
 
     /// Items a context-menu action applies to: the clicked item (and the selection, if it contains it).
@@ -514,6 +544,30 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     @objc func openInNewWindow(_ sender: Any?) {
         targetURLs.forEach { delegate?.fileList(self, open: $0, in: .newWindow) }
+    }
+
+    // MARK: Finder file commands
+
+    @objc func duplicate(_ sender: Any?) { FileCommands.duplicate(targetURLs) }
+    @objc func compress(_ sender: Any?) { FileCommands.compress(targetURLs) }
+    @objc func makeAlias(_ sender: Any?) { FileCommands.makeAliases(targetURLs) }
+
+    @objc func extractArchive(_ sender: Any?) {
+        targetURLs.filter(FileCommands.isZip).forEach(FileCommands.extract)
+    }
+
+    @objc func showOriginal(_ sender: Any?) {
+        guard let url = targetURLs.first else { return }
+        FileCommands.showOriginal(of: url) { [weak self] original in
+            guard let self else { return }
+            delegate?.fileList(self, reveal: original)
+        }
+    }
+
+    /// Opens an app or bundle as a folder.
+    @objc func showPackageContents(_ sender: Any?) {
+        guard let url = targetURLs.first(where: FileCommands.isPackage) else { return }
+        delegate?.fileList(self, browse: url)
     }
 
     @objc private func revealInFolder(_ sender: Any?) {
@@ -781,8 +835,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
         case #selector(cut(_:)), #selector(copy(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
-             #selector(renameSelected(_:)), #selector(openInNewTab(_:)), #selector(openInNewWindow(_:)):
+             #selector(renameSelected(_:)), #selector(openInNewTab(_:)), #selector(openInNewWindow(_:)),
+             #selector(duplicate(_:)), #selector(compress(_:)), #selector(makeAlias(_:)):
             return !targetRows.isEmpty
+        case #selector(showOriginal(_:)): return targetURLs.contains(where: FileCommands.isAlias)
+        case #selector(showPackageContents(_:)): return targetURLs.contains(where: FileCommands.isPackage)
+        case #selector(extractArchive(_:)): return targetURLs.contains(where: FileCommands.isZip)
         case #selector(paste(_:)):
             return FileClipboard.shared.canPaste
         case #selector(changeViewMode(_:)):

@@ -18,7 +18,79 @@ enum Scenarios {
         "monitorgone": monitorGone,
         "fileops": fileOps,
         "search": search,
+        "filecommands": fileCommands,
     ]
+
+    /// Duplicate, compress, extract (double-click), alias (open, show original), package contents,
+    /// Windows keys, the global shortcut's registration.
+    static func fileCommands(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt", "dir/", "Pkg.app/", "Pkg.app/Contents/"])
+        s.makeFiles(["inner.txt"], in: "dir")
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        func open(_ name: String) {
+            s.select(name)
+            s.send("openSelected:")
+        }
+        s.run([
+            (0.8, "duplicate a.txt", { s.select("a.txt"); s.send("duplicate:") }),
+            (0.8, "compress a.txt, then a.txt + dir", {
+                s.note("  \(s.files())  expect a - копия.txt")
+                s.select("a.txt"); s.send("compress:")
+            }),
+            (1.0, "compress two", {
+                s.table?.selectRowIndexes(IndexSet((0..<(s.table?.numberOfRows ?? 0)).filter { row in
+                    ["a.txt", "dir"].contains((s.table?.view(atColumn: 0, row: row, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue ?? "")
+                }), byExtendingSelection: false)
+                s.send("compress:")
+            }),
+            (1.5, "double-click Архив.zip", {
+                s.note("  \(s.files())  expect a.txt.zip, Архив.zip")
+                open("Архив.zip")
+            }),
+            (1.5, "extracted", {
+                s.note("  \(s.files())  expect folder Архив")
+                s.note("  Архив: \(s.files(in: base.appendingPathComponent("Архив")))  expect a.txt, dir")
+            }),
+            (0.2, "alias of dir", { s.select("dir"); s.send("makeAlias:") }),
+            (0.8, "open the alias", {
+                let alias = base.appendingPathComponent("dir псевдоним")
+                s.note("  alias: \(FileCommands.isAlias(alias)), points to: \(FileCommands.original(of: alias)?.lastPathComponent ?? "-")")
+                open("dir псевдоним")
+            }),
+            (0.8, "where are we", {
+                s.note("  \(s.window?.selectedTab.title ?? "?")  expect dir")
+                s.window?.goBack(nil)
+            }),
+            (0.8, "show package contents", { s.select("Pkg.app"); s.send("showPackageContents:") }),
+            (0.8, "inside the package", {
+                s.note("  \(s.window?.selectedTab.title ?? "?") → \(s.names())  expect Pkg, [Contents]")
+            }),
+            (0.2, "Windows keys: ⌥← back, ⌃Tab with two tabs", {
+                Settings.windowsKeys = true
+                s.window?.window?.makeFirstResponder(s.table)
+                s.key("", code: 123, modifiers: .option)
+            }),
+            (0.6, "after ⌥←", {
+                s.note("  \(s.window?.selectedTab.title ?? "?")  expect the sandbox folder")
+                s.window?.newTab(nil)
+            }),
+            (0.5, "⌃1", {
+                s.key("1", code: 18, modifiers: .control)
+                s.note("  tab \((s.window?.selectedIndex ?? -1) + 1) of \(s.window?.tabs.count ?? 0)  expect 1 of 2")
+                s.key("\t", code: 48, modifiers: .control)
+                s.note("  after ⌃Tab: tab \((s.window?.selectedIndex ?? -1) + 1)  expect 2")
+                Settings.windowsKeys = false
+            }),
+            (0.2, "global shortcut registers", {
+                GlobalHotKey.preset = .controlOptionE
+                GlobalHotKey.shared.apply()
+                s.note("  ⌃⌥E registered: \(GlobalHotKey.shared.isRegistered)")
+                GlobalHotKey.preset = .off
+                GlobalHotKey.shared.apply()
+            }),
+        ])
+    }
 
     /// Search in a folder (not indexed by Spotlight: the name walk), back to the folder, the whole
     /// Mac; CPU while results are shown and after leaving them.

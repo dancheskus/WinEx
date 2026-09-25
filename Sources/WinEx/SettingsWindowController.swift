@@ -7,6 +7,8 @@ final class SettingsWindowController: NSWindowController {
     private let loginCheckbox = NSButton(checkboxWithTitle: "Открывать WinEx при входе в систему", target: nil, action: nil)
     private let loginHint = NSTextField(wrappingLabelWithString: "")
     private let loginApproveButton = NSButton(title: "Открыть «Объекты входа»…", target: nil, action: nil)
+    private let hotKeyPopup = NSPopUpButton()
+    private let hotKeyHint = NSTextField(wrappingLabelWithString: "")
     private let resetDesktopButton = NSButton(title: "Сбросить рабочий стол как в Finder…", target: nil, action: nil)
 
     init() {
@@ -32,8 +34,9 @@ final class SettingsWindowController: NSWindowController {
         loginApproveButton.controlSize = .small
         resetDesktopButton.target = self
         resetDesktopButton.action = #selector(resetDesktop(_:))
-        let keysHint = NSTextField(wrappingLabelWithString:
-            "Enter — открыть, F2 — переименовать, Backspace — на уровень выше. Выключено: как в Finder — Enter переименовывает, ⌘↓ или ⌘O открывают, ⌘↑ — вверх.")
+        let keysHint = NSTextField(wrappingLabelWithString: """
+            Enter — открыть, F2 — переименовать, Backspace или ⌥↑ — вверх, ⌥← ⌥→ — назад / вперёд,             F3 — поиск, F4 или ⌥D — адресная строка, F5 — обновить, F11 — полный экран, Delete — в Корзину,             ⇧Delete — удалить навсегда, ⇧F10 — контекстное меню. Выключено: как в Finder — Enter переименовывает,             ⌘↓ или ⌘O открывают, ⌘↑ — вверх. Всегда: ⌃Tab / ⌃⇧Tab и ⌃1…9 — вкладки, перетаскивание с ⌘ —             переместить, с ⌥ — копировать, с ⌘⌥ — создать псевдоним.
+            """)
         keysHint.font = .systemFont(ofSize: 12)
         keysHint.textColor = .secondaryLabelColor
         keysHint.preferredMaxLayoutWidth = 420
@@ -51,15 +54,26 @@ final class SettingsWindowController: NSWindowController {
         let separator = NSBox()
         separator.boxType = .separator
 
+        // Win+E: a WinEx window from any app
+        for preset in GlobalHotKey.Preset.allCases { hotKeyPopup.addItem(withTitle: preset.title) }
+        hotKeyPopup.target = self
+        hotKeyPopup.action = #selector(changeHotKey(_:))
+        let hotKeyRow = NSStackView(views: [NSTextField(labelWithString: "Открыть окно WinEx из любой программы:"), hotKeyPopup])
+        hotKeyRow.spacing = 8
+        hotKeyHint.font = .systemFont(ofSize: 12)
+        hotKeyHint.textColor = .secondaryLabelColor
+        hotKeyHint.preferredMaxLayoutWidth = 420
+
         let separator2 = NSBox()
         separator2.boxType = .separator
         let stack = NSStackView(views: [loginCheckbox, loginHint, loginApproveButton, separator2,
-                                        replaceCheckbox, explanation, resetDesktopButton, separator, hiddenCheckbox, windowsKeysCheckbox, keysHint])
+                                        replaceCheckbox, explanation, resetDesktopButton, separator, hotKeyRow, hotKeyHint, hiddenCheckbox, windowsKeysCheckbox, keysHint])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
         stack.setCustomSpacing(6, after: replaceCheckbox)
         stack.setCustomSpacing(6, after: windowsKeysCheckbox)
+        stack.setCustomSpacing(6, after: hotKeyRow)
         stack.setCustomSpacing(6, after: loginCheckbox)
         separator2.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -48).isActive = true
         stack.edgeInsets = NSEdgeInsets(top: 20, left: 24, bottom: 20, right: 24)
@@ -77,6 +91,7 @@ final class SettingsWindowController: NSWindowController {
         replaceCheckbox.state = Settings.replaceFinder ? .on : .off
         hiddenCheckbox.state = Settings.showHidden ? .on : .off
         windowsKeysCheckbox.state = Settings.windowsKeys ? .on : .off
+        syncHotKey()
         syncLogin()
     }
 
@@ -120,6 +135,24 @@ final class SettingsWindowController: NSWindowController {
             guard response == .alertFirstButtonReturn else { return }
             MainActor.assumeIsolated { AppDelegate.shared.resetDesktopToFinder() }
         }
+    }
+
+    private func syncHotKey() {
+        let preset = GlobalHotKey.preset
+        hotKeyPopup.selectItem(at: GlobalHotKey.Preset.allCases.firstIndex(of: preset) ?? 0)
+        if preset != .off && !GlobalHotKey.shared.isRegistered {
+            hotKeyHint.stringValue = "Это сочетание уже занято другой программой — выберите другое."
+        } else if preset == .commandE {
+            hotKeyHint.stringValue = "⌘E во многих программах означает «Искать выделенное» — там оно перестанет работать."
+        } else {
+            hotKeyHint.stringValue = "Как Win+E в Windows: новое окно WinEx поверх любой программы."
+        }
+    }
+
+    @objc private func changeHotKey(_ sender: NSPopUpButton) {
+        GlobalHotKey.preset = GlobalHotKey.Preset.allCases[max(0, sender.indexOfSelectedItem)]
+        GlobalHotKey.shared.apply()
+        syncHotKey()
     }
 
     @objc private func toggleWindowsKeys(_ sender: NSButton) {

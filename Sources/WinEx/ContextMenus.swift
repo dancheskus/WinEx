@@ -16,6 +16,12 @@ import UniformTypeIdentifiers
     func toggleTag(_ sender: NSMenuItem)
     func customizeFolder(_ sender: Any?)
     func showProperties(_ sender: Any?)
+    func duplicate(_ sender: Any?)
+    func compress(_ sender: Any?)
+    func extractArchive(_ sender: Any?)
+    func makeAlias(_ sender: Any?)
+    func showOriginal(_ sender: Any?)
+    func showPackageContents(_ sender: Any?)
     @objc optional func openInNewTab(_ sender: Any?)
     @objc optional func openInNewWindow(_ sender: Any?)
 }
@@ -32,6 +38,13 @@ enum FileContextMenu {
         menu.addItem(TagRowMenuView.menuItem(for: urls))
         menu.addItem(.separator())
         add("Открыть", #selector(FileMenuActions.openSelected(_:)))
+        let single = urls.count == 1 ? urls.first : nil
+        if let single, FileCommands.isPackage(single) {
+            add("Показать содержимое пакета", #selector(FileMenuActions.showPackageContents(_:)))
+        }
+        if let single, FileCommands.isAlias(single) {
+            add("Показать оригинал", #selector(FileMenuActions.showOriginal(_:)))
+        }
         add("Быстрый просмотр", #selector(FileMenuActions.quickLook(_:)))
         if let openWith = OpenWithMenu.item(for: urls) { menu.addItem(openWith) }
         if folderTabs {
@@ -42,6 +55,14 @@ enum FileContextMenu {
         add("Вырезать", #selector(FileMenuActions.cut(_:)))
         add("Копировать", #selector(FileMenuActions.copy(_:)))
         add("Копировать путь", #selector(FileMenuActions.copyPath(_:)))
+        menu.addItem(.separator())
+        add("Дублировать", #selector(FileMenuActions.duplicate(_:)))
+        add("Создать псевдоним", #selector(FileMenuActions.makeAlias(_:)))
+        add(single.map { "Сжать «\($0.lastPathComponent)»" } ?? "Сжать \(urls.count) \(plural(urls.count, "объект", "объекта", "объектов"))",
+            #selector(FileMenuActions.compress(_:)))
+        if let single, FileCommands.isZip(single) {
+            add("Распаковать", #selector(FileMenuActions.extractArchive(_:)))
+        }
         menu.addItem(.separator())
         add("Переименовать", #selector(FileMenuActions.renameSelected(_:)))
         add("Переместить в корзину", #selector(FileMenuActions.moveToTrash(_:)))
@@ -386,7 +407,14 @@ enum FileDrop {
             return []
         }
         let mask = info.draggingSourceOperationMask
-        if NSEvent.modifierFlags.contains(.option) || !sameVolume(urls[0], directory) {
+        let modifiers = NSEvent.modifierFlags.intersection([.command, .option])
+        // ⌘⌥: an alias (Alt+drag makes a shortcut in Explorer)
+        if modifiers == [.command, .option] { return mask.contains(.link) ? .link : [] }
+        // ⌘: move even to another disk (Shift+drag in Explorer)
+        if modifiers == .command, mask.contains(.move) {
+            return urls.allSatisfy({ $0.deletingLastPathComponent().standardizedFileURL.path == target }) ? [] : .move
+        }
+        if modifiers.contains(.option) || !sameVolume(urls[0], directory) {
             return mask.contains(.copy) ? .copy : []
         }
         if urls.allSatisfy({ $0.deletingLastPathComponent().standardizedFileURL.path == target }) { return [] }
@@ -398,6 +426,10 @@ enum FileDrop {
     static func perform(_ info: NSDraggingInfo, into directory: URL) -> Bool {
         let operation = operation(for: info, into: directory)
         guard operation != [] else { return false }
+        if operation == .link {
+            FileCommands.makeAliases(urls(info), in: directory)
+            return true
+        }
         FileOps.transfer(urls(info), to: directory, copy: operation == .copy)
         return true
     }

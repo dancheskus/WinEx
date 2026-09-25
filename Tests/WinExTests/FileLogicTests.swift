@@ -170,6 +170,12 @@ struct ContextMenuTests {
         func toggleTag(_ sender: NSMenuItem) {}
         func customizeFolder(_ sender: Any?) {}
         func showProperties(_ sender: Any?) {}
+        func duplicate(_ sender: Any?) {}
+        func compress(_ sender: Any?) {}
+        func extractArchive(_ sender: Any?) {}
+        func makeAlias(_ sender: Any?) {}
+        func showOriginal(_ sender: Any?) {}
+        func showPackageContents(_ sender: Any?) {}
     }
 
     /// Folder windows and the desktop build the file menu the same way; every action reaches the target.
