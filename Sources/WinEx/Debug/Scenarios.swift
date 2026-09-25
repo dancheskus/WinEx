@@ -148,33 +148,19 @@ enum Scenarios {
                 RunLoop.main.add(close, forMode: .common)
             }
             RunLoop.main.add(find, forMode: .common)
-            if ProcessInfo.processInfo.environment["WINEX_MENU_TEST"]?.isEmpty == false {
-                // Experiment: does macOS draw item images in a plain context menu?
-                let plain = NSMenu()
-                for (title, symbol) in [("Копировать", "doc.on.doc"), ("Свойства", "info.circle")] {
-                    let item = plain.addItem(withTitle: title, action: #selector(NSText.copy(_:)), keyEquivalent: "")
-                    // The icon as part of the title (a text attachment)
-                    let attachment = NSTextAttachment()
-                    attachment.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-                        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular).applying(.init(hierarchicalColor: .labelColor)))
-                    let text = NSMutableAttributedString(attachment: attachment)
-                    text.append(NSAttributedString(string: "   " + title, attributes: [.font: NSFont.menuFont(ofSize: 0)]))
-                    item.attributedTitle = text
-                }
-                let closePlain = Timer(timeInterval: 0.6, repeats: false) { _ in
-                    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-                    if let number = list.first(where: { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid() && ($0[kCGWindowLayer as String] as? Int ?? 0) >= 101 })?[kCGWindowNumber as String] as? Int {
-                        try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+            // WINEX_MENU_TEST=N: highlight the N-th item with the keyboard (↓ × N) for the picture
+            if let downs = Int(ProcessInfo.processInfo.environment["WINEX_MENU_TEST"] ?? ""), downs > 0 {
+                let highlight = Timer(timeInterval: 0.3, repeats: false) { _ in
+                    let arrow = String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
+                    for _ in 0..<downs {
+                        if let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                       windowNumber: 0, context: nil, characters: arrow, charactersIgnoringModifiers: arrow,
+                                                       isARepeat: false, keyCode: 125) {
+                            NSApp.postEvent(down, atStart: false)
+                        }
                     }
-                    let close = Timer(timeInterval: 0.2, repeats: true) { timer in
-                        if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-0").path) { timer.invalidate(); plain.cancelTracking() }
-                    }
-                    RunLoop.main.add(close, forMode: .common)
                 }
-                RunLoop.main.add(closePlain, forMode: .common)
-                NSMenu.popUpContextMenu(plain, with: event, for: table)
-                s.run([])
-                return
+                RunLoop.main.add(highlight, forMode: .common)
             }
             // A real right-click on the row (the table records it as the clicked row)
             table.rightMouseDown(with: event)

@@ -78,12 +78,16 @@ enum MenuStyle {
         // At the menu's right edge: the button row (if any) makes the menu wider than the texts
         let rowWidth = menu.items.compactMap { $0.view as? ActionRowView }.first?.frame.width ?? 0
         paragraph.tabStops = [NSTextTab(textAlignment: .right, location: ceil(max(22 + 12 + widest + 70, rowWidth - 36)))]
+        // Roomy rows come from the line height (not from a tall icon: AppKit then drew the submenu
+        // arrow off-centre); the text is raised to the middle of the 28 pt line
+        paragraph.minimumLineHeight = 28
+        paragraph.maximumLineHeight = 28
+        let raise = (28 - (font.ascender - font.descender)) / 2 + 0.5
         let middle = (font.ascender + font.descender) / 2
         for item in todo {
             let attachment = NSTextAttachment()
             attachment.image = framed(icons[item])
-            // Centred on the text's middle, so the text is centred in the (highlighted) row
-            attachment.bounds = NSRect(x: 0, y: (middle - 14).rounded(), width: 22, height: 28)
+            attachment.bounds = NSRect(x: 0, y: (middle - 10).rounded(), width: 22, height: 20)
             let title = NSMutableAttributedString(attachment: attachment)
             title.append(NSAttributedString(string: "   " + item.title, attributes: [.font: font, .paragraphStyle: paragraph]))
             if let shortcut = shortcutText(item) {
@@ -95,6 +99,7 @@ enum MenuStyle {
                 item.keyEquivalentModifierMask = []
             }
             title.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: title.length))
+            title.addAttribute(.baselineOffset, value: raise, range: NSRange(location: 0, length: title.length))
             item.attributedTitle = title
             item.image = nil
         }
@@ -125,13 +130,13 @@ enum MenuStyle {
         return text + name
     }
 
-    /// Every icon in the same 22×28 frame (the height makes the rows roomy), centred and scaled
+    /// Every icon in the same 22×20 frame, centred and scaled
     /// down to fit, so the texts line up. Symbols are drawn as a one-colour mask in the menu's
     /// text colour: any layered rendering (hierarchical, palette) left the fill layers of some
     /// symbols ("tag", "plus.square.on.square") black. App icons keep their colours.
     private static func framed(_ icon: NSImage?) -> NSImage {
         let color = menuTextColor
-        return NSImage(size: NSSize(width: 22, height: 28), flipped: false) { rect in
+        return NSImage(size: NSSize(width: 22, height: 20), flipped: false) { rect in
             guard let icon, icon.size.width > 0, icon.size.height > 0 else { return true }
             let scale = min(1, 20 / icon.size.width, 20 / icon.size.height)
             let size = NSSize(width: icon.size.width * scale, height: icon.size.height * scale)
