@@ -26,6 +26,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let sidebar = SidebarViewController()
     private let fileList = FileListViewController()
     private let statusLabel = NSTextField(labelWithString: "")
+    /// What the status bar says (item count, selection and its size).
+    var statusText: String { statusLabel.stringValue }
 
     init(tabs: [ExplorerTab]) {
         precondition(!tabs.isEmpty)

@@ -335,7 +335,7 @@ final class FileOperation: @unchecked Sendable {
     }
 
     /// Bytes and files in `url` (a file or a whole folder).
-    static func size(of url: URL) -> (bytes: Int64, files: Int) {
+    static func size(of url: URL, cancel: CancelFlag? = nil) -> (bytes: Int64, files: Int) {
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
         let values = try? url.resourceValues(forKeys: keys)
         guard values?.isDirectory == true, values?.isSymbolicLink != true else {
@@ -344,6 +344,7 @@ final class FileOperation: @unchecked Sendable {
         var bytes: Int64 = 0, files = 0
         let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: Array(keys), options: [], errorHandler: { _, _ in true })
         while let item = enumerator?.nextObject() as? URL {
+            if files % 1000 == 0, cancel?.isCancelled == true { break }
             let itemValues = try? item.resourceValues(forKeys: keys)
             if itemValues?.isDirectory == true && itemValues?.isSymbolicLink != true { continue }
             bytes += Int64(itemValues?.fileSize ?? 0)

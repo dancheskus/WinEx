@@ -25,6 +25,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     let collectionView = FileCollectionView()
 
     private let tableScrollView = NSScrollView()
+    /// "Этот Mac": drives instead of files.
+    private let drivesView = DrivesView()
+    /// "Эта папка пуста", "Ничего не найдено", no access to the Trash…
+    private let emptyState = EmptyStateView()
     private let gridScrollView = NSScrollView()
     private let flowLayout = LeftAlignedFlowLayout()
 
@@ -60,8 +64,20 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         setUpGrid(menu: menu)
 
         let container = NSView()
-        for scrollView in [tableScrollView, gridScrollView] {
-            scrollView.autohidesScrollers = true
+        tableScrollView.autohidesScrollers = true
+        gridScrollView.autohidesScrollers = true
+        drivesView.isHidden = true
+        emptyState.isHidden = true
+        drivesView.onOpen = { [weak self] url in
+            guard let self else { return }
+            delegate?.fileList(self, open: url, in: .current)
+        }
+        drivesView.onOpenInNewTab = { [weak self] url in
+            guard let self else { return }
+            delegate?.fileList(self, open: url, in: .newTab)
+        }
+        drivesView.onProperties = { PropertiesWindowController.show(for: [$0]) }
+        for scrollView in [tableScrollView, gridScrollView, drivesView, emptyState] as [NSView] {
             scrollView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(scrollView)
             NSLayoutConstraint.activate([
@@ -180,8 +196,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let hadFocus = previous.map { focusView(for: $0) === view.window?.firstResponder } ?? false
 
         let isDetails = viewMode == .details
-        tableScrollView.isHidden = !isDetails
-        gridScrollView.isHidden = isDetails
+        tableScrollView.isHidden = !isDetails || !drivesView.isHidden
+        gridScrollView.isHidden = isDetails || !drivesView.isHidden
         if isDetails {
             tableView.reloadData()
         } else {
@@ -240,6 +256,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     func load(_ url: URL, select: [URL]) {
         stopSearch()
         searchNote = nil
+        showDrives(false)
         loader.cancel()
         reloadCompletions = []
         let location = Location(url)
@@ -256,6 +273,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         case .tag(let tag):
             // A tag location: every file with the tag, found by Spotlight (updates live)
             startSearch(FileSearch(predicate: NSPredicate(format: "kMDItemUserTags == %@", tag), scope: nil))
+            return
+        case .computer:
+            startSearch(nil)
+            showDrives(true)
             return
         case .search(let request):
             guard !request.isTooShort else {
@@ -442,7 +463,93 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         return FileItem.SortOrder(key: descriptor?.key ?? "name", ascending: descriptor?.ascending ?? true)
     }
 
+    private func showDrives(_ show: Bool) {
+        drivesView.isHidden = !show
+        tableScrollView.isHidden = show || viewMode != .details
+        gridScrollView.isHidden = show || viewMode == .details
+        guard show else { return }
+        emptyState.isHidden = true
+        drivesView.reload()
+        view.window?.makeFirstResponder(drivesView)
+        delegate?.fileList(self, didUpdateStatus: "\(drivesView.driveCount) \(plural(drivesView.driveCount, "диск", "диска", "дисков"))")
+    }
+
+    // MARK: Size of the selection
+
+    /// Bytes of the selected items; folders (and packages) are added once counted in the background.
+    private var selectionSize: (urls: [URL], bytes: Int64, counting: Bool)?
+    private var sizeJob: CancelFlag?
+
+    private func selectionSizeText() -> String? {
+        let selected = selectedIndexes.map { items[$0] }.filter { $0.url.isFileURL }
+        guard !selected.isEmpty else { return nil }
+        let urls = selected.map(\.url)
+        if selectionSize?.urls != urls { countSelection(selected) }
+        guard let size = selectionSize else { return nil }
+        let bytes = ByteCountFormatter.string(fromByteCount: size.bytes, countStyle: .file)
+        if !size.counting { return bytes }
+        return size.bytes > 0 ? "\(bytes) + папки…" : "размер считается…"
+    }
+
+    /// Files are summed right away; folders are walked at background priority once the selection
+    /// settles, and the walk stops as soon as the selection changes.
+    private func countSelection(_ selected: [FileItem]) {
+        sizeJob?.cancel()
+        sizeJob = nil
+        let urls = selected.map(\.url)
+        let fileBytes = selected.compactMap(\.size).reduce(Int64(0)) { $0 + Int64($1) }
+        let folders = selected.filter { $0.size == nil }.map(\.url)
+        selectionSize = (urls, fileBytes, !folders.isEmpty)
+        guard !folders.isEmpty else { return }
+        let flag = CancelFlag()
+        sizeJob = flag
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard !flag.isCancelled else { return }
+            DispatchQueue.global(qos: .utility).async {
+                var total = fileBytes
+                for folder in folders {
+                    guard !flag.isCancelled else { return }
+                    total += FileOperation.size(of: folder, cancel: flag).bytes
+                }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { [weak self] in
+                        guard let self, !flag.isCancelled, self.selectionSize?.urls == urls else { return }
+                        self.selectionSize = (urls, total, false)
+                        self.updateStatus()
+                    }
+                }
+            }
+        }
+    }
+
+    /// A message instead of an empty list: why it's empty and what to do about it.
+    private func updateEmptyState() {
+        guard items.isEmpty, drivesView.isHidden else { return emptyState.isHidden = true }
+        if location == .trash, errorMessage != nil {
+            emptyState.show("Нет доступа к Корзине",
+                            detail: "macOS показывает Корзину только программам с «Полным доступом к диску». Включите WinEx в настройках и нажмите «Закрыть и открыть снова». После пересборки WinEx доступ нужно дать заново.",
+                            button: "Открыть настройки «Полный доступ к диску»…") { Places.openFullDiskAccessSettings() }
+        } else if let errorMessage {
+            emptyState.show("Нет доступа к папке", detail: errorMessage)
+        } else if let searchNote {
+            emptyState.show(searchNote)
+        } else if case .search = location {
+            if searchState.gathering || searchState.walking { emptyState.isHidden = true } else { emptyState.show("Ничего не найдено") }
+        } else if location == .network {
+            emptyState.show("Серверы не найдены", detail: "Подключиться к серверу по адресу — ⌘K.")
+        } else if case .tag = location {
+            emptyState.isHidden = !(search.map { !$0.state.gathering } ?? true)
+            if !emptyState.isHidden { emptyState.show("Нет файлов с этим тегом") }
+        } else if !loader.isWaiting {
+            emptyState.show(location == .trash ? "Корзина пуста" : "Эта папка пуста")
+        } else {
+            emptyState.isHidden = true
+        }
+    }
+
     private func updateStatus() {
+        guard drivesView.isHidden else { return }  // "Этот Mac" keeps its own status
+        updateEmptyState()
         var status = "\(items.count) \(plural(items.count, "элемент", "элемента", "элементов"))"
         if search != nil, case .search = location {
             status = "Найдено: \(items.count)"
@@ -451,7 +558,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
         if let searchNote { status = searchNote }
         let selected = selectedIndexes.count
-        if selected > 0 { status += "    Выбрано: \(selected)" }
+        if selected > 0 {
+            status += "    Выбрано: \(selected)"
+            if let size = selectionSizeText() { status += " — \(size)" }
+        }
         if let errorMessage { status = "Нет доступа: \(errorMessage)" }
         delegate?.fileList(self, didUpdateStatus: status)
         QuickLook.selectionChanged(in: self)

@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         GlobalHotKey.shared.apply()
         #endif
         // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
-        if !openedByEvent && !launchedAtLogin { openWindow(at: FileManager.default.homeDirectoryForCurrentUser) }
+        if !openedByEvent && !launchedAtLogin { openWindow(at: Settings.startURL) }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         } else if let minimized = windows.first(where: \.isMiniaturized) {
             minimized.deminiaturize(nil)
         } else {
-            openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+            openWindow(at: Settings.startURL)
         }
         return false
     }
@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Actions
 
     @objc func newWindow(_ sender: Any?) {
-        openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+        openWindow(at: Settings.startURL)
     }
 
     @objc private func openDesktopFolder(_ sender: Any?) {

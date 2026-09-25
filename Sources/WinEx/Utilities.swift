@@ -34,6 +34,31 @@ enum Settings {
         set { defaults.set(newValue, forKey: "showHidden") }
     }
 
+    /// Where new windows open: "home", "desktop", "downloads", "documents", "computer" or a folder path.
+    static var startFolder: String {
+        get { defaults.string(forKey: "startFolder") ?? "home" }
+        set { defaults.set(newValue, forKey: "startFolder") }
+    }
+
+    /// The place `startFolder` stands for (a missing custom folder falls back to the home folder).
+    static var startURL: URL {
+        let fm = FileManager.default
+        func standard(_ directory: FileManager.SearchPathDirectory) -> URL {
+            fm.urls(for: directory, in: .userDomainMask).first ?? fm.homeDirectoryForCurrentUser
+        }
+        switch startFolder {
+        case "home": return fm.homeDirectoryForCurrentUser
+        case "desktop": return standard(.desktopDirectory)
+        case "downloads": return standard(.downloadsDirectory)
+        case "documents": return standard(.documentDirectory)
+        case "computer": return Places.computerURL
+        case let path:
+            var isFolder: ObjCBool = false
+            return fm.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+                ? URL(fileURLWithPath: path) : fm.homeDirectoryForCurrentUser
+        }
+    }
+
     /// Search the whole Mac instead of the current folder.
     static var searchWholeMac: Bool {
         get { defaults.bool(forKey: "searchWholeMac") }

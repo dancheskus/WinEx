@@ -19,7 +19,54 @@ enum Scenarios {
         "fileops": fileOps,
         "search": search,
         "filecommands": fileCommands,
+        "drives": drives,
     ]
+
+    /// "Этот Mac", empty-folder and Trash messages, the size of the selection, the start folder.
+    static func drives(_ s: Scenario) {
+        let base = s.makeFiles(["dir/", "empty/"])
+        FileManager.default.createFile(atPath: base.appendingPathComponent("big.bin").path, contents: Data(count: 3_000_000))
+        FileManager.default.createFile(atPath: base.appendingPathComponent("dir/inner.bin").path, contents: Data(count: 1_000_000))
+        func status() -> String {
+            s.window?.statusText ?? "?"
+        }
+        func message() -> String {
+            guard let view = (s.window?.window?.contentView).flatMap({ s.find(EmptyStateView.self, in: $0) }), !view.isHidden else { return "-" }
+            return s.findAll(NSTextField.self, in: view).map(\.stringValue).filter { !$0.isEmpty }.joined(separator: " | ")
+        }
+        s.run([
+            (0.8, "Этот Mac", { s.window?.navigate(to: Places.computerURL) }),
+            (1.5, "drives", {
+                s.note("  \(s.window?.selectedTab.title ?? "?"): \(status())")
+                guard let drives = (s.window?.window?.contentView).flatMap({ s.find(DrivesView.self, in: $0) }) else { return }
+                let data = drives.dataWithPDF(inside: drives.bounds)
+                if let image = NSImage(data: data), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+                    try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("drives.png"))
+                }
+            }),
+            (0.2, "an empty folder", { s.window?.navigate(to: base.appendingPathComponent("empty")) }),
+            (0.8, "message", { s.note("  \(message())  expect Эта папка пуста") }),
+            (0.2, "the Trash", { s.window?.navigate(to: Places.trashURL) }),
+            (0.8, "message", { s.note("  \(message())") }),
+            (0.2, "select big.bin and dir", {
+                s.window?.navigate(to: base)
+                s.setViewMode(.details)
+            }),
+            (0.8, "selection", {
+                guard let table = s.table else { return }
+                let rows = (0..<table.numberOfRows).filter { ["big.bin", "dir"].contains((table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue ?? "") }
+                table.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+                s.note("  right away: \(status())")
+            }),
+            (1.0, "counted", { s.note("  later: \(status())  expect 4 MB") }),
+            (0.2, "start folder: Рабочий стол", {
+                Settings.startFolder = "desktop"
+                AppDelegate.shared.newWindow(nil)
+                s.note("  new window: \(AppDelegate.shared.windowControllers.last?.selectedTab.title ?? "?")  expect Рабочий стол / Desktop")
+                Settings.startFolder = "home"
+            }),
+        ])
+    }
 
     /// Duplicate, compress, extract (double-click), alias (open, show original), package contents,
     /// Windows keys, the global shortcut's registration.

@@ -8,6 +8,7 @@ enum Location: Equatable {
     case trash
     case tag(String)
     case network
+    case computer
     case search(SearchRequest)
 
     /// Tag locations use this URL scheme: `x-winex-tag://tag/<name>`.
@@ -16,6 +17,8 @@ enum Location: Equatable {
     init(_ url: URL) {
         if url.scheme == Places.networkURL.scheme {
             self = .network
+        } else if url.scheme == Places.computerURL.scheme {
+            self = .computer
         } else if let request = SearchRequest(url: url) {
             self = .search(request)
         } else if url.scheme == Self.tagScheme {
@@ -33,6 +36,7 @@ enum Location: Equatable {
         case .trash: Places.trashURL
         case .tag(let name): Self.tagURL(name)
         case .network: Places.networkURL
+        case .computer: Places.computerURL
         case .search(let request): request.url
         }
     }
@@ -41,7 +45,7 @@ enum Location: Equatable {
     static func == (a: Location, b: Location) -> Bool {
         switch (a, b) {
         case let (.folder(x), .folder(y)): x.path == y.path
-        case (.trash, .trash), (.network, .network): true
+        case (.trash, .trash), (.network, .network), (.computer, .computer): true
         case let (.search(x), .search(y)): x == y
         case let (.tag(x), .tag(y)): x == y
         default: false
@@ -61,7 +65,7 @@ enum Location: Equatable {
         switch self {
         case .folder(let url): url
         case .trash: Places.trashURL
-        case .tag, .network, .search: nil
+        case .tag, .network, .computer, .search: nil
         }
     }
 
@@ -72,6 +76,7 @@ enum Location: Equatable {
         case .trash: Places.trashURL.displayName
         case .tag(let name): name
         case .network: "Сеть"
+        case .computer: "Этот Mac"
         case .search(let request): "Поиск «\(request.text)»"
         }
     }
@@ -81,6 +86,7 @@ enum Location: Equatable {
         switch self {
         case .tag(let name): "Теги: \(name)"
         case .network: "Сеть"
+        case .computer: "Этот Mac"
         case .search(let request):
             "Результаты поиска «\(request.text)» " + (request.wholeMac ? "на всём Mac" : "в «\(request.folder?.displayName ?? "")»")
         case .folder, .trash: url.path
@@ -91,7 +97,7 @@ enum Location: Equatable {
     var isBrowsable: Bool {
         switch self {
         case .folder(let url): url.isBrowsableDirectory
-        case .trash, .tag, .network, .search: true
+        case .trash, .tag, .network, .computer, .search: true
         }
     }
 
@@ -102,6 +108,7 @@ enum Location: Equatable {
         case .trash: NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
         case .tag(let name): FileTags.dotImage(color: FileTags.tag(named: name, knownTags: []).color, size: 14)
         case .network: NSImage(systemSymbolName: "network", accessibilityDescription: nil)
+        case .computer: NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
         case .search: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         }
     }

@@ -89,7 +89,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             Item(title: "Программы", url: URL(fileURLWithPath: "/Applications"), symbol: "square.grid.3x3"),
         ]
         // "Места", like Finder: iCloud Drive, disks and shares, AirDrop, the network, the Trash
-        var places: [Item] = []
+        var places: [Item] = [Item(title: "Этот Mac", url: Places.computerURL, symbol: "desktopcomputer")]
         let iCloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         if fm.fileExists(atPath: iCloud.path) {
             places.append(Item(title: "iCloud Drive", url: iCloud, symbol: "icloud"))

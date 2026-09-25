@@ -8,6 +8,11 @@ final class SettingsWindowController: NSWindowController {
     private let loginHint = NSTextField(wrappingLabelWithString: "")
     private let loginApproveButton = NSButton(title: "Открыть «Объекты входа»…", target: nil, action: nil)
     private let hotKeyPopup = NSPopUpButton()
+    private let startPopup = NSPopUpButton()
+    private static let startChoices: [(id: String, title: String)] = [
+        ("home", "Домашняя папка"), ("desktop", "Рабочий стол"), ("downloads", "Загрузки"),
+        ("documents", "Документы"), ("computer", "Этот Mac"),
+    ]
     private let hotKeyHint = NSTextField(wrappingLabelWithString: "")
     private let resetDesktopButton = NSButton(title: "Сбросить рабочий стол как в Finder…", target: nil, action: nil)
 
@@ -54,6 +59,12 @@ final class SettingsWindowController: NSWindowController {
         let separator = NSBox()
         separator.boxType = .separator
 
+        // Where new windows open
+        startPopup.target = self
+        startPopup.action = #selector(changeStartFolder(_:))
+        let startRow = NSStackView(views: [NSTextField(labelWithString: "Новые окна открываются в:"), startPopup])
+        startRow.spacing = 8
+
         // Win+E: a WinEx window from any app
         for preset in GlobalHotKey.Preset.allCases { hotKeyPopup.addItem(withTitle: preset.title) }
         hotKeyPopup.target = self
@@ -67,7 +78,7 @@ final class SettingsWindowController: NSWindowController {
         let separator2 = NSBox()
         separator2.boxType = .separator
         let stack = NSStackView(views: [loginCheckbox, loginHint, loginApproveButton, separator2,
-                                        replaceCheckbox, explanation, resetDesktopButton, separator, hotKeyRow, hotKeyHint, hiddenCheckbox, windowsKeysCheckbox, keysHint])
+                                        replaceCheckbox, explanation, resetDesktopButton, separator, startRow, hotKeyRow, hotKeyHint, hiddenCheckbox, windowsKeysCheckbox, keysHint])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
@@ -137,6 +148,36 @@ final class SettingsWindowController: NSWindowController {
         }
     }
 
+    private func syncStartFolder() {
+        startPopup.removeAllItems()
+        for choice in Self.startChoices { startPopup.addItem(withTitle: choice.title) }
+        startPopup.menu?.addItem(.separator())
+        let current = Settings.startFolder
+        if let index = Self.startChoices.firstIndex(where: { $0.id == current }) {
+            startPopup.selectItem(at: index)
+        } else {
+            // A folder of the user's choice: shown by name, selected
+            startPopup.addItem(withTitle: FileManager.default.displayName(atPath: current))
+            startPopup.lastItem?.toolTip = current
+            startPopup.select(startPopup.lastItem)
+        }
+        startPopup.addItem(withTitle: "Другая папка…")
+    }
+
+    @objc private func changeStartFolder(_ sender: NSPopUpButton) {
+        let index = sender.indexOfSelectedItem
+        if Self.startChoices.indices.contains(index) {
+            Settings.startFolder = Self.startChoices[index].id
+        } else if sender.selectedItem?.title == "Другая папка…" {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.prompt = "Выбрать"
+            if let window, panel.runModal() == .OK, let url = panel.url { _ = window; Settings.startFolder = url.path }
+        }
+        syncStartFolder()
+    }
+
     private func syncHotKey() {
         let preset = GlobalHotKey.preset
         hotKeyPopup.selectItem(at: GlobalHotKey.Preset.allCases.firstIndex(of: preset) ?? 0)
@@ -153,6 +194,7 @@ final class SettingsWindowController: NSWindowController {
         GlobalHotKey.preset = GlobalHotKey.Preset.allCases[max(0, sender.indexOfSelectedItem)]
         GlobalHotKey.shared.apply()
         syncHotKey()
+        syncStartFolder()
     }
 
     @objc private func toggleWindowsKeys(_ sender: NSButton) {

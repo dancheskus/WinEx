@@ -68,7 +68,7 @@ final class GlobalHotKey {
 
     /// A new window in front, like Win+E.
     private func pressed() {
-        AppDelegate.shared.openWindow(at: FileManager.default.homeDirectoryForCurrentUser)
+        AppDelegate.shared.openWindow(at: Settings.startURL)
         NSApp.activate(ignoringOtherApps: true)
     }
 }

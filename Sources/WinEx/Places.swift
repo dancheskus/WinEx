@@ -7,6 +7,8 @@ enum Places {
     // MARK: Network location
 
     static let networkURL = URL(string: "x-winex-network://network")!
+    /// "Этот Mac": every drive with its free space, like "This PC".
+    static let computerURL = URL(string: "x-winex-computer://computer")!
 
     /// smb:// / afp:// server addresses (items of the "Сеть" location).
     static func isServer(_ url: URL) -> Bool { ["smb", "afp", "nfs", "ftp"].contains(url.scheme ?? "") }
