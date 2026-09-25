@@ -255,6 +255,29 @@ struct WindowConstrainTests {
     }
 }
 
+struct KeepOnScreenTests {
+    let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
+
+    /// The external monitor (on the left) was unplugged: only a sliver is left on the laptop.
+    @Test func windowLeftOnAGoneMonitorComesBack() {
+        let frame = CGRect(x: -1400, y: 200, width: 1500, height: 700)
+        let fitted = WindowPlacement.fitted(frame, visibleFrames: [laptop])
+        #expect(fitted.map { laptop.contains($0) } == true)
+        #expect(fitted?.size == CGSize(width: 1500, height: 700))
+    }
+
+    @Test func aWindowOnScreenStays() {
+        #expect(WindowPlacement.fitted(CGRect(x: 100, y: 100, width: 900, height: 600), visibleFrames: [laptop]) == nil)
+        // A bit over the edge is the user's choice
+        #expect(WindowPlacement.fitted(CGRect(x: 800, y: 100, width: 900, height: 600), visibleFrames: [laptop]) == nil)
+    }
+
+    @Test func tooBigIsShrunk() {
+        let fitted = WindowPlacement.fitted(CGRect(x: -3000, y: 0, width: 2500, height: 1400), visibleFrames: [laptop])
+        #expect(fitted == laptop)
+    }
+}
+
 struct DesktopLabelTests {
     let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .bold)]
     func lines(_ name: String, width: CGFloat = 96) -> [String] {

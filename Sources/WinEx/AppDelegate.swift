@@ -175,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             window.center()
         }
         windowControllers.append(controller)
+        controller.keepOnScreen()
         NSApp.activate()
         controller.showWindow(nil)
         return controller

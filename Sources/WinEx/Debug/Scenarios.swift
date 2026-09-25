@@ -27,6 +27,7 @@ enum Scenarios {
         "commandbar": commandBarScenario,
         "menuswitch": menuSwitch,
         "properties": properties,
+        "terminal": terminalMenu,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -428,6 +429,35 @@ enum Scenarios {
                 }
             }
         }
+    }
+
+    /// "Открыть в терминале": off by default, then in the file, folder-background and desktop
+    /// menus (nothing is launched).
+    static func terminalMenu(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt"])
+        s.window?.navigate(to: base)
+        s.note("  terminals here: \(TerminalLauncher.installed.map(\.name)); chosen: \(TerminalLauncher.chosen?.name ?? "none")")
+        s.note("  off by default: \(TerminalLauncher.menuItem(for: [base]) == nil)  expect true")
+        Settings.terminalInMenu = true
+        let item = TerminalLauncher.menuItem(for: [base.appendingPathComponent("a.txt")])
+        s.note("  item: \(item?.title ?? "none")")
+        s.run([
+            (1.0, "file menu", {
+                s.select("a.txt")
+                guard let table = s.table, let menu = table.menu else { s.note("  (no table)"); return }
+                menu.delegate?.menuNeedsUpdate?(menu)
+                s.note("  has it: \(menu.items.contains { $0.action == NSSelectorFromString("openFromMenu:") })  expect true")
+            }),
+            (0.3, "squeeze the window", {
+                guard let window = s.window?.window else { return }
+                window.setFrame(NSRect(x: 200, y: 200, width: 800, height: 500), display: true)
+                window.layoutIfNeeded()
+                let sidebar = s.findAll(NSOutlineView.self, in: window.contentView ?? NSView()).first?.enclosingScrollView?.superview
+                s.note("  window \(Int(window.frame.width)), sidebar \(Int(sidebar?.frame.width ?? 0))  expect window ≥ 760, sidebar ≥ 170")
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+            }),
+            (2.0, "photographed", {}),
+        ])
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.

@@ -22,6 +22,18 @@ enum Settings {
         set { defaults.set(newValue, forKey: "replaceFinder") }
     }
 
+    /// "Открыть в терминале" in the context menus (off until switched on in Settings).
+    static var terminalInMenu: Bool {
+        get { defaults.bool(forKey: "terminalInMenu") }
+        set { defaults.set(newValue, forKey: "terminalInMenu") }
+    }
+
+    /// The terminal app's path (nil: Terminal).
+    static var terminalApp: String? {
+        get { defaults.string(forKey: "terminalApp") }
+        set { defaults.set(newValue, forKey: "terminalApp") }
+    }
+
     /// Explorer's command bar under the address row.
     static var showCommandBar: Bool {
         get { defaults.object(forKey: "showCommandBar") as? Bool ?? true }

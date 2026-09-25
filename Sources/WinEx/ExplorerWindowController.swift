@@ -51,7 +51,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         window.isMovable = false
         // The Dock menu lists folders (tabs included) itself; keep the system's per-window list out of it
         window.isExcludedFromWindowsMenu = true
-        window.minSize = NSSize(width: 640, height: 360)
+        window.minSize = NSSize(width: 800, height: 360)
         // An empty unified toolbar: the tall macOS 26 title bar — window buttons with room around
         // them, the modern corner radius. The tabs are drawn in it by WinEx itself.
         let toolbar = NSToolbar(identifier: "WinExWindow")
@@ -60,6 +60,11 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         window.toolbarStyle = .unified
         super.init(window: window)
         window.delegate = self
+        // A monitor unplugged (or the arrangement changed): macOS leaves a window that can't be
+        // moved by the system (this one moves itself) where it was — bring it back on screen
+        windowObservers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self?.keepOnScreen() }
+        }
         buildUI()
         showSelectedTab()
     }
@@ -199,6 +204,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let mainPane = NSView()
         splitView.addArrangedSubview(sidebar.view)
         splitView.addArrangedSubview(mainPane)
+        // The sidebar keeps its width while the window gets narrower (the files give way), and
+        // never gets narrower than its minimum
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(260), forSubviewAt: 0)
         splitView.setHoldingPriority(NSLayoutConstraint.Priority(250), forSubviewAt: 1)
 
@@ -936,8 +943,27 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         Self.sidebarWidth = sidebar.view.frame.width
     }
 
+    static let minimumSidebarWidth: CGFloat = 170
+
+    /// Moves the window fully onto a monitor if most of it is off every monitor.
+    func keepOnScreen() {
+        guard let window, !window.styleMask.contains(.fullScreen),
+              let frame = WindowPlacement.fitted(window.frame, visibleFrames: NSScreen.screens.map(\.visibleFrame)) else { return }
+        window.setFrame(frame, display: true, animate: false)
+    }
+
+    /// Window resized: the sidebar keeps its width (at least the minimum), the files get the rest.
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        guard splitView.subviews.count == 2 else { return splitView.adjustSubviews() }
+        let (side, main) = (splitView.subviews[0], splitView.subviews[1])
+        let total = splitView.bounds.width - splitView.dividerThickness
+        let width = min(max(side.frame.width, Self.minimumSidebarWidth), max(total - 300, Self.minimumSidebarWidth))
+        side.frame = NSRect(x: 0, y: 0, width: width, height: splitView.bounds.height)
+        main.frame = NSRect(x: width + splitView.dividerThickness, y: 0, width: max(total - width, 0), height: splitView.bounds.height)
+    }
+
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt index: Int) -> CGFloat {
-        150
+        Self.minimumSidebarWidth
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposed: CGFloat, ofSubviewAt index: Int) -> CGFloat {

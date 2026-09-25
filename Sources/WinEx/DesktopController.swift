@@ -883,6 +883,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
         menu.addItem(.separator())
         add("Открыть «Рабочий стол» в WinEx", #selector(openDesktopAction(_:)))
+        if let terminal = TerminalLauncher.menuItem(for: [desktopURL]) { menu.addItem(terminal) }
         add("Обои…", #selector(openWallpaperSettings(_:)))
         menu.addItem(withTitle: "Настройки WinEx…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: "")
             .target = AppDelegate.shared

@@ -62,6 +62,31 @@ enum WindowPlacement {
     }
 }
 
+extension WindowPlacement {
+    /// For a window that is mostly off the monitors (a monitor was unplugged): the frame moved
+    /// (and shrunk if needed) onto the monitor showing most of it, or the first one. Nil when
+    /// enough of it is visible already.
+    static func fitted(_ frame: CGRect, visibleFrames: [CGRect]) -> CGRect? {
+        guard let first = visibleFrames.first, frame.width > 0, frame.height > 0 else { return nil }
+        func overlap(_ area: CGRect) -> CGFloat {
+            let part = area.intersection(frame)
+            return part.isNull ? 0 : part.width * part.height
+        }
+        let visible = visibleFrames.map(overlap).reduce(0, +)
+        // Most of it on screen, including the top strip (tabs and window buttons): leave it
+        let top = CGRect(x: frame.minX, y: frame.maxY - 40, width: frame.width, height: 40)
+        let topVisible = visibleFrames.map { $0.intersection(top) }.filter { !$0.isNull }.map { $0.width }.reduce(0, +)
+        if visible >= frame.width * frame.height * 0.75, topVisible >= min(200, frame.width * 0.5) { return nil }
+        let target = visibleFrames.max { overlap($0) < overlap($1) }.flatMap { overlap($0) > 0 ? $0 : nil } ?? first
+        var result = frame
+        result.size.width = min(frame.width, target.width)
+        result.size.height = min(frame.height, target.height)
+        result.origin.x = min(max(frame.minX, target.minX), target.maxX - result.width)
+        result.origin.y = min(max(frame.minY, target.minY), target.maxY - result.height)
+        return result
+    }
+}
+
 extension NSScreen {
     /// A display identifier that survives reboots and reconnection (unlike the display number).
     var displayUUID: String? {

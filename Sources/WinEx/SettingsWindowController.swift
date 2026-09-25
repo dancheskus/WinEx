@@ -12,6 +12,8 @@ final class SettingsWindowController: NSWindowController {
     private let hotKeyPopup = NSPopUpButton()
     private let hotKeyHint = SettingsForm.hint("")
     private let hiddenCheckbox = NSButton(checkboxWithTitle: "Показывать скрытые файлы", target: nil, action: nil)
+    private let terminalCheckbox = NSButton(checkboxWithTitle: "«Открыть в терминале» в контекстном меню", target: nil, action: nil)
+    private let terminalPopup = NSPopUpButton()
     private let commandBarCheckbox = NSButton(checkboxWithTitle: "Панель команд под адресной строкой", target: nil, action: nil)
     private let loginCheckbox = NSButton(checkboxWithTitle: "Открывать WinEx при входе в систему", target: nil, action: nil)
     private let loginHint = SettingsForm.hint("")
@@ -83,6 +85,10 @@ final class SettingsWindowController: NSWindowController {
         hiddenCheckbox.action = #selector(toggleHidden(_:))
         commandBarCheckbox.target = self
         commandBarCheckbox.action = #selector(toggleCommandBar(_:))
+        terminalCheckbox.target = self
+        terminalCheckbox.action = #selector(toggleTerminal(_:))
+        terminalPopup.target = self
+        terminalPopup.action = #selector(changeTerminal(_:))
         loginCheckbox.target = self
         loginCheckbox.action = #selector(toggleLogin(_:))
         loginApproveButton.target = self
@@ -95,6 +101,11 @@ final class SettingsWindowController: NSWindowController {
             .gap,
             .row("Показ:", hiddenCheckbox),
             .row(nil, commandBarCheckbox),
+            .gap,
+            .row("Терминал:", terminalCheckbox),
+            .row(nil, terminalPopup),
+            .row(nil, SettingsForm.hint("Для папки — она сама, для файла — его папка; на пустом месте — открытая папка или рабочий стол.")),
+            .gap,
             .row("Запуск:", loginCheckbox),
             .row(nil, loginHint),
             .row(nil, loginApproveButton),
@@ -186,6 +197,8 @@ final class SettingsWindowController: NSWindowController {
         resetDesktopButton.isEnabled = Settings.replaceFinder
         hiddenCheckbox.state = Settings.showHidden ? .on : .off
         commandBarCheckbox.state = Settings.showCommandBar ? .on : .off
+        terminalCheckbox.state = Settings.terminalInMenu ? .on : .off
+        syncTerminal()
         windowsKeysCheckbox.state = Settings.windowsKeys ? .on : .off
         updatesCheckbox.state = Updater.automaticChecks ? .on : .off
         syncHotKey()
@@ -308,6 +321,41 @@ final class SettingsWindowController: NSWindowController {
     @objc private func toggleWindowsKeys(_ sender: NSButton) {
         Settings.windowsKeys = sender.state == .on
         NotificationCenter.default.post(name: .keyboardSettingsChanged, object: nil)
+    }
+
+    private func syncTerminal() {
+        terminalPopup.removeAllItems()
+        var apps = TerminalLauncher.installed
+        if let chosen = TerminalLauncher.chosen, !apps.contains(chosen) { apps.append(chosen) }
+        for app in apps {
+            terminalPopup.addItem(withTitle: app.name)
+            let icon = NSWorkspace.shared.icon(forFile: app.url.path)
+            icon.size = NSSize(width: 16, height: 16)
+            terminalPopup.lastItem?.image = icon
+            terminalPopup.lastItem?.representedObject = app.url
+            if app == TerminalLauncher.chosen { terminalPopup.select(terminalPopup.lastItem) }
+        }
+        terminalPopup.menu?.addItem(.separator())
+        terminalPopup.addItem(withTitle: "Другая программа…")
+        terminalPopup.isEnabled = Settings.terminalInMenu
+    }
+
+    @objc private func toggleTerminal(_ sender: NSButton) {
+        Settings.terminalInMenu = sender.state == .on
+        terminalPopup.isEnabled = Settings.terminalInMenu
+    }
+
+    @objc private func changeTerminal(_ sender: NSPopUpButton) {
+        if let url = sender.selectedItem?.representedObject as? URL {
+            Settings.terminalApp = url.path
+        } else {
+            let panel = NSOpenPanel()
+            panel.title = "Терминал для «Открыть в терминале»"
+            panel.directoryURL = URL(fileURLWithPath: "/Applications")
+            panel.allowedContentTypes = [.application]
+            if panel.runModal() == .OK, let url = panel.url { Settings.terminalApp = url.path }
+        }
+        syncTerminal()
     }
 
     @objc private func toggleCommandBar(_ sender: NSButton) {

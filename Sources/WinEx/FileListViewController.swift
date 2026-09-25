@@ -1052,6 +1052,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
             menu.addItem(.separator())
             add("Копировать путь к папке", #selector(copyPath(_:)))
+            if let directory, let terminal = TerminalLauncher.menuItem(for: [directory]) { menu.addItem(terminal) }
             add("Свойства", #selector(showProperties(_:)))
         }
     }

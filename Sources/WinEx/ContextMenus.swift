@@ -60,6 +60,7 @@ enum FileContextMenu {
             add("Открыть в новой вкладке", #selector(FileMenuActions.openInNewTab(_:)))
             add("Открыть в новом окне", #selector(FileMenuActions.openInNewWindow(_:)))
         }
+        if let terminal = TerminalLauncher.menuItem(for: urls) { menu.addItem(terminal) }
         menu.addItem(.separator())
         add("Копировать путь", #selector(FileMenuActions.copyPath(_:)))
         add("Дублировать", #selector(FileMenuActions.duplicate(_:)))
