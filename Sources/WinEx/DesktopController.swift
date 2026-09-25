@@ -504,7 +504,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.7)
         shadow.shadowOffset = NSSize(width: 0, height: -1)
         shadow.shadowBlurRadius = 2
-        return [.font: NSFont.systemFont(ofSize: layout.iconSize == .small ? 11 : 12, weight: .medium),
+        return [.font: NSFont.systemFont(ofSize: layout.iconSize == .small ? 11 : 12, weight: .bold),  // Finder's desktop weight
                 .foregroundColor: NSColor.white, .paragraphStyle: paragraph, .shadow: shadow]
     }
 

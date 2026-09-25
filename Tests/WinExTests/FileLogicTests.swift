@@ -256,7 +256,7 @@ struct WindowConstrainTests {
 }
 
 struct DesktopLabelTests {
-    let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]
+    let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .bold)]
     func lines(_ name: String, width: CGFloat = 96) -> [String] {
         DesktopLabel.lines(NSAttributedString(string: name, attributes: attributes), width: width).map(\.string)
     }

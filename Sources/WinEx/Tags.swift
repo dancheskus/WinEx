@@ -114,7 +114,12 @@ enum FileTags {
             dot[.foregroundColor] = color
             text.append(NSAttributedString(string: "●", attributes: dot))
         }
-        if text.length > 0 { text.append(NSAttributedString(string: "\u{00A0}", attributes: attributes)) }
+        if text.length > 0 {
+            // Finder leaves a wider gap between the dots and the name than a space
+            var gap = attributes
+            gap[.kern] = 2
+            text.append(NSAttributedString(string: "\u{00A0}", attributes: gap))
+        }
         return text
     }
 
