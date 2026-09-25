@@ -86,11 +86,29 @@ final class Updater {
     }
 
     private func handle(_ release: Release, userInitiated: Bool) {
+        // A build from source may be newer than any release: never replace it with one
+        if isDevBuild {
+            guard userInitiated else { return }
+            let alert = NSAlert()
+            alert.messageText = "Это своя сборка WinEx"
+            alert.informativeText = "Она собрана из исходников и не заменяется релизами (последний — \(release.version)). Чтобы получать обновления автоматически, установите WinEx со страницы релизов."
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Страница релизов…")
+            NSApp.activate()
+            if alert.runModal() == .alertSecondButtonReturn, let url = release.html_url ?? URL(string: "https://github.com/\(Self.repository)/releases") {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
         guard Self.isVersion(release.version, newerThan: currentVersion), release.archive != nil else {
             if userInitiated { tell("Установлена последняя версия", "WinEx \(currentVersion) — самая новая.") }
             return
         }
         if !userInitiated && AppDefaults.store.string(forKey: "skippedVersion") == release.version { return }
+        #if DEBUG
+        // Scenario "selfupdate": install without asking
+        if ProcessInfo.processInfo.environment["WINEX_AUTO_UPDATE"] != nil { return install(release) }
+        #endif
         let alert = NSAlert()
         alert.messageText = "Доступна новая версия WinEx \(release.version)"
         var notes = (release.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -197,7 +215,7 @@ final class Updater {
             while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
             rm -rf "\(backup)"
             if mv "\(old)" "\(backup)" && mv "\(new)" "\(old)"; then rm -rf "\(backup)"; else mv "\(backup)" "\(old)"; fi
-            /usr/bin/open "\(old)"
+            /usr/bin/open "\(old)"\(Self.relaunchArguments)
             sleep 5; rm -f "\(marker)"
             """
         let process = Process()
@@ -211,6 +229,17 @@ final class Updater {
         }
         isRelaunching = true
         NSApp.terminate(nil)
+    }
+
+    /// Scenario runs relaunch into a scenario too (never into the user's settings).
+    private static var relaunchArguments: String {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if let out = env["WINEX_SCENARIO_OUT"], env["WINEX_SCENARIO"] != nil {
+            return " --env WINEX_SCENARIO=updated --env WINEX_SCENARIO_OUT=\"\(out)\""
+        }
+        #endif
+        return ""
     }
 
     private func tell(_ title: String, _ text: String) {

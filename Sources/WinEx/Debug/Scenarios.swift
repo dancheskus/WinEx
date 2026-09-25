@@ -23,7 +23,23 @@ enum Scenarios {
         "trashaccess": trashAccess,
         "update": update,
         "settings": settingsTabs,
+        "selfupdate": selfUpdate,
+        "updated": updated,
     ]
+
+    /// Run by scripts/check-self-update.sh on a copy of the app: updates itself from a local feed.
+    static func selfUpdate(_ s: Scenario) {
+        s.note("  running \(Updater.shared.currentVersion) from \(Bundle.main.bundlePath)")
+        Updater.shared.check(userInitiated: true)
+        // The update quits this process; if it doesn't within 20 s, say so
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { s.note("  (still running — no update happened)"); s.run([]) }
+    }
+
+    /// The relaunched copy after "selfupdate": reports its version and quits.
+    static func updated(_ s: Scenario) {
+        s.note("  after the update: \(Updater.shared.currentVersion) from \(Bundle.main.bundlePath)")
+        s.run([])
+    }
 
     /// Opens Settings and shows each tab in turn, waiting for an outside `screencapture -l` of the
     /// window (writes <out>/tab-N with the window number, waits for <out>/shot-N).

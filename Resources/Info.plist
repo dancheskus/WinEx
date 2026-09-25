@@ -2,66 +2,63 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Russian UI: system-provided strings (file types, sizes, dates) follow it -->
-    <key>CFBundleDevelopmentRegion</key>
-    <string>ru</string>
-    <key>CFBundleLocalizations</key>
-    <array>
-        <string>ru</string>
-    </array>
-    <key>CFBundleIdentifier</key>
-    <string>dev.winex.WinEx</string>
-    <key>CFBundleName</key>
-    <string>WinEx</string>
-    <key>CFBundleDisplayName</key>
-    <string>WinEx</string>
-    <key>CFBundleExecutable</key>
-    <string>WinEx</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.1</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>26.0</string>
-    <!-- Folder icon (Resources/AppIcon.icns) -->
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <!-- Lets LaunchServices use WinEx as the handler for folders -->
-    <key>CFBundleDocumentTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Folder</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>public.folder</string>
-            </array>
-        </dict>
-    </array>
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>WinEx показывает содержимое рабочего стола.</string>
-    <key>NSDocumentsFolderUsageDescription</key>
-    <string>WinEx показывает содержимое папки «Документы».</string>
-    <key>NSDownloadsFolderUsageDescription</key>
-    <string>WinEx показывает содержимое папки «Загрузки».</string>
-    <key>NSRemovableVolumesUsageDescription</key>
-    <string>WinEx показывает содержимое внешних дисков.</string>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>WinEx ищет в локальной сети файловые серверы (NAS, другие компьютеры) для раздела «Сеть».</string>
-    <key>NSBonjourServices</key>
-    <array>
-        <string>_smb._tcp</string>
-        <string>_afpovertcp._tcp</string>
-    </array>
-    <key>NSNetworkVolumesUsageDescription</key>
-    <string>WinEx показывает содержимое сетевых дисков.</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>ru</string>
+	<key>CFBundleDisplayName</key>
+	<string>WinEx</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Folder</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.folder</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleExecutable</key>
+	<string>WinEx</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.winex.WinEx</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ru</string>
+	</array>
+	<key>CFBundleName</key>
+	<string>WinEx</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.3.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>26.0</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_smb._tcp</string>
+		<string>_afpovertcp._tcp</string>
+	</array>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>WinEx показывает содержимое рабочего стола.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>WinEx показывает содержимое папки «Документы».</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>WinEx показывает содержимое папки «Загрузки».</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>WinEx ищет в локальной сети файловые серверы (NAS, другие компьютеры) для раздела «Сеть».</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>WinEx показывает содержимое сетевых дисков.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>WinEx показывает содержимое внешних дисков.</string>
 </dict>
 </plist>
