@@ -30,6 +30,7 @@ enum Scenarios {
         "terminal": terminalMenu,
         "session": session,
         "apps": appsSettings,
+        "backup": backup,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -555,6 +556,26 @@ enum Scenarios {
             }),
             (2.0, "done", {}),
         ])
+    }
+
+    /// Settings saved to a file, changed, loaded back; then reset (desktop layout kept).
+    static func backup(_ s: Scenario) {
+        Settings.showHidden = true
+        Settings.windowsKeys = true
+        SidebarConfig.showsTags = false
+        AppDefaults.store.set(Data([1, 2, 3]), forKey: "desktopLayout")
+        guard let data = try? SettingsBackup.fileData() else { s.note("  (no file)"); s.run([]); return }
+        s.note("  file: \(data.count) bytes, readable: \(SettingsBackup.read(data) != nil)")
+        Settings.showHidden = false
+        Settings.windowsKeys = false
+        SidebarConfig.showsTags = true
+        if let saved = SettingsBackup.read(data)?.settings { SettingsBackup.apply(saved) }
+        s.note("  after loading: hidden \(Settings.showHidden), windows keys \(Settings.windowsKeys), sidebar tags \(SidebarConfig.showsTags)  expect true, true, false")
+        SettingsBackup.reset()
+        s.note("  after reset: hidden \(Settings.showHidden), windows keys \(Settings.windowsKeys), sidebar tags \(SidebarConfig.showsTags)  expect false, false, true")
+        s.note("  desktop layout kept: \(AppDefaults.store.data(forKey: "desktopLayout") == Data([1, 2, 3]))  expect true")
+        s.note("  not a settings file: \(SettingsBackup.read(Data("hello".utf8)) == nil)  expect true")
+        s.run([])
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.

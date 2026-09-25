@@ -224,7 +224,8 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
 
 - General: language, where new windows open, the global shortcut, hidden files, the command bar,
   “Open in Terminal” and the terminal, “Open WinEx at login” (a login item — at login WinEx starts
-  without a window).
+  without a window); save every setting to a file, load them back (WinEx restarts with the same
+  windows), or restore the defaults (the desktop icon arrangement and the Finder mode stay).
 - Sidebar: which favorites, locations and tags it shows.
 - Tags: the tag editor (see above).
 - Finder: “Use WinEx instead of Finder”; “Reset the Desktop as in Finder…” (after a confirmation)

@@ -119,8 +119,10 @@ final class SettingsWindowController: NSWindowController {
             .row(nil, SettingsForm.hint(L("Для папки — она сама, для файла — его папка; на пустом месте — открытая папка или рабочий стол."))),
             .gap,
             .row(L("Запуск:"), loginCheckbox),
-            .row(nil, loginHint),
-            .row(nil, loginApproveButton),
+            .row(nil, loginNote()),
+            .gap,
+            .row(L("Настройки:"), settingsButtons()),
+            .row(nil, SettingsForm.hint(L("Сохранить все настройки в файл (например, перед переустановкой или для другого Mac), загрузить их обратно или вернуть исходные."))),
         ])
     }
 
@@ -190,6 +192,29 @@ final class SettingsWindowController: NSWindowController {
             .row(nil, NSStackView(views: [checkNow, releases])),
         ])
     }
+
+    /// The hint and, only while macOS waits for approval, the button (a hidden one takes no room).
+    private func loginNote() -> NSView {
+        let stack = NSStackView(views: [loginHint, loginApproveButton])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.detachesHiddenViews = true
+        return stack
+    }
+
+    private func settingsButtons() -> NSView {
+        let save = NSButton(title: L("Сохранить в файл…"), target: self, action: #selector(saveSettings(_:)))
+        let load = NSButton(title: L("Загрузить из файла…"), target: self, action: #selector(loadSettings(_:)))
+        let reset = NSButton(title: L("По умолчанию…"), target: self, action: #selector(resetSettings(_:)))
+        let row = NSStackView(views: [save, load, reset])
+        row.spacing = 8
+        return row
+    }
+
+    @objc private func saveSettings(_ sender: Any?) { SettingsBackup.save(from: window) }
+    @objc private func loadSettings(_ sender: Any?) { SettingsBackup.load(into: window) }
+    @objc private func resetSettings(_ sender: Any?) { SettingsBackup.resetToDefaults(in: window) }
 
     // MARK: - State
 
