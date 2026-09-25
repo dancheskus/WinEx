@@ -20,12 +20,13 @@ enum DesktopIconSize: Int, CaseIterable {
         }
     }
 
-    /// Grid cell: icon plus a two-line label.
+    /// Grid cell: icon plus a two-line label; the label is as wide as Finder's (112 pt for the
+    /// usual 64 pt icons: "TorrServerMacInst" fits on the first line).
     var cellSize: NSSize {
         switch self {
-        case .large: NSSize(width: 124, height: 148)
-        case .medium: NSSize(width: 100, height: 114)
-        case .small: NSSize(width: 84, height: 88)
+        case .large: NSSize(width: 144, height: 148)
+        case .medium: NSSize(width: 116, height: 114)
+        case .small: NSSize(width: 96, height: 88)
         }
     }
 }

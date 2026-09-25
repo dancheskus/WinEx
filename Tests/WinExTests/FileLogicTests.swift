@@ -283,6 +283,15 @@ struct DesktopLabelTests {
         #expect(text.last?.string.hasSuffix(".png") == true)
     }
 
+    /// As many characters per line as Finder's desktop (usual 64 pt icons).
+    @Test func finderWidthOfDesktopLabels() {
+        let width = DesktopIconSize.medium.cellSize.width - 4
+        #expect(lines("TorrServerMacInstaller", width: width) == ["TorrServerMacInst", "aller"])
+        let tagged = NSMutableAttributedString(attributedString: FileTags.dots(for: [FileTags.Tag(name: "Зелёный", color: 2)], attributes: attributes))
+        tagged.append(NSAttributedString(string: "Lugsy_icon.png", attributes: attributes))
+        #expect(DesktopLabel.lines(tagged, width: width).count == 1)
+    }
+
     /// Finder keeps the tag dot in front of the name, not alone on the line above it.
     @Test func tagDotStaysWithTheName() {
         let text = NSMutableAttributedString(attributedString: FileTags.dots(for: [FileTags.Tag(name: "Зелёный", color: 2)], attributes: attributes))

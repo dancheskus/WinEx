@@ -162,7 +162,9 @@ enum MenuStyle {
     /// The menu's text colour for the current appearance (resolved: a dynamic colour inside an
     /// image may be resolved for the wrong appearance).
     private static var menuTextColor: NSColor {
-        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        // (No NSApp in unit tests)
+        let appearance = (NSApp as NSApplication?)?.effectiveAppearance ?? NSAppearance.currentDrawing()
+        return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.12, alpha: 1)
     }
 
