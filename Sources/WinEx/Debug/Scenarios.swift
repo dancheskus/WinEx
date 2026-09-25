@@ -1097,6 +1097,23 @@ enum Scenarios {
                 }
                 views().forEach { $0.reloadShared() }
                 s.note("  back: \(counts())")
+            }),
+            (0.2, "an old «main monitor» place on top of an icon that lives there", {
+                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
+                      let id = NSScreen.screens.first?.displayUUID else { return }
+                let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { !$0.hasPrefix(".") }.prefix(2)
+                guard names.count == 2, let a = names.first, let b = names.last,
+                      let placeA = main.layout.place(for: a), let placeB = main.layout.place(for: b) else { s.note("  (need 2 icons)"); return }
+                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 0.5, y: 0.5), screenID: id), for: a)
+                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 0.5, y: 0.5), screenID: nil), for: b)
+                views().forEach { $0.reloadShared() }
+                let (ca, cb) = (main.debugCenter(of: a) ?? .zero, main.debugCenter(of: b) ?? .zero)
+                s.note("  \(a) at \(Int(ca.x)),\(Int(ca.y)); \(b) at \(Int(cb.x)),\(Int(cb.y))  expect different spots")
+                s.note("  stored place of the moved one kept: \(main.layout.place(for: b)?.point == CGPoint(x: 0.5, y: 0.5))  expect true")
+                main.layout.setPlace(placeA, for: a)
+                main.layout.setPlace(placeB, for: b)
+                views().forEach { $0.reloadShared() }
                 controller.hide()
             }),
         ])

@@ -284,16 +284,25 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         var placed: [CGPoint] = []
         var unplaced: [Int] = []
         var displaced: [Int] = []
-        for i in items.indices {
-            guard let place = layout.place(for: name(of: i)) else { unplaced.append(i); continue }
+        // Icons stored with their monitor claim their spots first; then those stored as "on the
+        // main monitor" (older positions, Finder's) — after a monitor change the main one may be
+        // another monitor, and such an icon must not land on top of one that really lives there
+        let places = items.indices.map { layout.place(for: name(of: $0)) }
+        let order = items.indices.sorted { (places[$0]?.screenID == nil ? 1 : 0) < (places[$1]?.screenID == nil ? 1 : 0) }
+        for i in order {
+            guard let place = places[i] else { unplaced.append(i); continue }
             // On a monitor that isn't connected: shown on the main one for now (see below)
             let screen = screens.first { $0.id == place.screenID } ?? screens[0]
             let away = place.screenID != nil && screen.id != place.screenID
             centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * screen.frame.width,
                                        y: screen.frame.minY + place.point.y * screen.frame.height))
-            if away || isUnderWidget(centers[i]) { displaced.append(i) } else { placed.append(centers[i]) }
+            if away || isUnderWidget(centers[i]) || overlapsAnother(centers[i], placed) {
+                displaced.append(i)
+            } else {
+                placed.append(centers[i])
+            }
         }
-        // Icons under a widget or from a disconnected monitor go to the nearest free cell; their
+        // Icons under a widget, from a disconnected monitor or on top of another go to the nearest free cell; their
         // stored position is kept, so they come back when the widget goes away / the monitor returns
         for i in displaced {
             centers[i] = nearestFreeCell(to: centers[i], occupied: placed)
@@ -325,10 +334,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// A point in view coordinates as a stored place: fractions of the monitor it's on.
     private func place(of point: CGPoint) -> DesktopLayout.Place {
         let screen = self.screen(at: point)
-        let main = mainScreenID
+        // Always with its monitor, the main one too: "the main one" changes with the monitors
         return DesktopLayout.Place(point: CGPoint(x: (point.x - screen.frame.minX) / max(screen.frame.width, 1),
                                                   y: (point.y - screen.frame.minY) / max(screen.frame.height, 1)),
-                                   screenID: screen.id == main ? nil : screen.id)
+                                   screenID: screen.id.isEmpty ? nil : screen.id)
     }
 
     /// The monitor showing `point`, or the nearest one.
@@ -421,6 +430,18 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return NSRect(x: rect.minX - window.frame.minX, y: rect.minY - (screenTop - window.frame.maxY),
                           width: rect.width, height: rect.height)
         }
+    }
+
+    /// Too close to an icon already placed: the two would be drawn over each other.
+    #if DEBUG
+    /// Scenario check: where an icon is drawn.
+    func debugCenter(of name: String) -> CGPoint? {
+        items.indices.first { self.name(of: $0) == name }.map { centers[$0] }
+    }
+    #endif
+
+    private func overlapsAnother(_ point: CGPoint, _ placed: [CGPoint]) -> Bool {
+        placed.contains { abs($0.x - point.x) < cellSize.width * 0.75 && abs($0.y - point.y) < cellSize.height * 0.75 }
     }
 
     private func firstFreeCell(occupied: [CGPoint]) -> CGPoint {
