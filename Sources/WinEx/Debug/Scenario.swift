@@ -92,6 +92,10 @@ final class Scenario {
         return (view as? T) ?? view.subviews.lazy.compactMap { self.find(type, in: $0) }.first
     }
 
+    func findAll<T: NSView>(_ type: T.Type, in view: NSView) -> [T] {
+        ((view as? T).map { [$0] } ?? []) + view.subviews.flatMap { findAll(type, in: $0) }
+    }
+
     var table: FileTableView? { find(FileTableView.self, in: window?.window?.contentView) }
     var grid: FileCollectionView? { find(FileCollectionView.self, in: window?.window?.contentView) }
 

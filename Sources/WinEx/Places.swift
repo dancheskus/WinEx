@@ -69,14 +69,7 @@ enum Places {
         alert.addButton(withTitle: emptying ? "Очистить Корзину" : "Удалить")
         alert.addButton(withTitle: "Отменить")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            for url in urls {
-                do { try FileManager.default.removeItem(at: url) } catch {
-                    DispatchQueue.main.async { NSAlert(error: error).runModal() }
-                    return
-                }
-            }
-        }
+        MainActor.assumeIsolated { FileOperations.start(.delete, urls) }
     }
 
     /// Reading ~/.Trash needs Full Disk Access; this opens that pane of System Settings.

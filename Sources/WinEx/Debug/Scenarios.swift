@@ -16,7 +16,104 @@ enum Scenarios {
         "placement2": placementSecondScreen,
         "mousedrag": mouseDrag,
         "monitorgone": monitorGone,
+        "fileops": fileOps,
     ]
+
+    /// Copy with the progress window (pause, resume), then a move with name clashes decided per file.
+    static func fileOps(_ s: Scenario) {
+        let fm = FileManager.default
+        let from = s.makeFiles(["a.txt", "b.txt", "c.txt", "d.txt"], in: "from")
+        let to = s.makeFiles([], in: "to")
+        let target = s.makeFiles(["a.txt", "b.txt", "c.txt"], in: "target")
+        let big = from.appendingPathComponent("big.bin")
+        fm.createFile(atPath: big.path, contents: nil)
+        if let handle = try? FileHandle(forWritingTo: big) {
+            let chunk = Data(repeating: 0x5A, count: 8 << 20)
+            for _ in 0..<40 { handle.write(chunk) }  // 320 MB
+            try? handle.close()
+        }
+        FileOperation.cloneFiles = false
+        FileOperation.slowDownForTesting = 0.004
+
+        func window(titled test: (String) -> Bool) -> NSWindow? { NSApp.windows.first { $0.isVisible && test($0.title) } }
+        var progressWindow: NSWindow? { window { $0.contains("%") || $0.contains("Подготовка") || $0.contains("Приостановлено") } }
+        var conflictWindow: NSWindow? { window { $0 == "Замена или пропуск файлов" } }
+        func texts(_ view: NSView?) -> [String] {
+            guard let view else { return [] }
+            var result: [String] = []
+            if let field = view as? NSTextField, !field.stringValue.isEmpty { result.append(field.stringValue) }
+            if let button = view as? NSButton, !button.title.isEmpty { result.append("[\(button.title)]") }
+            return result + view.subviews.flatMap(texts)
+        }
+        func snapshot(_ window: NSWindow?, _ name: String) {
+            guard let view = window?.contentView else { return }
+            let data = view.dataWithPDF(inside: view.bounds)
+            guard let image = NSImage(data: data) else { return }
+            let size = NSSize(width: view.bounds.width * 2, height: view.bounds.height * 2)
+            let png = NSImage(size: size, flipped: false) { rect in
+                NSColor.windowBackgroundColor.setFill(); rect.fill()
+                image.draw(in: rect)
+                return true
+            }
+            guard let tiff = png.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return }
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        func press(_ title: String, in view: NSView?) -> Bool {
+            guard let view else { return false }
+            if let button = view as? NSButton, button.title == title || button.toolTip == title { button.performClick(nil); return true }
+            return view.subviews.contains { press(title, in: $0) }
+        }
+        func waitUntil(_ condition: @escaping () -> Bool, then next: @escaping () -> Void, tries: Int = 300) {
+            if condition() || tries == 0 { next(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { waitUntil(condition, then: next, tries: tries - 1) }
+        }
+
+        s.run([
+            (0.3, "copy 320 MB", { FileOps.transfer([big], to: to, copy: true) }),
+            (1.5, "progress window", {
+                s.note("  \(progressWindow?.title ?? "(no progress window)")")
+                s.note("  \(texts(progressWindow?.contentView).joined(separator: " | "))")
+                snapshot(progressWindow, "progress.png")
+            }),
+            (0.1, "pause", { if !press("Приостановить", in: progressWindow?.contentView) { s.note("  (no pause button)") } }),
+            (0.8, "paused?", {
+                let first = progressWindow?.title ?? "-"
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    s.note("  \(first) → \(progressWindow?.title ?? "-")  expect the same percentage (paused)")
+                    snapshot(progressWindow, "paused.png")
+                    _ = press("Продолжить", in: progressWindow?.contentView)
+                }
+            }),
+            (1.0, "wait for the copy", {
+                waitUntil({ progressWindow == nil }) {
+                    let size = (try? fm.attributesOfItem(atPath: to.appendingPathComponent("big.bin").path)[.size] as? Int) ?? 0
+                    s.note("  copied: \(size / 1_048_576) MB, window gone: \(progressWindow == nil), undo: \(FileUndo.manager.undoActionName)")
+                    FileOperation.slowDownForTesting = 0
+                    // Move with clashes: a, b, c exist in target; d doesn't
+                    FileOps.transfer(["a.txt", "b.txt", "c.txt", "d.txt"].map { from.appendingPathComponent($0) }, to: target, copy: false)
+                }
+            }),
+            (1.5, "conflict dialog", {
+                s.note("  \(texts(conflictWindow?.contentView).joined(separator: " | "))")
+                snapshot(conflictWindow, "conflict.png")
+                _ = press("Решить для каждого файла", in: conflictWindow?.contentView)
+            }),
+            (0.5, "decide for each", {
+                snapshot(conflictWindow, "each.png")
+                let popups = (conflictWindow?.contentView).map { v in s.findAll(NSPopUpButton.self, in: v) } ?? []
+                // a: replace, b: skip, c: keep both
+                for (popup, index) in zip(popups, [0, 1, 2]) { popup.selectItem(at: index) }
+                s.note("  rows: \(popups.count), popups: \(popups.map { "\($0.convert($0.bounds, to: nil))" }), window: \(conflictWindow?.frame.size ?? .zero)")
+                s.note("  \(texts(conflictWindow?.contentView).suffix(3).joined(separator: " | "))")
+                _ = press("Продолжить", in: conflictWindow?.contentView)
+            }),
+            (1.0, "result", {
+                s.note("  target: \(s.files(in: target))  expect a, b, c, c - копия, d")
+                s.note("  from: \(s.files(in: from).filter { $0 != "big.bin" })  expect b (skipped)")
+                FileOperation.cloneFiles = true
+            }),
+        ])
+    }
 
     /// An icon whose monitor isn't connected shows on the main one; its place is kept for when the
     /// monitor comes back. (Pretends the second monitor's icons belong to a monitor that's gone.)

@@ -231,42 +231,12 @@ enum FileOps {
         newItemURL(named: "Новая папка", in: directory)
     }
 
-    /// Moves or copies files into `directory` in the background. Moves into the folder the files
-    /// already live in are skipped; name clashes get "- копия" names.
+    /// Moves or copies files into `directory` in the background, with Explorer's progress window
+    /// and "Replace or skip" dialog. Moves into the folder the files already live in are skipped;
+    /// copies there get "- копия" names.
+    @MainActor
     static func transfer(_ urls: [URL], to directory: URL, copy: Bool) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let fm = FileManager.default
-            let target = directory.standardizedFileURL.path
-            var done: [(from: URL, to: URL)] = []
-            defer {
-                // One undo step for the whole batch
-                let pairs = done
-                DispatchQueue.main.async {
-                    if copy { FileUndo.recordCopy(pairs) } else { FileUndo.recordMove(pairs) }
-                }
-            }
-            for source in urls {
-                let sourcePath = source.standardizedFileURL.path
-                do {
-                    if target == sourcePath || target.hasPrefix(sourcePath + "/") {
-                        throw CocoaError(.fileWriteNoPermission, userInfo: [
-                            NSLocalizedDescriptionKey: "Нельзя поместить папку «\(source.lastPathComponent)» в саму себя.",
-                        ])
-                    }
-                    if copy {
-                        let destination = uniqueDestination(for: source.lastPathComponent, in: directory)
-                        try fm.copyItem(at: source, to: destination)
-                        done.append((source, destination))
-                    } else if source.deletingLastPathComponent().standardizedFileURL.path != target {
-                        let destination = uniqueDestination(for: source.lastPathComponent, in: directory)
-                        try fm.moveItem(at: source, to: destination)
-                        done.append((source, destination))
-                    }
-                } catch {
-                    DispatchQueue.main.async { NSAlert(error: error).runModal() }
-                }
-            }
-        }
+        FileOperations.start(copy ? .copy : .move, urls, to: directory)
     }
 
     /// Range to preselect when renaming: the name without its extension, like Explorer.
@@ -283,16 +253,10 @@ enum FileOps {
         pb.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
     }
 
+    @MainActor
     static func trash(_ urls: [URL]) {
         // Files may already be gone (e.g. the Dock trashed them after a drag)
-        let urls = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-        guard !urls.isEmpty else { return }
-        NSWorkspace.shared.recycle(urls) { moved, error in
-            DispatchQueue.main.async {
-                FileUndo.recordTrash(moved)
-                if let error { NSAlert(error: error).runModal() }
-            }
-        }
+        FileOperations.start(.trash, urls)
     }
 }
 

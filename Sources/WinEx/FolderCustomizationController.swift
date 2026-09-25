@@ -282,6 +282,6 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
 }
 
 /// Clip view with a top-left origin, so a document view shorter than the clip sticks to the top.
-private final class FlippedClipView: NSClipView {
+final class FlippedClipView: NSClipView {
     override var isFlipped: Bool { true }
 }
