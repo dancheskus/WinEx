@@ -280,15 +280,29 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
             detailField.frame = NSRect(x: 62, y: 6, width: bounds.width - 68, height: 30)
         default:
             iconView.frame = NSRect(x: (bounds.width - icon) / 2, y: bounds.height - icon - 10, width: icon, height: icon)
-            // For renaming: where the drawn name is
-            let textTop = iconView.frame.minY - 14
-            nameField.frame = NSRect(x: 4, y: max(2, textTop - 34), width: bounds.width - 8, height: min(34, textTop - 2))
+            // For renaming: just around the name, like Finder (not the whole bottom of the cell)
+            nameField.frame = renameFrame()
         }
         updateSelectionShapes()
         applyLabelColor()
     }
 
     // MARK: Inline rename
+
+    /// The name field while renaming: as wide as the name (at most the cell), one or two lines,
+    /// right under the icon's square.
+    private func renameFrame() -> NSRect {
+        let bounds = view.bounds
+        let top = iconView.frame.minY - 14
+        let font = nameField.font ?? .systemFont(ofSize: 12)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let maxWidth = bounds.width - 8
+        let textWidth = ceil((plainName as NSString).size(withAttributes: [.font: font]).width) + 10
+        let lines: CGFloat = textWidth > maxWidth ? 2 : 1
+        let width = min(maxWidth, max(textWidth, 40))
+        let height = lineHeight * lines + 4
+        return NSRect(x: (bounds.width - width) / 2, y: max(2, top - height), width: width, height: height)
+    }
 
     func beginRename(onCommit: @escaping (String) -> Void) {
         onRename = onCommit
@@ -298,6 +312,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         itemView.isRenaming = true
         nameField.isHidden = false
         nameField.attributedStringValue = NSAttributedString(string: plainName, attributes: [.font: nameField.font ?? .systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor])
+        if !mode.isHorizontalItem { nameField.frame = renameFrame() }
         nameField.isEditable = true
         nameField.isSelectable = true
         nameField.drawsBackground = true

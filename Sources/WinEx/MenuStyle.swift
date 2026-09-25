@@ -51,7 +51,8 @@ enum MenuStyle {
         // Submenus too ("Открыть с помощью" with app icons, "Создать", "Вид")
         items.compactMap(\.submenu).forEach(decorate)
         var icons: [NSMenuItem: NSImage] = [:]
-        for item in items {
+        // Already decorated (the file menu is decorated when built and again when opened)
+        for item in items where item.attributedTitle?.containsAttachments != true {
             let look = item.action.flatMap { looks[NSStringFromSelector($0)] }
             if let look, item.keyEquivalent.isEmpty && !look.key.isEmpty {
                 item.keyEquivalent = look.key
@@ -67,20 +68,61 @@ enum MenuStyle {
             }
         }
         guard !icons.isEmpty else { return }
-        // Roomier than the stock menu, like Explorer's: bigger text, a tall frame per icon
+        // Roomier than the stock menu, like Explorer's: bigger text, a tall frame per icon.
+        // The shortcut is drawn in the title too (right-aligned at a tab stop): then text and
+        // shortcut share one line, centred in the row — AppKit places its own shortcut by other rules.
         let font = NSFont.menuFont(ofSize: 14)
-        // Items without an icon keep the same indent, so the texts line up
-        for item in items where item.attributedTitle == nil || item.attributedTitle?.containsAttachments == false {
+        let todo = items.filter { $0.attributedTitle == nil || $0.attributedTitle?.containsAttachments == false }
+        let widest = todo.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        let paragraph = NSMutableParagraphStyle()
+        // At the menu's right edge: the button row (if any) makes the menu wider than the texts
+        let rowWidth = menu.items.compactMap { $0.view as? ActionRowView }.first?.frame.width ?? 0
+        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: ceil(max(22 + 12 + widest + 70, rowWidth - 36)))]
+        let middle = (font.ascender + font.descender) / 2
+        for item in todo {
             let attachment = NSTextAttachment()
             attachment.image = framed(icons[item])
-            // The menu centres the row's line box, the shortcut the row itself: more of the frame
-            // above the baseline keeps the text level with the shortcut on the right
-            attachment.bounds = NSRect(x: 0, y: -6, width: 22, height: 28)
+            // Centred on the text's middle, so the text is centred in the (highlighted) row
+            attachment.bounds = NSRect(x: 0, y: (middle - 14).rounded(), width: 22, height: 28)
             let title = NSMutableAttributedString(attachment: attachment)
-            title.append(NSAttributedString(string: "   " + item.title, attributes: [.font: font]))
+            title.append(NSAttributedString(string: "   " + item.title, attributes: [.font: font, .paragraphStyle: paragraph]))
+            if let shortcut = shortcutText(item) {
+                title.append(NSAttributedString(string: "\t" + shortcut, attributes: [
+                    .font: font, .paragraphStyle: paragraph, .foregroundColor: NSColor.secondaryLabelColor,
+                ]))
+                // Shown, not handled here: the main menu owns the keys
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+            title.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: title.length))
             item.attributedTitle = title
             item.image = nil
         }
+    }
+
+    /// "⌥⌘C" for an item's key equivalent (nil when it has none).
+    private static func shortcutText(_ item: NSMenuItem) -> String? {
+        let key = item.keyEquivalent
+        guard !key.isEmpty else { return nil }
+        var modifiers = item.keyEquivalentModifierMask
+        var name: String
+        switch key {
+        case String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)): name = "↓"
+        case String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): name = "↑"
+        case String(Character(UnicodeScalar(NSBackspaceCharacter)!)): name = "⌫"
+        case "\r": name = "↩"
+        case " ": name = "Пробел"
+        default:
+            // Upper-case letters stand for ⇧ + letter in key equivalents
+            if key.uppercased() == key && key.lowercased() != key { modifiers.insert(.shift) }
+            name = key.uppercased()
+        }
+        var text = ""
+        if modifiers.contains(.control) { text += "⌃" }
+        if modifiers.contains(.option) { text += "⌥" }
+        if modifiers.contains(.shift) { text += "⇧" }
+        if modifiers.contains(.command) { text += "⌘" }
+        return text + name
     }
 
     /// Every icon in the same 22×28 frame (the height makes the rows roomy), centred and scaled
@@ -90,8 +132,7 @@ enum MenuStyle {
             guard let icon, icon.size.width > 0, icon.size.height > 0 else { return true }
             let scale = min(1, 20 / icon.size.width, 20 / icon.size.height)
             let size = NSSize(width: icon.size.width * scale, height: icon.size.height * scale)
-            // Level with the middle of the text (11 pt up the frame, which starts 6 pt below the baseline)
-            icon.draw(in: NSRect(x: (rect.width - size.width) / 2, y: 11 - size.height / 2, width: size.width, height: size.height))
+            icon.draw(in: NSRect(x: (rect.width - size.width) / 2, y: (rect.height - size.height) / 2, width: size.width, height: size.height))
             return true
         }
     }
@@ -101,9 +142,10 @@ enum MenuStyle {
     static func symbol(_ name: String) -> NSImage? {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let color = dark ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.15, alpha: 1)
+        // One fixed colour at different opacities for the layers (a palette left fill layers black)
         return NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-                .applying(.init(paletteColors: [color, color.withAlphaComponent(0.55)])))
+                .applying(.init(hierarchicalColor: color)))
     }
 
     /// The row of icon buttons on top of a file menu.

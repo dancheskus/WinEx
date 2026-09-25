@@ -56,7 +56,7 @@ open build/WinEx.app
 ```sh
 swift test                         # модульные тесты логики (имена, теги, .DS_Store, отмена, горячие клавиши)
 scripts/run-scenario.sh undo       # сценарий в самом приложении: undo, newfolder, slowclick, perf,
-                                   # desktop (картинка в build/scenario-desktop/), hittest, placement, placement2, desktopreset, monitorgone, fileops, search, filecommands, drives, trashaccess, update, addressclick, breadcrumbs, look, contextmenu, unzip;
+                                   # desktop (картинка в build/scenario-desktop/), hittest, placement, placement2, desktopreset, monitorgone, fileops, search, filecommands, drives, trashaccess, update, addressclick, breadcrumbs, look, contextmenu, unzip, paste;
                                    # mousedrag — с настоящей мышью, вместе со scripts/mouse-drag-check.swift
 ```
 

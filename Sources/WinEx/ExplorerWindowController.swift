@@ -176,7 +176,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
         let barHeight = titleBarHeight
         sidebar.topInset = barHeight
-        sidebar.onSelect = { [weak self] url in self?.navigate(to: url) }
+        sidebar.onSelect = { [weak self] url in
+            guard let self else { return }
+            navigate(to: url)
+            // Like Finder: after picking a place, the keyboard works on its files (⌘V, arrows…)
+            self.window?.makeFirstResponder(fileList.focusView)
+        }
         fileList.delegate = self
         splitView.isVertical = true
         splitView.dividerStyle = .thin
@@ -259,7 +264,14 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         ])
 
         window.layoutIfNeeded()
-        splitView.setPosition(210, ofDividerAt: 0)
+        splitView.setPosition(Self.sidebarWidth, ofDividerAt: 0)
+        // Again once the window is on screen (the first layout can still move the divider)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            applyingSidebarWidth = true
+            splitView.setPosition(Self.sidebarWidth, ofDividerAt: 0)
+            applyingSidebarWidth = false
+        }
         window.initialFirstResponder = fileList.focusView
     }
 
@@ -521,6 +533,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         showSelectedTab()
     }
 
+    // ⌘X / ⌘C / ⌘V wherever the focus is in the window (the sidebar, a button…): the file list
+    // isn't in the responder chain then, and the commands would do nothing
+    @objc func paste(_ sender: Any?) { fileList.paste(sender) }
+    @objc func copy(_ sender: Any?) { fileList.copy(sender) }
+    @objc func cut(_ sender: Any?) { fileList.cut(sender) }
+
     @objc func focusSearchField(_ sender: Any?) {
         window?.makeFirstResponder(searchField)
     }
@@ -571,6 +589,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.action {
+        case #selector(paste(_:)), #selector(copy(_:)), #selector(cut(_:)): return fileList.validateMenuItem(menuItem)
         case #selector(goBack(_:)): return selectedTab.canGoBack
         case #selector(goForward(_:)): return selectedTab.canGoForward
         case #selector(goUp(_:)): return selectedTab.canGoUp
@@ -735,6 +754,20 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     // MARK: - NSSplitViewDelegate
+
+    /// The sidebar's width: what the user last dragged it to (200 pt at first), for every window.
+    static var sidebarWidth: CGFloat {
+        get { CGFloat(AppDefaults.store.object(forKey: "sidebarWidth") as? Double ?? 200) }
+        set { AppDefaults.store.set(Double(newValue), forKey: "sidebarWidth") }
+    }
+
+    private var applyingSidebarWidth = false
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        // Only the user's drag counts (not window resizing or the initial layout)
+        guard !applyingSidebarWidth, NSApp.currentEvent?.type == .leftMouseDragged else { return }
+        Self.sidebarWidth = sidebar.view.frame.width
+    }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposed: CGFloat, ofSubviewAt index: Int) -> CGFloat {
         150

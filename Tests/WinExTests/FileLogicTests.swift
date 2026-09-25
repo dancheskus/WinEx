@@ -184,20 +184,21 @@ struct ContextMenuTests {
         let menu = NSMenu()
         FileContextMenu.addItems(to: menu, for: [URL(fileURLWithPath: "/Users")], target: target, folderTabs: true, customizableFolder: true)
         // Titles carry their icon (an attachment) in front
-        let titles = menu.items.map { $0.title.trimmingCharacters(in: CharacterSet(charactersIn: "\u{FFFC} ")) }
+        // …and the shortcut after a tab
+        let titles = menu.items.map { ($0.title.components(separatedBy: "\t").first ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "\u{FFFC} ")) }
         for title in ["Открыть", "Открыть в новой вкладке", "Копировать путь", "Настроить папку…", "Свойства"] {
             #expect(titles.contains(title))
         }
         // Cut / copy / rename / share / delete are the row of buttons on top
         #expect(menu.items.first?.view != nil && !titles.contains("Вырезать"))
-        #expect(menu.items.first { $0.title.hasSuffix("Свойства") }?.keyEquivalent == "i")
-        #expect(menu.items.first { $0.title.hasSuffix("Дублировать") }?.attributedTitle?.containsAttachments == true)
+        #expect(menu.items.first { $0.title.contains("Свойства") }?.title.hasSuffix("\t⌘I") == true)
+        #expect(menu.items.first { $0.title.contains("Дублировать") }?.attributedTitle?.containsAttachments == true)
         for item in menu.items where item.action != nil && item.submenu == nil {
             #expect(item.target === target, "«\(item.title)»")
         }
         let desktop = NSMenu()
         FileContextMenu.addItems(to: desktop, for: [URL(fileURLWithPath: "/Users")], target: target, folderTabs: false, customizableFolder: false)
-        #expect(!desktop.items.contains { $0.title.hasSuffix("Открыть в новой вкладке") || $0.title.hasSuffix("Настроить папку…") })
+        #expect(!desktop.items.contains { $0.title.contains("Открыть в новой вкладке") || $0.title.contains("Настроить папку…") })
     }
 }
 

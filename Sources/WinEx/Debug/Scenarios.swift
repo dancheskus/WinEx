@@ -28,6 +28,7 @@ enum Scenarios {
         "breadcrumbs": breadcrumbs,
         "contextmenu": contextMenu,
         "unzip": unzip,
+        "paste": pasteKeys,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
@@ -207,6 +208,58 @@ enum Scenarios {
         wait(60)
     }
 
+    /// ⌘C then ⌘V as real key presses (through the window, like the keyboard), in the table and
+    /// in the icon view, before and after a context menu was built.
+    static func pasteKeys(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt"])
+        s.window?.navigate(to: base)
+        func press(_ key: String, _ code: UInt16) { s.key(key, code: code, modifiers: .command) }
+        s.run([
+            (0.6, "table: ⌘C ⌘V", { s.setViewMode(.details); s.select("a.txt"); press("c", 8); press("v", 9) }),
+            (1.0, "result", { s.note("  \(s.files())  expect a - копия.txt") }),
+            (0.2, "open and close the context menu, then ⌘V", {
+                if let table = s.table, let menu = table.menu { menu.delegate?.menuNeedsUpdate?(menu) }
+                s.select("a.txt"); press("c", 8); press("v", 9)
+            }),
+            (1.0, "result", { s.note("  \(s.files())  expect a - копия (2).txt") }),
+            (0.2, "icons: ⌘C ⌘V", {
+                s.setViewMode(.mediumIcons)
+                s.select("a.txt")
+                let responder = s.window?.window?.firstResponder
+                let pasteTarget = NSApp.target(forAction: #selector(NSText.paste(_:)))
+                s.note("  first responder: \(responder.map { "\(type(of: $0))" } ?? "-"), paste goes to: \(pasteTarget.map { "\(type(of: $0))" } ?? "-"), selected: \(s.selectedNames)")
+                press("c", 8)
+                s.note("  clipboard after ⌘C: \(NSPasteboard.general.readObjects(forClasses: [NSURL.self]) as? [URL] ?? [])")
+                press("v", 9)
+            }),
+            (1.0, "result", { s.note("  \(s.files())  expect a third copy") }),
+            (0.2, "icons: ⌘V through the main menu directly", {
+                s.select("a.txt")
+                s.key("v", code: 9, modifiers: .command, viaMenu: true)
+            }),
+            (1.0, "result", { s.note("  \(s.files())  (main menu path)") }),
+            (0.2, "focus in the sidebar (after a click there), then ⌘V", {
+                if let outline = s.find(NSOutlineView.self, in: s.window?.window?.contentView) { s.window?.window?.makeFirstResponder(outline) }
+                s.note("  paste goes to: \(NSApp.target(forAction: #selector(NSText.paste(_:))).map { "\(type(of: $0))" } ?? "nobody")")
+                press("v", 9)
+            }),
+            (1.0, "result", { s.note("  \(s.files())  expect one more copy") }),
+            (0.2, "who swallows ⌘V in the window?", {
+                guard let window = s.window?.window,
+                      let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber,
+                                                   context: nil, characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9) else { return }
+                @MainActor func walk(_ view: NSView, _ depth: Int) {
+                    for sub in view.subviews where !sub.isHiddenOrHasHiddenAncestor {
+                        if sub.performKeyEquivalent(with: event) { s.note("  handled by \(type(of: sub)) (depth \(depth))"); return }
+                        walk(sub, depth + 1)
+                    }
+                }
+                if let content = window.contentView { walk(content, 0) }
+            }),
+            (1.0, "result", { s.note("  \(s.files())") }),
+        ])
+    }
+
     /// A window to photograph (scripts/capture-window.sh look): two tabs, some files, the icon view.
     static func look(_ s: Scenario) {
         let base = s.makeFiles(["Документы/", "Проекты/", "отчёт.pdf", "заметки.txt", "фото.png", "таблица.xlsx", "xiaomi vacuum 5 pro token.rtf"])
@@ -218,12 +271,19 @@ enum Scenarios {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             guard let window = s.window?.window else { s.run([]); return }
             s.note("  view: \(ViewMode.saved.title)")
+            let sidebar = s.find(NSOutlineView.self, in: window.contentView)?.enclosingScrollView?.superview
+            s.note("  sidebar width: \(Int(sidebar?.frame.width ?? -1))  expect 200")
             // Finder-style selection: a folder and a long name
             if let grid = s.grid {
                 let names = (0..<grid.count).map { (grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem)?.textField?.stringValue ?? "" }
                 let picked = IndexSet(names.indices.filter { names[$0] == "Проекты" || names[$0].hasPrefix("xiaomi") })
                 grid.setSelection(picked, anchor: picked.first ?? 0)
                 window.makeFirstResponder(grid)
+                if ProcessInfo.processInfo.environment["WINEX_MENU_TEST"] == "rename" {
+                    let one = IndexSet(names.indices.filter { names[$0] == "таблица.xlsx" })
+                    grid.setSelection(one, anchor: one.first ?? 0)
+                    s.send("renameSelected:")
+                }
             }
             try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
             @MainActor func wait(_ tries: Int) {

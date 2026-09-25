@@ -133,6 +133,9 @@ final class Scenario {
                                            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) else { return }
         if viaMenu {
             if NSApp.mainMenu?.performKeyEquivalent(with: event) != true { note("  (no menu item for \(characters))") }
+        } else if !modifiers.intersection([.command, .control]).isEmpty {
+            // Through the application, like the keyboard: key equivalents go to the menus first
+            NSApp.sendEvent(event)
         } else {
             window.sendEvent(event)
         }
