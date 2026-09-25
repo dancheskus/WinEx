@@ -43,7 +43,13 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     private init(urls: [URL]) {
         self.urls = urls
         let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 500),
-                             styleMask: [.titled, .closable, .fullSizeContentView, .utilityWindow], backing: .buffered, defer: false)
+                             styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        // An empty unified toolbar: the regular window buttons with room around them, like
+        // WinEx's windows
+        let toolbar = NSToolbar(identifier: "WinExProperties")
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
@@ -88,7 +94,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         root.orientation = .vertical
         root.alignment = .leading
         root.spacing = 18
-        root.edgeInsets = NSEdgeInsets(top: 44, left: 24, bottom: 24, right: 24)
+        root.edgeInsets = NSEdgeInsets(top: 60, left: 24, bottom: 24, right: 24)
         root.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(root)
         NSLayoutConstraint.activate([
@@ -221,6 +227,13 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             page.addArrangedSubview(PropertiesUI.card("Даты", dates))
         }
 
+        // One file: its attributes are on «Доступ»; several: here (there's no «Доступ» for a group)
+        if !isSingle { page.addArrangedSubview(attributesCard(values)) }
+        return page
+    }
+
+    /// «Только чтение», «Скрытый».
+    private func attributesCard(_ values: [URLResourceValues?]) -> NSView {
         func state(_ flags: [Bool?]) -> NSControl.StateValue {
             let set = Set(flags.map { $0 ?? false })
             return set.count > 1 ? .mixed : (set.first == true ? .on : .off)
@@ -234,11 +247,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         // A leading dot hides a file by name; the flag can't change that
         hiddenSwitch.isEnabled = !urls.contains { $0.lastPathComponent.hasPrefix(".") }
         for control in [lockedSwitch, hiddenSwitch] { control.controlSize = .small }
-        page.addArrangedSubview(PropertiesUI.card("Атрибуты", [
+        return PropertiesUI.card("Атрибуты", [
             PropertiesUI.row("Только чтение", lockedSwitch, hint: "Защищено от изменения и удаления"),
             PropertiesUI.row("Скрытый", hiddenSwitch, hint: "Не виден, пока скрытые файлы не показаны"),
-        ]))
-        return page
+        ])
     }
 
     /// "~/Desktop" for places in the home folder.
@@ -354,6 +366,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         let yours = [access.isReadableFile(atPath: single.path) ? "читать" : nil,
                      access.isWritableFile(atPath: single.path) ? "изменять" : nil,
                      access.isDeletableFile(atPath: single.path) ? "удалять" : nil].compactMap { $0 }
+        let flags = try? single.resourceValues(forKeys: [.isUserImmutableKey, .isHiddenKey])
+        page.addArrangedSubview(attributesCard([flags]))
         page.addArrangedSubview(PropertiesUI.card("Для вас", [
             PropertiesUI.row("Можно", PropertiesUI.value(yours.isEmpty ? "Ничего" : yours.joined(separator: ", ").capitalizedFirst)),
         ]))
