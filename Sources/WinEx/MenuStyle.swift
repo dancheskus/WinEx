@@ -52,7 +52,8 @@ enum MenuStyle {
         items.compactMap(\.submenu).forEach(decorate)
         var icons: [NSMenuItem: NSImage] = [:]
         // Already decorated (the file menu is decorated when built and again when opened)
-        for item in items where item.attributedTitle?.containsAttachments != true {
+        let todo = items.filter { !isDecorated($0) }
+        for item in todo {
             let look = item.action.flatMap { looks[NSStringFromSelector($0)] }
             if let look, item.keyEquivalent.isEmpty && !look.key.isEmpty {
                 item.keyEquivalent = look.key
@@ -67,31 +68,39 @@ enum MenuStyle {
                 icons[item] = symbol(name)
             }
         }
-        guard !icons.isEmpty else { return }
+        guard !todo.isEmpty else { return }
+        // A menu without any icon (a submenu of sort keys, of views) gets the same text and rows,
+        // just no icon column
+        let withIcons = !icons.isEmpty || items.contains { isDecorated($0) && $0.attributedTitle?.containsAttachments == true }
         // Roomier than the stock menu, like Explorer's: bigger text, a tall frame per icon.
         // The shortcut is drawn in the title too (right-aligned at a tab stop): then text and
         // shortcut share one line, centred in the row — AppKit places its own shortcut by other rules.
         let font = NSFont.menuFont(ofSize: 14)
-        let todo = items.filter { $0.attributedTitle == nil || $0.attributedTitle?.containsAttachments == false }
         let widest = todo.map { ($0.title as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
         let paragraph = NSMutableParagraphStyle()
         // At the menu's right edge: the button row (if any) makes the menu wider than the texts
         let rowWidth = menu.items.compactMap { $0.view as? ActionRowView }.first?.frame.width ?? 0
-        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: ceil(max(22 + 12 + widest + 70, rowWidth - 36)))]
+        let lead: CGFloat = withIcons ? 22 + 12 : 0
+        paragraph.tabStops = [NSTextTab(textAlignment: .right, location: ceil(max(lead + widest + 70, rowWidth - 36)))]
         // Roomy rows come from the menu's own (larger) font: AppKit sizes the rows for it and
         // centres its submenu arrows and shortcuts in them. The 14 pt text is raised by half the
         // difference of the two line heights, so it sits in the middle too. (A tall icon or a big
-        // line height made the rows roomy as well, but left the arrow off-centre.)
+        // line height made the rows roomy as well, but left the arrow off-centre.) Set on every
+        // menu: a submenu would otherwise take its parent's 18 pt for its own texts.
         let rowFont = NSFont.menuFont(ofSize: 18)
         menu.font = rowFont
         let raise = (((rowFont.ascender - rowFont.descender) - (font.ascender - font.descender)) / 2).rounded()
         let middle = (font.ascender + font.descender) / 2
         for item in todo {
-            let attachment = NSTextAttachment()
-            attachment.image = framed(icons[item])
-            attachment.bounds = NSRect(x: 0, y: (middle - 10).rounded(), width: 22, height: 20)
-            let title = NSMutableAttributedString(attachment: attachment)
-            title.append(NSAttributedString(string: "   " + item.title, attributes: [.font: font, .paragraphStyle: paragraph]))
+            let title = NSMutableAttributedString()
+            if withIcons {
+                let attachment = NSTextAttachment()
+                attachment.image = framed(icons[item])
+                attachment.bounds = NSRect(x: 0, y: (middle - 10).rounded(), width: 22, height: 20)
+                title.append(NSAttributedString(attachment: attachment))
+                title.append(NSAttributedString(string: "   ", attributes: [.font: font]))
+            }
+            title.append(NSAttributedString(string: item.title, attributes: [.font: font, .paragraphStyle: paragraph]))
             if let shortcut = shortcutText(item) {
                 title.append(NSAttributedString(string: "\t" + shortcut, attributes: [
                     .font: font, .paragraphStyle: paragraph, .foregroundColor: NSColor.secondaryLabelColor,
@@ -100,11 +109,20 @@ enum MenuStyle {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = []
             }
-            title.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: title.length))
-            title.addAttribute(.baselineOffset, value: raise, range: NSRange(location: 0, length: title.length))
+            let all = NSRange(location: 0, length: title.length)
+            title.addAttribute(.paragraphStyle, value: paragraph, range: all)
+            title.addAttribute(.baselineOffset, value: raise, range: all)
+            title.addAttribute(decoratedKey, value: true, range: all)
             item.attributedTitle = title
             item.image = nil
         }
+    }
+
+    private static let decoratedKey = NSAttributedString.Key("WinExMenuDecorated")
+
+    private static func isDecorated(_ item: NSMenuItem) -> Bool {
+        guard let title = item.attributedTitle, title.length > 0 else { return false }
+        return title.attribute(decoratedKey, at: 0, effectiveRange: nil) != nil || title.containsAttachments
     }
 
     /// "⌥⌘C" for an item's key equivalent (nil when it has none).
