@@ -127,6 +127,10 @@ enum MenuStyle {
             }
             title.addAttribute(decoratedKey, value: true, range: all)
             item.attributedTitle = title
+            // A submenu row draws itself: AppKit's arrow can't be made smaller or quieter
+            if item.submenu != nil {
+                item.view = SubmenuRowView(item: item, icon: withIcons ? framed(icons[item]) : nil, font: font)
+            }
             item.image = nil
             // A quieter checkmark than AppKit's: smaller, in the secondary text colour
             item.onStateImage = checkmark
@@ -313,5 +317,62 @@ private final class ActionRowView: NSView {
         enclosingMenuItem?.menu?.cancelTracking()
         // After the menu is gone (renaming needs the window's focus back)
         DispatchQueue.main.async { NSApp.sendAction(action, to: target, from: nil) }
+    }
+}
+
+/// A menu row with a submenu, drawn like the other rows (icon, text) with a small, quiet
+/// chevron — AppKit's own arrow follows the menu font and can't be restyled.
+final class SubmenuRowView: NSView {
+    private let title: String
+    private let icon: NSImage?
+    private let font: NSFont
+    static let height: CGFloat = 31
+
+    init(item: NSMenuItem, icon: NSImage?, font: NSFont) {
+        title = item.attributedTitle?.string.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{FFFC}"))) ?? item.title
+        self.icon = icon
+        self.font = font
+        let textWidth = (title as NSString).size(withAttributes: [.font: font]).width
+        super.init(frame: NSRect(x: 0, y: 0, width: ceil(Self.textX(icon: icon != nil) + textWidth + 60), height: Self.height))
+        autoresizingMask = [.width]
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Where the other rows' text starts (after AppKit's checkmark column and the icon).
+    static func textX(icon: Bool) -> CGFloat {
+        icon ? iconX + 22 + 10 : 28
+    }
+    private static let iconX: CGFloat = 16
+
+    override func draw(_ dirtyRect: NSRect) {
+        let highlighted = enclosingMenuItem?.isHighlighted == true
+        let enabled = enclosingMenuItem?.isEnabled != false
+        if highlighted {
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 0.5), xRadius: 8, yRadius: 8).fill()
+        }
+        let textColor: NSColor = !enabled ? .tertiaryLabelColor : (highlighted ? .white : .labelColor)
+        if let icon {
+            let frame = NSRect(x: Self.iconX, y: (bounds.height - 20) / 2, width: 22, height: 20)
+            icon.draw(in: frame, from: .zero, operation: .sourceOver, fraction: enabled ? 1 : 0.4)
+        }
+        let text = NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: textColor])
+        let size = text.size()
+        text.draw(at: NSPoint(x: Self.textX(icon: icon != nil), y: (bounds.height - size.height) / 2))
+        // The chevron: the checkmark's size and colour
+        if let chevron = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold)) {
+            let color = highlighted ? NSColor.white.withAlphaComponent(0.85) : NSColor.labelColor.withAlphaComponent(0.6)
+            let s = chevron.size
+            let frame = NSRect(x: bounds.maxX - 22 - s.width, y: (bounds.height - s.height) / 2, width: s.width, height: s.height)
+            let tinted = NSImage(size: s, flipped: false) { area in
+                chevron.draw(in: area)
+                color.set()
+                area.fill(using: .sourceAtop)
+                return true
+            }
+            tinted.draw(in: frame)
+        }
     }
 }
