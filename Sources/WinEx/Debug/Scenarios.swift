@@ -537,6 +537,11 @@ enum Scenarios {
         let rtf = base.appendingPathComponent("заметка.rtf")
         s.note("  rtf «Открыть с помощью»: \(titles(OpenWithMenu.item(for: [rtf])))  expect no Pages")
         s.note("  rtf own items: \(OpenWithMenu.mainMenuItems(for: [rtf]).map(\.title))")
+        let script = base.appendingPathComponent("скрипт.sh")
+        try? "echo".write(to: script, atomically: true, encoding: .utf8)
+        let opener = workspace.urlForApplication(toOpen: script).map(OpenWithMenu.appName) ?? "-"
+        if let code { AppsConfig.apps = [AppsConfig.App(path: code.path, scope: .all, extensions: [], inMainMenu: true)] }
+        s.note("  .sh opens with \(opener); own items: \(OpenWithMenu.mainMenuItems(for: [script]).map(\.title))  expect none if VS Code is the default")
         s.note("  «Создать»: \(NewItemTemplate.availableFiles.map(\.title))  expect no PowerPoint, + Заметка Markdown")
         if let custom = NewItemTemplate.availableFiles.last, let made = try? custom.create(in: folder) {
             s.note("  created \(made.lastPathComponent): \((try? String(contentsOf: made, encoding: .utf8)) ?? "?")")

@@ -149,7 +149,12 @@ final class OpenWithMenu: NSObject {
     /// "Открыть в Visual Studio Code": the apps chosen in Settings ▸ Программы to have an item
     /// of their own in the context menu.
     static func mainMenuItems(for urls: [URL]) -> [NSMenuItem] {
-        AppsConfig.apps.filter { $0.inMainMenu && $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) }.map { app in
+        // Not when "Открыть" already opens everything with that app (a folder opens in WinEx)
+        let defaults = urls.map { $0.isBrowsableDirectory ? nil : NSWorkspace.shared.urlForApplication(toOpen: $0)?.standardizedFileURL }
+        func isDefault(_ app: AppsConfig.App) -> Bool {
+            defaults.allSatisfy { $0 == app.url.standardizedFileURL }
+        }
+        return AppsConfig.apps.filter { $0.inMainMenu && $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) && !isDefault($0) }.map { app in
             let item = NSMenuItem(title: L("Открыть в %@", app.name), action: #selector(openWith(_:)), keyEquivalent: "")
             item.target = shared
             item.representedObject = Request(urls: urls, app: app.url)
