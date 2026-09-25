@@ -22,6 +22,12 @@ enum Settings {
         set { defaults.set(newValue, forKey: "replaceFinder") }
     }
 
+    /// Settings ▸ Теги: folders take the colour of their first coloured tag, as in macOS 26 Finder.
+    static var tintFoldersByTags: Bool {
+        get { defaults.object(forKey: "tintFoldersByTags") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "tintFoldersByTags") }
+    }
+
     /// Windows keys: Return opens, F2 renames, Backspace goes up. Off (default): Finder keys —
     /// Return renames, ⌘↓ / ⌘O open, ⌘↑ goes up.
     static var windowsKeys: Bool {
@@ -136,7 +142,8 @@ final class FileItem {
 
     /// File icon; customized folders (tag color, symbol / emoji) are drawn like macOS 26 Finder does.
     lazy var icon: NSImage = {
-        if isFolder, let custom = FolderIcon.custom(tagColor: tags.lazy.compactMap({ FileTags.color(forIndex: $0.color) }).first,
+        let tint = Settings.tintFoldersByTags ? tags.lazy.compactMap({ FileTags.color(forIndex: $0.color) }).first : nil
+        if isFolder, let custom = FolderIcon.custom(tagColor: tint,
                                                     customization: FolderCustomization.read(url)) {
             return custom
         }

@@ -3,6 +3,10 @@ import AppKit
 /// Settings, the way Mac apps lay them out: tabs in the toolbar, each a short form
 /// ("label: control", labels right-aligned in one column); explanations in "?" popovers.
 final class SettingsWindowController: NSWindowController {
+    enum Tab: Int { case general, sidebar, tags, finder, keyboard, access, updates }
+
+    private let tabs = NSTabViewController()
+    private let tagsView = TagSettingsView()
     // Основные
     private let startPopup = NSPopUpButton()
     private let hotKeyPopup = NSPopUpButton()
@@ -32,7 +36,6 @@ final class SettingsWindowController: NSWindowController {
     private let observers = Observers()
 
     init() {
-        let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
@@ -43,6 +46,8 @@ final class SettingsWindowController: NSWindowController {
 
         for (title, symbol, view) in [
             ("Основные", "gearshape", generalPane()),
+            ("Боковое меню", "sidebar.left", SidebarSettingsView()),
+            ("Теги", "tag", tagsView),
             ("Finder", "macwindow.on.rectangle", finderPane()),
             ("Клавиатура", "keyboard", keyboardPane()),
             ("Доступ", "lock.shield", accessPane()),
@@ -167,7 +172,12 @@ final class SettingsWindowController: NSWindowController {
 
     // MARK: - State
 
+    func select(_ tab: Tab) {
+        tabs.selectedTabViewItemIndex = tab.rawValue
+    }
+
     func sync() {
+        tagsView.refresh()
         replaceCheckbox.state = Settings.replaceFinder ? .on : .off
         resetDesktopButton.isEnabled = Settings.replaceFinder
         hiddenCheckbox.state = Settings.showHidden ? .on : .off

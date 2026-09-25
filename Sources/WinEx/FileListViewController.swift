@@ -29,6 +29,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private let drivesView = DrivesView()
     /// "Эта папка пуста", "Ничего не найдено", no access to the Trash…
     private let emptyState = EmptyStateView()
+    private let trashBar = TrashBar()
+    private var trashBarHeight = NSLayoutConstraint()
     private let gridScrollView = NSScrollView()
     private let flowLayout = LeftAlignedFlowLayout()
 
@@ -77,11 +79,23 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             delegate?.fileList(self, open: url, in: .newTab)
         }
         drivesView.onProperties = { PropertiesWindowController.show(for: [$0]) }
+        // Finder's Trash bar: its name and "Очистить" above the list
+        trashBar.translatesAutoresizingMaskIntoConstraints = false
+        trashBar.isHidden = true
+        trashBar.onEmpty = { [weak self] in self?.emptyTrash(nil) }
+        container.addSubview(trashBar)
+        trashBarHeight = trashBar.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            trashBar.topAnchor.constraint(equalTo: container.topAnchor),
+            trashBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            trashBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            trashBarHeight,
+        ])
         for scrollView in [tableScrollView, gridScrollView, drivesView, emptyState] as [NSView] {
             scrollView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(scrollView)
             NSLayoutConstraint.activate([
-                scrollView.topAnchor.constraint(equalTo: container.topAnchor),
+                scrollView.topAnchor.constraint(equalTo: trashBar.bottomAnchor),
                 scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
                 scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                 scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -528,6 +542,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     /// A message instead of an empty list: why it's empty and what to do about it.
     private func updateEmptyState() {
+        let inTrash = location == .trash
+        trashBar.isHidden = !inTrash
+        trashBarHeight.constant = inTrash ? TrashBar.height : 0
+        trashBar.canEmpty = inTrash && errorMessage == nil && !allItems.isEmpty
         guard items.isEmpty, drivesView.isHidden else { return emptyState.isHidden = true }
         if location == .trash, errorMessage != nil {
             emptyState.show("Нет доступа к Корзине",
@@ -883,7 +901,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     @objc private func emptyTrash(_ sender: Any?) {
-        Places.deleteForever(allItems.map(\.url), emptying: true)
+        Places.emptyTrash()
     }
 
     @objc private func openFullDiskAccess(_ sender: Any?) {
@@ -1322,4 +1340,43 @@ final class FileTableView: NSTableView {
     override func magnify(with event: NSEvent) {
         if let step = zoom.step(forMagnify: event) { onZoom?(step) }
     }
+}
+
+/// The bar above the Trash: "Корзина" and the "Очистить" button, like Finder's.
+private final class TrashBar: NSView {
+    static let height: CGFloat = 40
+    var onEmpty: (() -> Void)?
+    var canEmpty = false { didSet { button.isEnabled = canEmpty } }
+    private let button = NSButton(title: "Очистить", target: nil, action: nil)
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        let title = NSTextField(labelWithString: "Корзина")
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        button.bezelStyle = .push
+        button.controlSize = .regular
+        button.toolTip = "Удалить навсегда всё, что лежит в Корзине"
+        button.target = self
+        button.action = #selector(empty(_:))
+        let line = NSBox()
+        line.boxType = .separator
+        for view in [title, button, line] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            title.centerYAnchor.constraint(equalTo: centerYAnchor),
+            button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            line.leadingAnchor.constraint(equalTo: leadingAnchor),
+            line.trailingAnchor.constraint(equalTo: trailingAnchor),
+            line.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        clipsToBounds = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func empty(_ sender: Any?) { onEmpty?() }
 }

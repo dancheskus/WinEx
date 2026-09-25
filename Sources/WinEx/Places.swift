@@ -74,6 +74,17 @@ enum Places {
         MainActor.assumeIsolated { FileOperations.start(.delete, urls) }
     }
 
+    /// "Очистить Корзину": everything in the Trash, after the usual question.
+    static func emptyTrash() {
+        let urls = (try? FileManager.default.contentsOfDirectory(at: trashURL, includingPropertiesForKeys: nil))?
+            .filter { $0.lastPathComponent != ".DS_Store" } ?? []
+        guard !urls.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        deleteForever(urls, emptying: true)
+    }
+
     /// Reading ~/.Trash needs Full Disk Access; this opens that pane of System Settings.
     static func openFullDiskAccessSettings() {
         NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)

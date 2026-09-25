@@ -40,6 +40,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         GlobalHotKey.shared.apply()
         Updater.shared.startAutomaticChecks()
         #endif
+        // Tags already on files join the sidebar's list (one quick Spotlight query)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { TagLibrary.discover() }
         // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
         if !openedByEvent && !launchedAtLogin { openWindow(at: Settings.startURL) }
     }
@@ -246,8 +248,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func showSettings(_ sender: Any?) {
+        showSettings(tab: nil)
+    }
+
+    func showSettings(tab: SettingsWindowController.Tab?) {
         if settingsController == nil { settingsController = SettingsWindowController() }
         settingsController?.sync()
+        if let tab { settingsController?.select(tab) }
         NSApp.activate()
         settingsController?.showWindow(nil)
         settingsController?.window?.makeKeyAndOrderFront(nil)

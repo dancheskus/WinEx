@@ -23,6 +23,7 @@ enum Scenarios {
         "trashaccess": trashAccess,
         "update": update,
         "settings": settingsTabs,
+        "sidebar": sidebar,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -114,6 +115,109 @@ enum Scenarios {
             }),
             (0.4, "after Esc", { s.note("  breadcrumbs back: \(bar()?.isHidden == false)  expect true") }),
         ])
+    }
+
+    /// Sidebar drops without the mouse (a stand-in NSDraggingInfo goes to the data source):
+    /// folders pinned between the favourites, favourites reordered, files dropped on a folder,
+    /// on a tag, on the Trash bar; then the sidebar and the Trash are photographed.
+    static func sidebar(_ s: Scenario) {
+        let base = s.makeFiles(["в папку.txt", "с тегом.txt"])
+        let fm = FileManager.default
+        for name in ["Альфа", "Бета", "Цель"] { try? fm.createDirectory(at: base.appendingPathComponent(name), withIntermediateDirectories: true) }
+        let (alpha, beta, target) = (base.appendingPathComponent("Альфа"), base.appendingPathComponent("Бета"), base.appendingPathComponent("Цель"))
+        s.window?.navigate(to: base)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        func outline() -> NSOutlineView? {
+            s.findAll(NSOutlineView.self, in: s.window?.window?.contentView ?? NSView()).first { $0.dataSource is SidebarViewController }
+        }
+        func sidebar() -> SidebarViewController? { outline()?.dataSource as? SidebarViewController }
+        func section(_ kind: SidebarViewController.Section.Kind) -> SidebarViewController.Section? {
+            guard let outline = outline() else { return nil }
+            return (0..<outline.numberOfRows).lazy.compactMap { outline.item(atRow: $0) as? SidebarViewController.Section }.first { $0.kind == kind }
+        }
+        func favorites() -> [String] { section(.favorites)?.items.map(\.title) ?? [] }
+        func drop(_ info: FakeDrag, on item: Any?, index: Int) -> String {
+            guard let outline = outline(), let sidebar = sidebar() else { return "no sidebar" }
+            let operation = sidebar.outlineView(outline, validateDrop: info, proposedItem: item, proposedChildIndex: index)
+            guard operation != [] else { return "refused" }
+            return sidebar.outlineView(outline, acceptDrop: info, item: item, childIndex: index) ? "op \(operation.rawValue)" : "failed"
+        }
+        s.run([
+            (1.0, "pin Альфа", {
+                SidebarConfig.pin(alpha)
+                s.note("  favourites end with: \(favorites().suffix(2))  expect […, Альфа]")
+            }),
+            (0.3, "drop Бета between the first two favourites", {
+                let result = drop(FakeDrag(urls: [beta]), on: section(.favorites), index: 1)
+                s.note("  \(result); favourites start: \(favorites().prefix(3))  expect Бета second")
+            }),
+            (0.3, "drop a file between favourites (only folders pin)", {
+                s.note("  \(drop(FakeDrag(urls: [base.appendingPathComponent("в папку.txt")]), on: section(.favorites), index: 0))  expect refused")
+            }),
+            (0.3, "drag favourite Альфа to the top", {
+                let result = drop(FakeDrag(favorite: alpha.path), on: section(.favorites), index: 0)
+                s.note("  \(result); favourites start: \(favorites().prefix(3))  expect Альфа first")
+            }),
+            (0.3, "pin Цель, drop a file on it", {
+                SidebarConfig.pin(target)
+                let item = section(.favorites)?.items.first { $0.title == "Цель" }
+                s.note("  \(drop(FakeDrag(urls: [base.appendingPathComponent("в папку.txt")]), on: item, index: -1))")
+            }),
+            (1.5, "moved?", { s.note("  in Цель: \(s.files(in: target))  expect [в папку.txt]") }),
+            (0.2, "drop a file on the tag «Красный»", {
+                let item = section(.tags)?.items.first { $0.title == "Красный" }
+                let file = base.appendingPathComponent("с тегом.txt")
+                s.note("  \(drop(FakeDrag(urls: [file]), on: item, index: -1)); tags: \(FileTags.tags(of: file).map(\.name))  expect [Красный]")
+            }),
+            (0.3, "remove Бета from the sidebar", {
+                SidebarConfig.unpin(beta)
+                s.note("  favourites: \(favorites())")
+            }),
+            (0.5, "photograph the sidebar", {
+                if let window = s.window?.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.5, "the Trash", { s.window?.navigate(to: Places.trashURL) }),
+            (1.0, "photograph the Trash", {
+                if let window = s.window?.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.5, "unpin the sandbox folders", { [alpha, target].forEach(SidebarConfig.unpin) }),
+        ])
+    }
+
+    /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.
+    final class FakeDrag: NSObject, NSDraggingInfo {
+        let draggingPasteboard = NSPasteboard.withUniqueName()
+        @MainActor init(urls: [URL] = [], favorite: String? = nil) {
+            super.init()
+            if let favorite {
+                let item = NSPasteboardItem()
+                item.setString(favorite, forType: .init("dev.winex.sidebar-favorite"))
+                draggingPasteboard.writeObjects([item])
+            } else {
+                draggingPasteboard.writeObjects(urls.map { $0 as NSURL })
+            }
+        }
+        var draggingDestinationWindow: NSWindow? { nil }
+        var draggingSourceOperationMask: NSDragOperation { [.copy, .move, .link, .generic] }
+        var draggingLocation: NSPoint { .zero }
+        var draggedImageLocation: NSPoint { .zero }
+        var draggedImage: NSImage? { nil }
+        var draggingSource: Any? { nil }
+        var draggingSequenceNumber: Int { 1 }
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        func enumerateDraggingItems(options enumOpts: NSDraggingItemEnumerationOptions = [], for view: NSView?, classes classArray: [AnyClass],
+                                    searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+                                    using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
+        var springLoadingHighlight: NSSpringLoadingHighlight { .none }
+        func resetSpringLoading() {}
     }
 
     /// Opens a file's context menu and hands its window to scripts/capture-window.sh contextmenu.

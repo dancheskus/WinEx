@@ -63,6 +63,7 @@ enum FileTags {
             return data.withUnsafeBytes { setxattr(path, attribute, $0.baseAddress, data.count, 0, 0) }
         }
         if result != 0 { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: url.path]) }
+        TagLibrary.merge(tags)  // a new tag joins the list (Settings ▸ Теги, the sidebar)
     }
 
     /// Adds or removes one tag on every file.
@@ -78,14 +79,18 @@ enum FileTags {
 
     /// Finder's favorite tags (Settings ▸ Tags), with their colors.
     static var favorites: [Tag] {
-        let names = UserDefaults(suiteName: "com.apple.finder")?.stringArray(forKey: "FavoriteTagNames")?.filter { !$0.isEmpty }
-            ?? ["Красный", "Оранжевый", "Жёлтый", "Зелёный", "Синий", "Лиловый", "Серый"]
-        return names.map { Tag(name: $0, color: standardColors[$0] ?? 0) }
+        let library = TagLibrary.entries
+        return TagLibrary.favoriteNames.map { name in
+            Tag(name: name, color: library.first { $0.name == name }?.color ?? standardColors[name] ?? 0)
+        }
     }
+
+    static func standardColor(of name: String) -> Int? { standardColors[name] }
 
     /// A tag named by the user: keeps the color of a known tag with that name.
     static func tag(named name: String, knownTags: [Tag]) -> Tag {
-        knownTags.first { $0.name == name } ?? favorites.first { $0.name == name } ?? Tag(name: name, color: standardColors[name] ?? 0)
+        knownTags.first { $0.name == name } ?? favorites.first { $0.name == name }
+            ?? Tag(name: name, color: TagLibrary.color(of: name) ?? standardColors[name] ?? 0)
     }
 
     /// Small colored circle for menus.
