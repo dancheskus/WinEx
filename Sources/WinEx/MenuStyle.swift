@@ -78,11 +78,13 @@ enum MenuStyle {
         // At the menu's right edge: the button row (if any) makes the menu wider than the texts
         let rowWidth = menu.items.compactMap { $0.view as? ActionRowView }.first?.frame.width ?? 0
         paragraph.tabStops = [NSTextTab(textAlignment: .right, location: ceil(max(22 + 12 + widest + 70, rowWidth - 36)))]
-        // Roomy rows come from the line height (not from a tall icon: AppKit then drew the submenu
-        // arrow off-centre); the text is raised to the middle of the 28 pt line
-        paragraph.minimumLineHeight = 28
-        paragraph.maximumLineHeight = 28
-        let raise = (28 - (font.ascender - font.descender)) / 2 + 0.5
+        // Roomy rows come from the menu's own (larger) font: AppKit sizes the rows for it and
+        // centres its submenu arrows and shortcuts in them. The 14 pt text is raised by half the
+        // difference of the two line heights, so it sits in the middle too. (A tall icon or a big
+        // line height made the rows roomy as well, but left the arrow off-centre.)
+        let rowFont = NSFont.menuFont(ofSize: 18)
+        menu.font = rowFont
+        let raise = (((rowFont.ascender - rowFont.descender) - (font.ascender - font.descender)) / 2).rounded()
         let middle = (font.ascender + font.descender) / 2
         for item in todo {
             let attachment = NSTextAttachment()

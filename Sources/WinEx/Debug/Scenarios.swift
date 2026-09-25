@@ -134,8 +134,12 @@ enum Scenarios {
             // let the script photograph it, then close the menu
             let find = Timer(timeInterval: 0.6, repeats: false) { _ in
                 let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-                let mine = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid() && ($0[kCGWindowLayer as String] as? Int ?? 0) >= 101 }
-                if let number = mine.first?[kCGWindowNumber as String] as? Int {
+                // The context menu itself: menu level, the tallest (a submenu may be open beside it)
+                let mine = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid() && ($0[kCGWindowLayer as String] as? Int ?? 0) == 101 }
+                func height(_ info: [String: Any]) -> CGFloat {
+                    (info[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }?.height ?? 0
+                }
+                if let number = mine.max(by: { height($0) < height($1) })?[kCGWindowNumber as String] as? Int {
                     try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
                 }
                 s.note("  menu items: \(menu.items.filter { !$0.isSeparatorItem }.map { $0.view != nil ? "[row]" : $0.title + ($0.image == nil ? "" : "🖼") }.prefix(9))")
