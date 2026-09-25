@@ -14,7 +14,66 @@ enum Scenarios {
         "placement": placement,
         "desktopreset": desktopReset,
         "placement2": placementSecondScreen,
+        "mousedrag": mouseDrag,
     ]
+
+    /// Real-mouse check, driven by `scripts/mouse-drag-check.swift` (run with the user's consent):
+    /// the app places its window and writes where to grab it and where the close button is — only
+    /// after checking that at those points the topmost window on screen is this one; the script
+    /// drags with the real mouse and clicks close; then a new window opens and its place is logged.
+    static func mouseDrag(_ s: Scenario) {
+        let app = AppDelegate.shared
+        let mainHeight = NSScreen.screens.first?.frame.maxY ?? 0
+        func cg(_ p: NSPoint) -> String { "\(Int(p.x)) \(Int(mainHeight - p.y))" }
+        func isOurs(_ p: NSPoint, _ window: NSWindow) -> Bool {
+            NSWindow.windowNumber(at: p, belowWindowWithWindowNumber: 0) == window.windowNumber
+        }
+        func write(_ name: String, _ text: String) {
+            try? text.write(to: s.output.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        func exists(_ name: String) -> Bool { FileManager.default.fileExists(atPath: s.output.appendingPathComponent(name).path) }
+        func wait(for name: String, then next: @escaping () -> Void, tries: Int = 300) {
+            if exists(name) { next(); return }
+            guard tries > 0 else { s.note("  (timed out waiting for \(name))"); s.run([]); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { wait(for: name, then: next, tries: tries - 1) }
+        }
+        func describe(_ w: NSWindow?) -> String {
+            guard let w else { return "-" }
+            return "\(Int(w.frame.minX)),\(Int(w.frame.minY)) \(Int(w.frame.width))×\(Int(w.frame.height)) on \(w.screen?.localizedName ?? "?")"
+        }
+        guard let window = s.window?.window, let second = NSScreen.screens.dropFirst().first else {
+            s.note("  (no window or one monitor only)"); s.run([]); return
+        }
+        window.setFrame(NSRect(x: 500, y: 400, width: 900, height: 600), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            let grab = NSPoint(x: window.frame.maxX - 120, y: window.frame.maxY - TabBarView.height / 2)
+            let target = NSPoint(x: second.frame.midX, y: second.frame.midY + 200)
+            guard isOurs(grab, window) else { s.note("  another window covers the grab point — aborted"); write("abort", ""); s.run([]); return }
+            s.note("  opened: \(describe(window))")
+            write("grab.txt", "\(cg(grab)) \(cg(target))")
+            wait(for: "dragged") {
+                s.note("  after the mouse drag: \(describe(window))  saved on: \(WindowPlacement.saved.flatMap { p in NSScreen.screens.first { $0.displayUUID == p.screenID }?.localizedName } ?? "-")")
+                guard let close = window.standardWindowButton(.closeButton) else { s.run([]); return }
+                let frame = close.convert(close.bounds, to: nil)
+                let point = window.convertPoint(toScreen: NSPoint(x: frame.midX, y: frame.midY))
+                guard isOurs(point, window) else { s.note("  close button covered — aborted"); write("abort", ""); s.run([]); return }
+                write("close.txt", cg(point))
+                wait(for: "closed") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        s.note("  windows after the click on close: \(app.windowControllers.count)")
+                        // Like a click on the Dock icon with no windows
+                        _ = app.applicationShouldHandleReopen(NSApp, hasVisibleWindows: false)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            s.note("  reopened: \(describe(s.window?.window))  expect on \(second.localizedName)")
+                            s.run([])
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /// A window closed on the second monitor: the next one must open there. Logs every save.
     static func placementSecondScreen(_ s: Scenario) {
