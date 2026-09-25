@@ -75,6 +75,13 @@ enum Scenarios {
                 s.note("  \(texts(progressWindow?.contentView).joined(separator: " | "))")
                 snapshot(progressWindow, "progress.png")
             }),
+            (0.1, "fewer / more details", {
+                let full = progressWindow?.frame.height ?? 0
+                _ = press("Меньше подробностей", in: progressWindow?.contentView)
+                let small = progressWindow?.frame.height ?? 0
+                _ = press("Больше подробностей", in: progressWindow?.contentView)
+                s.note("  height: \(Int(full)) → \(Int(small)) → \(Int(progressWindow?.frame.height ?? 0))  expect smaller, then back")
+            }),
             (0.1, "pause", { if !press("Приостановить", in: progressWindow?.contentView) { s.note("  (no pause button)") } }),
             (0.8, "paused?", {
                 let first = progressWindow?.title ?? "-"

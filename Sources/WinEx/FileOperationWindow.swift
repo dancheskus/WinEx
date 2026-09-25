@@ -207,7 +207,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
 
     private func show() {
         guard let window, !window.isVisible else { return }
-        window.layoutIfNeeded()
+        fitToContent()
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
@@ -294,11 +294,16 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         UserDefaults.standard.set(show, forKey: "operationDetails")
         detailsToggle.title = show ? "Меньше подробностей" : "Больше подробностей"
         detailsToggle.image = NSImage(systemSymbolName: show ? "chevron.up.circle" : "chevron.down.circle", accessibilityDescription: nil)
-        if let window, window.isVisible {
-            let top = window.frame.maxY
-            window.layoutIfNeeded()
-            window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top))
-        }
+        fitToContent()
+    }
+
+    /// The window is as tall as what it shows (details or not); the top edge stays put.
+    private func fitToContent() {
+        guard let window, let content = window.contentView else { return }
+        let top = window.frame.maxY
+        content.layoutSubtreeIfNeeded()
+        window.setContentSize(NSSize(width: 460, height: content.fittingSize.height))
+        if window.isVisible { window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top)) }
     }
 
     /// Closing the window cancels the operation, like in Explorer.
