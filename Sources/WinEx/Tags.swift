@@ -158,8 +158,10 @@ enum FileTags {
             item.representedObject = TagToggle(tag: tag, urls: urls, add: count < urls.count)
         }
         menu.addItem(.separator())
-        let edit = menu.addItem(withTitle: "Изменить теги…", action: #selector(FileListViewController.showProperties(_:)), keyEquivalent: "")
-        edit.target = target
+        // A tag that isn't in the list yet
+        let new = menu.addItem(withTitle: "Новый тег…", action: #selector(TagPrompt.ask(_:)), keyEquivalent: "")
+        new.target = TagPrompt.shared
+        new.representedObject = urls as NSArray
         let item = NSMenuItem(title: "Теги", action: nil, keyEquivalent: "")
         item.image = NSImage(systemSymbolName: "tag", accessibilityDescription: nil)
         item.submenu = menu
@@ -171,5 +173,30 @@ enum FileTags {
         let urls: [URL]
         let add: Bool
         init(tag: Tag, urls: [URL], add: Bool) { self.tag = tag; self.urls = urls; self.add = add }
+    }
+}
+
+/// "Теги ▸ Новый тег…": asks for a name and puts the tag on the files.
+@MainActor
+final class TagPrompt: NSObject {
+    static let shared = TagPrompt()
+
+    @objc func ask(_ sender: NSMenuItem) {
+        guard let urls = sender.representedObject as? [URL], !urls.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = "Новый тег"
+        alert.informativeText = urls.count == 1 ? "Для «\(urls[0].lastPathComponent)»" : "Для \(urls.count) объектов"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.placeholderString = "Название тега"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Добавить")
+        alert.addButton(withTitle: "Отмена")
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        FileTags.toggle(FileTags.tag(named: name, knownTags: []), on: urls, add: true)
+        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
     }
 }

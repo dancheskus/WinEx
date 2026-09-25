@@ -26,6 +26,7 @@ enum Scenarios {
         "sidebar": sidebar,
         "commandbar": commandBarScenario,
         "menuswitch": menuSwitch,
+        "properties": properties,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -344,6 +345,88 @@ enum Scenarios {
                     }
                 }),
             ])
+        }
+    }
+
+    /// The properties window: a photo with camera data (all three tabs), a folder, an app's
+    /// details. Photographed by scripts/capture-window.sh properties 5.
+    static func properties(_ s: Scenario) {
+        let photo = s.sandbox.appendingPathComponent("фото.jpg")
+        let size = 640
+        if let context = CGContext(data: nil, width: size, height: size / 4 * 3, bitsPerComponent: 8, bytesPerRow: 0,
+                                   space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+            context.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.8, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: size, height: size))
+            if let image = context.makeImage(),
+               let destination = CGImageDestinationCreateWithURL(photo as CFURL, "public.jpeg" as CFString, 1, nil) {
+                let properties: [CFString: Any] = [
+                    kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "Canon", kCGImagePropertyTIFFModel: "Canon EOS R6"],
+                    kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: "2026:07:14 18:32:05",
+                                                     kCGImagePropertyExifExposureTime: 1.0 / 250, kCGImagePropertyExifFNumber: 2.8,
+                                                     kCGImagePropertyExifISOSpeedRatings: [200], kCGImagePropertyExifFocalLength: 35.0,
+                                                     kCGImagePropertyExifLensModel: "RF 35mm F1.8 MACRO IS STM"],
+                    kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 55.7539, kCGImagePropertyGPSLatitudeRef: "N",
+                                                    kCGImagePropertyGPSLongitude: 37.6208, kCGImagePropertyGPSLongitudeRef: "E"],
+                ]
+                CGImageDestinationAddImage(destination, image, properties as CFDictionary)
+                CGImageDestinationFinalize(destination)
+            }
+        }
+        let folder = s.makeFiles(["a.txt", "b.txt"], in: "Папка")
+        func window() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.title.hasPrefix("Свойства") } }
+        func tabs() -> PropertiesTabBar? { s.find(PropertiesTabBar.self, in: window()?.contentView) }
+        @MainActor func shot(_ index: Int, then next: @escaping @MainActor () -> Void) {
+            guard let number = window()?.windowNumber else { s.note("  (no window for shot \(index))"); return next() }
+            s.note("  shot \(index): \(window()?.title ?? "") \(Int(window()?.frame.height ?? 0)) pt")
+            try? "\(number)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+            @MainActor func wait(_ tries: Int) {
+                if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-\(index)").path) || tries == 0 { return next() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { wait(tries - 1) }
+            }
+            wait(50)
+        }
+        func after(_ seconds: Double, _ block: @escaping @MainActor () -> Void) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { block() }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        PropertiesWindowController.show(for: [photo])
+        after(1.5) {
+            shot(0) {
+                tabs()?.onSelect?(1)
+                after(2.0) {
+                    shot(1) {
+                        tabs()?.onSelect?(2)
+                        after(1.0) {
+                            shot(2) {
+                                window()?.close()
+                                PropertiesWindowController.show(for: [folder])
+                                after(1.5) {
+                                    shot(3) {
+                                        window()?.close()
+                                        PropertiesWindowController.show(for: [URL(fileURLWithPath: "/System/Applications/Calculator.app")])
+                                        after(1.0) {
+                                            tabs()?.onSelect?(1)
+                                            after(1.5) {
+                                                shot(4) {
+                                                    window()?.close()
+                                                    // WINEX_PROPS_FILE: one more file's details (read only)
+                                                    guard let extra = ProcessInfo.processInfo.environment["WINEX_PROPS_FILE"] else { return s.run([]) }
+                                                    PropertiesWindowController.show(for: [URL(fileURLWithPath: extra)])
+                                                    after(1.0) {
+                                                        tabs()?.onSelect?(1)
+                                                        after(2.5) { shot(5) { window()?.close(); s.run([]) } }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
