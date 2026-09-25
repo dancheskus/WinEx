@@ -44,6 +44,15 @@ enum Scenarios {
         shell("cd '\(s.sandbox.path)' && ditto -c -k --keepParent WinEx.app good.zip && cd forged && ditto -c -k --keepParent WinEx.app ../forged.zip")
         s.note("  running app signed with a certificate: \(Updater.isSignedLikeUs(Bundle.main.bundleURL))")
         Task { @MainActor in
+            // The latest real release from GitHub, as the updater would get it
+            if let url = URL(string: "https://api.github.com/repos/\(Updater.repository)/releases/latest"),
+               let data = try? await URLSession.shared.data(from: url).0,
+               let release = try? JSONDecoder().decode(Updater.Release.self, from: data), let asset = release.archive,
+               let app = try? await Updater.shared.download(asset.browser_download_url) {
+                s.note("  GitHub \(release.tag_name): \(asset.name) → accepted: \(Updater.isSignedLikeUs(app))  expect true")
+            } else {
+                s.note("  (no release on GitHub)")
+            }
             for name in ["good", "forged"] {
                 do {
                     let app = try await Updater.shared.download(s.sandbox.appendingPathComponent("\(name).zip"))
