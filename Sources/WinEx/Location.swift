@@ -75,20 +75,20 @@ enum Location: Equatable {
         case .folder(let url): url.displayName
         case .trash: Places.trashURL.displayName
         case .tag(let name): name
-        case .network: "Сеть"
-        case .computer: "Этот Mac"
-        case .search(let request): "Поиск «\(request.text)»"
+        case .network: L("Сеть")
+        case .computer: L("Этот Mac")
+        case .search(let request): L("Поиск «%@»", request.text)
         }
     }
 
     /// What the address bar shows: a path, or the name of a virtual location.
     var addressText: String {
         switch self {
-        case .tag(let name): "Теги: \(name)"
-        case .network: "Сеть"
-        case .computer: "Этот Mac"
+        case .tag(let name): L("Теги: %@", name)
+        case .network: L("Сеть")
+        case .computer: L("Этот Mac")
         case .search(let request):
-            "Результаты поиска «\(request.text)» " + (request.wholeMac ? "на всём Mac" : "в «\(request.folder?.displayName ?? "")»")
+            L("Результаты поиска «%@» ", request.text) + (request.wholeMac ? L("на всём Mac") : L("в «%@»", request.folder?.displayName ?? ""))
         case .folder, .trash: url.path
         }
     }

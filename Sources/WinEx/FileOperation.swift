@@ -148,7 +148,7 @@ final class FileOperation: @unchecked Sendable {
             let sourcePath = source.standardizedFileURL.path
             if targetPath == sourcePath || targetPath.hasPrefix(sourcePath + "/") {
                 if ask(CocoaError(.fileWriteNoPermission, userInfo: [
-                    NSLocalizedDescriptionKey: "Нельзя поместить папку «\(source.lastPathComponent)» в саму себя.",
+                    NSLocalizedDescriptionKey: L("Нельзя поместить папку «%@» в саму себя.", source.lastPathComponent),
                 ]), source) == .cancel { cancel(); return }
                 continue
             }

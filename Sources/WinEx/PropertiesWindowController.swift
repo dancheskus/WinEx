@@ -24,9 +24,9 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     private var single: URL { urls[0] }
 
     private let subtitle = NSTextField(labelWithString: "")
-    private let sizeValue = PropertiesUI.value("Вычисляется…")
-    private let allocatedValue = PropertiesUI.value("Вычисляется…")
-    private let containsValue = PropertiesUI.value("Вычисляется…")
+    private let sizeValue = PropertiesUI.value(L("Вычисляется…"))
+    private let allocatedValue = PropertiesUI.value(L("Вычисляется…"))
+    private let containsValue = PropertiesUI.value(L("Вычисляется…"))
     private let appValue = PropertiesUI.value("")
     private let appIcon = NSImageView()
     private let lockedSwitch = NSSwitch()
@@ -55,8 +55,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
-        window.title = urls.count == 1 ? "Свойства: \(urls[0].displayName)"
-            : "Свойства: \(urls.count) \(plural(urls.count, "объект", "объекта", "объектов"))"
+        window.title = urls.count == 1 ? L("Свойства: %@", urls[0].displayName)
+            : L("Свойства: %@ %@", urls.count, plural(urls.count, L("объект"), L("объекта"), L("объектов")))
         super.init(window: window)
         window.delegate = self
         build()
@@ -76,14 +76,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         background.blendingMode = .behindWindow
         background.state = .active
 
-        var titles = ["Общие"]
+        var titles = [L("Общие")]
         pages = [generalPage()]
         if isSingle, !single.isBrowsableDirectory {
-            titles.append("Подробно")
+            titles.append(L("Подробно"))
             pages.append(detailsPage())
         }
         if isSingle {
-            titles.append("Доступ")
+            titles.append(L("Доступ"))
             pages.append(accessPage())
         }
         tabBar.titles = titles
@@ -154,8 +154,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         let folders = urls.filter(\.isBrowsableDirectory).count
         let files = urls.count - folders
         let name = NSTextField(wrappingLabelWithString: isSingle ? single.displayName
-            : [files > 0 ? "\(files) \(plural(files, "файл", "файла", "файлов"))" : nil,
-               folders > 0 ? "\(folders) \(plural(folders, "папка", "папки", "папок"))" : nil].compactMap { $0 }.joined(separator: ", "))
+            : [files > 0 ? "\(files) \(plural(files, L("файл"), L("файла"), L("файлов")))" : nil,
+               folders > 0 ? "\(folders) \(plural(folders, L("папка"), L("папки"), L("папок")))" : nil].compactMap { $0 }.joined(separator: ", "))
         name.font = .systemFont(ofSize: 17, weight: .semibold)
         name.isSelectable = true
         name.maximumNumberOfLines = 3
@@ -175,7 +175,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
 
     private var typeDescription: String {
         let types = Set(urls.compactMap { (try? $0.resourceValues(forKeys: [.localizedTypeDescriptionKey]))?.localizedTypeDescription })
-        return types.count == 1 ? types.first ?? "" : "Разные типы"
+        return types.count == 1 ? types.first ?? "" : L("Разные типы")
     }
 
     // MARK: - «Общие»
@@ -187,44 +187,44 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         let values = urls.map { try? $0.resourceValues(forKeys: keys) }
         let page = PropertiesUI.stack()
 
-        var about: [NSView] = [PropertiesUI.row("Тип", PropertiesUI.value(typeDescription))]
+        var about: [NSView] = [PropertiesUI.row(L("Тип"), PropertiesUI.value(typeDescription))]
         if isSingle, values[0]?.isVolume == true, let format = values[0]?.volumeLocalizedFormatDescription {
-            about.append(PropertiesUI.row("Файловая система", PropertiesUI.value(format)))
+            about.append(PropertiesUI.row(L("Файловая система"), PropertiesUI.value(format)))
         }
         if isSingle, !(values[0]?.isDirectory ?? false) || (values[0]?.isPackage ?? false) {
             appIcon.imageScaling = .scaleProportionallyUpOrDown
             appIcon.widthAnchor.constraint(equalToConstant: 18).isActive = true
             appIcon.heightAnchor.constraint(equalToConstant: 18).isActive = true
-            let change = PropertiesUI.linkButton("Изменить…", target: self, action: #selector(changeDefaultApp(_:)))
+            let change = PropertiesUI.linkButton(L("Изменить…"), target: self, action: #selector(changeDefaultApp(_:)))
             let line = NSStackView(views: [appIcon, appValue, change])
             line.spacing = 8
             updateDefaultApp()
-            about.append(PropertiesUI.row("Открывается в", line))
+            about.append(PropertiesUI.row(L("Открывается в"), line))
         }
         let parents = Set(urls.map { $0.deletingLastPathComponent().path })
-        let place = PropertiesUI.value(parents.count == 1 ? Self.shortPath(parents.first ?? "") : "Разные папки")
+        let place = PropertiesUI.value(parents.count == 1 ? Self.shortPath(parents.first ?? "") : L("Разные папки"))
         place.toolTip = parents.first
         if parents.count == 1 {
-            let show = PropertiesUI.linkButton("Показать", target: self, action: #selector(revealItem(_:)))
+            let show = PropertiesUI.linkButton(L("Показать"), target: self, action: #selector(revealItem(_:)))
             let line = NSStackView(views: [place, show])
             line.spacing = 8
-            about.append(PropertiesUI.row("Расположение", line))
+            about.append(PropertiesUI.row(L("Расположение"), line))
         } else {
-            about.append(PropertiesUI.row("Расположение", place))
+            about.append(PropertiesUI.row(L("Расположение"), place))
         }
         page.addArrangedSubview(PropertiesUI.card(nil, about))
 
-        var sizes = [PropertiesUI.row("Размер", sizeValue), PropertiesUI.row("На диске", allocatedValue)]
-        if urls.contains(where: \.isBrowsableDirectory) || !isSingle { sizes.append(PropertiesUI.row("Содержит", containsValue)) }
-        page.addArrangedSubview(PropertiesUI.card("Размер", sizes))
+        var sizes = [PropertiesUI.row(L("Размер"), sizeValue), PropertiesUI.row(L("На диске"), allocatedValue)]
+        if urls.contains(where: \.isBrowsableDirectory) || !isSingle { sizes.append(PropertiesUI.row(L("Содержит"), containsValue)) }
+        page.addArrangedSubview(PropertiesUI.card(L("Размер"), sizes))
 
         if isSingle, let v = values[0] {
             let date = { (d: Date?) in d.map(FileDetails.longDate) ?? "—" }
-            var dates = [PropertiesUI.row("Создан", PropertiesUI.value(date(v.creationDate))),
-                         PropertiesUI.row("Изменён", PropertiesUI.value(date(v.contentModificationDate))),
-                         PropertiesUI.row("Открыт", PropertiesUI.value(date(v.contentAccessDate)))]
-            if let added = v.addedToDirectoryDate { dates.append(PropertiesUI.row("Добавлен", PropertiesUI.value(date(added)))) }
-            page.addArrangedSubview(PropertiesUI.card("Даты", dates))
+            var dates = [PropertiesUI.row(L("Создан"), PropertiesUI.value(date(v.creationDate))),
+                         PropertiesUI.row(L("Изменён"), PropertiesUI.value(date(v.contentModificationDate))),
+                         PropertiesUI.row(L("Открыт"), PropertiesUI.value(date(v.contentAccessDate)))]
+            if let added = v.addedToDirectoryDate { dates.append(PropertiesUI.row(L("Добавлен"), PropertiesUI.value(date(added)))) }
+            page.addArrangedSubview(PropertiesUI.card(L("Даты"), dates))
         }
 
         // One file: its attributes are on «Доступ»; several: here (there's no «Доступ» for a group)
@@ -247,9 +247,9 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         // A leading dot hides a file by name; the flag can't change that
         hiddenSwitch.isEnabled = !urls.contains { $0.lastPathComponent.hasPrefix(".") }
         for control in [lockedSwitch, hiddenSwitch] { control.controlSize = .small }
-        return PropertiesUI.card("Атрибуты", [
-            PropertiesUI.row("Только чтение", lockedSwitch, hint: "Защищено от изменения и удаления"),
-            PropertiesUI.row("Скрытый", hiddenSwitch, hint: "Не виден, пока скрытые файлы не показаны"),
+        return PropertiesUI.card(L("Атрибуты"), [
+            PropertiesUI.row(L("Только чтение"), lockedSwitch, hint: L("Защищено от изменения и удаления")),
+            PropertiesUI.row(L("Скрытый"), hiddenSwitch, hint: L("Не виден, пока скрытые файлы не показаны")),
         ])
     }
 
@@ -262,7 +262,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - «Подробно»
 
     private func detailsPage() -> NSView {
-        let loading = PropertiesUI.value("Собираю сведения…")
+        let loading = PropertiesUI.value(L("Собираю сведения…"))
         loading.textColor = .secondaryLabelColor
         detailsStack.addArrangedSubview(loading)
         return detailsStack
@@ -293,7 +293,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
                 detailsStack.addArrangedSubview(checksumCard())
             }
             if detailsStack.arrangedSubviews.isEmpty {
-                let none = PropertiesUI.value("Других сведений об этом объекте нет")
+                let none = PropertiesUI.value(L("Других сведений об этом объекте нет"))
                 none.textColor = .secondaryLabelColor
                 detailsStack.addArrangedSubview(none)
             }
@@ -310,7 +310,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
 
     /// Checksums on request (a big file takes a while): compare a download with the published one.
     private func checksumCard() -> NSView {
-        let compute = PropertiesUI.linkButton("Вычислить", target: self, action: #selector(computeChecksums(_:)))
+        let compute = PropertiesUI.linkButton(L("Вычислить"), target: self, action: #selector(computeChecksums(_:)))
         let line = NSStackView(views: [shaValue, compute])
         line.spacing = 8
         for value in [shaValue, md5Value] {
@@ -318,17 +318,17 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             value.lineBreakMode = .byCharWrapping
             value.maximumNumberOfLines = 2
         }
-        return PropertiesUI.card("Контрольные суммы", [PropertiesUI.row("SHA-256", line), PropertiesUI.row("MD5", md5Value)])
+        return PropertiesUI.card(L("Контрольные суммы"), [PropertiesUI.row("SHA-256", line), PropertiesUI.row("MD5", md5Value)])
     }
 
     @objc private func computeChecksums(_ sender: NSButton) {
         sender.isHidden = true
-        shaValue.stringValue = "Вычисляется…"
+        shaValue.stringValue = L("Вычисляется…")
         let url = single, cancel = cancel
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let sums = FileDetails.checksums(of: url) { cancel.isCancelled }
             DispatchQueue.main.async {
-                self?.shaValue.stringValue = sums?.sha256 ?? "Не удалось прочитать файл"
+                self?.shaValue.stringValue = sums?.sha256 ?? L("Не удалось прочитать файл")
                 self?.md5Value.stringValue = sums?.md5 ?? "—"
                 self?.fitWindow()
             }
@@ -345,31 +345,31 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         let mode = (attributes[.posixPermissions] as? NSNumber)?.intValue ?? 0
         let me = NSUserName()
         page.addArrangedSubview(PropertiesUI.card(nil, [
-            PropertiesUI.row("Владелец", PropertiesUI.value(owner + (owner == me ? " (вы)" : ""))),
-            PropertiesUI.row("Группа", PropertiesUI.value(group)),
+            PropertiesUI.row(L("Владелец"), PropertiesUI.value(owner + (owner == me ? L(" (вы)") : ""))),
+            PropertiesUI.row(L("Группа"), PropertiesUI.value(group)),
         ]))
         let isFolder = single.isBrowsableDirectory
         func describe(_ bits: Int) -> String {
             let read = bits & 4 != 0, write = bits & 2 != 0, run = bits & 1 != 0
-            var text = read && write ? "Чтение и запись" : read ? "Только чтение" : write ? "Только запись" : "Нет доступа"
-            if run && !isFolder { text += ", запуск" }
-            if !run && isFolder && read { text += " (без входа в папку)" }
+            var text = read && write ? L("Чтение и запись") : read ? L("Только чтение") : write ? L("Только запись") : L("Нет доступа")
+            if run && !isFolder { text += L(", запуск") }
+            if !run && isFolder && read { text += L(" (без входа в папку)") }
             return text
         }
-        page.addArrangedSubview(PropertiesUI.card("Права", [
-            PropertiesUI.row("Владелец", PropertiesUI.value(describe(mode >> 6 & 7))),
-            PropertiesUI.row("Группа", PropertiesUI.value(describe(mode >> 3 & 7))),
-            PropertiesUI.row("Остальные", PropertiesUI.value(describe(mode & 7))),
-            PropertiesUI.row("Код", PropertiesUI.value(String(mode & 0o777, radix: 8))),
+        page.addArrangedSubview(PropertiesUI.card(L("Права"), [
+            PropertiesUI.row(L("Владелец"), PropertiesUI.value(describe(mode >> 6 & 7))),
+            PropertiesUI.row(L("Группа"), PropertiesUI.value(describe(mode >> 3 & 7))),
+            PropertiesUI.row(L("Остальные"), PropertiesUI.value(describe(mode & 7))),
+            PropertiesUI.row(L("Код"), PropertiesUI.value(String(mode & 0o777, radix: 8))),
         ]))
         let access = FileManager.default
-        let yours = [access.isReadableFile(atPath: single.path) ? "читать" : nil,
-                     access.isWritableFile(atPath: single.path) ? "изменять" : nil,
-                     access.isDeletableFile(atPath: single.path) ? "удалять" : nil].compactMap { $0 }
+        let yours = [access.isReadableFile(atPath: single.path) ? L("читать") : nil,
+                     access.isWritableFile(atPath: single.path) ? L("изменять") : nil,
+                     access.isDeletableFile(atPath: single.path) ? L("удалять") : nil].compactMap { $0 }
         let flags = try? single.resourceValues(forKeys: [.isUserImmutableKey, .isHiddenKey])
         page.addArrangedSubview(attributesCard([flags]))
-        page.addArrangedSubview(PropertiesUI.card("Для вас", [
-            PropertiesUI.row("Можно", PropertiesUI.value(yours.isEmpty ? "Ничего" : yours.joined(separator: ", ").capitalizedFirst)),
+        page.addArrangedSubview(PropertiesUI.card(L("Для вас"), [
+            PropertiesUI.row(L("Можно"), PropertiesUI.value(yours.isEmpty ? L("Ничего") : yours.joined(separator: ", ").capitalizedFirst)),
         ]))
         return page
     }
@@ -381,8 +381,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         let volumeValues = isSingle ? try? single.resourceValues(forKeys: [.isVolumeKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey]) : nil
         if volumeValues?.isVolume == true, let total = volumeValues?.volumeTotalCapacity, let free = volumeValues?.volumeAvailableCapacity {
             // Whole disks: capacity instead of walking every file
-            sizeValue.stringValue = "Ёмкость " + Self.bytes(Int64(total))
-            allocatedValue.stringValue = "Свободно " + Self.bytes(Int64(free))
+            sizeValue.stringValue = L("Ёмкость ") + Self.bytes(Int64(total))
+            allocatedValue.stringValue = L("Свободно ") + Self.bytes(Int64(free))
             containsValue.stringValue = "—"
             return
         }
@@ -422,14 +422,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         // The selected folders themselves aren't "contained"
         let folders = max(0, values.folders - urls.filter { $0.isBrowsableDirectory }.count)
         let files = isSingle && !single.isBrowsableDirectory ? 0 : values.files - (isSingle ? 0 : urls.filter { !$0.isBrowsableDirectory }.count)
-        containsValue.stringValue = "\(files) \(plural(files, "файл", "файла", "файлов")), \(folders) \(plural(folders, "папка", "папки", "папок"))" + suffix
+        containsValue.stringValue = "\(files) \(plural(files, L("файл"), L("файла"), L("файлов"))), \(folders) \(plural(folders, L("папка"), L("папки"), L("папок")))" + suffix
         if done { subtitle.stringValue = typeDescription + " · " + ByteCountFormatter.string(fromByteCount: values.size, countStyle: .file) }
     }
 
     /// "12,3 МБ (12 345 678 байт)"
     private static func bytes(_ count: Int64) -> String {
         let number = NumberFormatter.localizedString(from: NSNumber(value: count), number: .decimal)
-        return "\(ByteCountFormatter.string(fromByteCount: count, countStyle: .file)) (\(number) \(plural(Int(count % 1000), "байт", "байта", "байт")))"
+        return "\(ByteCountFormatter.string(fromByteCount: count, countStyle: .file)) (\(number) \(plural(Int(count % 1000), L("байт"), L("байта"), L("байт"))))"
     }
 
     // MARK: - Actions
@@ -441,7 +441,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             appIcon.image = NSWorkspace.shared.icon(forFile: app.path)
             appIcon.isHidden = false
         } else {
-            appValue.stringValue = "Не назначено"
+            appValue.stringValue = L("Не назначено")
             appIcon.isHidden = true
         }
     }
@@ -449,7 +449,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     @objc private func changeDefaultApp(_ sender: Any?) {
         guard let type = (try? single.resourceValues(forKeys: [.contentTypeKey]))?.contentType else { return }
         let panel = NSOpenPanel()
-        panel.title = "Открывать файлы «\(type.localizedDescription ?? single.pathExtension)» в программе"
+        panel.title = L("Открывать файлы «%@» в программе", type.localizedDescription ?? single.pathExtension)
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowedContentTypes = [.application]
         guard let window, panel.runModal() == .OK, let app = panel.url else { return }

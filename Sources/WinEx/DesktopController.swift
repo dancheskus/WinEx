@@ -860,14 +860,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
         if let i = index(at: point), isVolume(i) {
             if !selection.contains(i) { selection = [i]; needsDisplay = true }
-            add("Открыть", #selector(openSelected(_:)))
+            add(L("Открыть"), #selector(openSelected(_:)))
             if let openWith = OpenWithMenu.item(for: selectedURLs) { menu.addItem(openWith) }
             menu.addItem(.separator())
-            add("Копировать путь", #selector(copyPath(_:)))
+            add(L("Копировать путь"), #selector(copyPath(_:)))
             menu.addItem(.separator())
-            add("Извлечь «\(items[i].name)»", #selector(moveToTrash(_:)))
+            add(L("Извлечь «%@»", items[i].name), #selector(moveToTrash(_:)))
             menu.addItem(.separator())
-            add("Свойства", #selector(showProperties(_:)))
+            add(L("Свойства"), #selector(showProperties(_:)))
             return menu
         }
 
@@ -886,27 +886,27 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             add(size.title, #selector(setIconSize(_:)), to: viewMenu, state: layout.iconSize == size, tag: size.rawValue)
         }
         viewMenu.addItem(.separator())
-        add("Упорядочить значки автоматически", #selector(toggleAutoArrange(_:)), to: viewMenu, state: layout.autoArrange)
-        add("Выровнять значки по сетке", #selector(toggleAlignToGrid(_:)), to: viewMenu, state: layout.alignToGrid)
+        add(L("Упорядочить значки автоматически"), #selector(toggleAutoArrange(_:)), to: viewMenu, state: layout.autoArrange)
+        add(L("Выровнять значки по сетке"), #selector(toggleAlignToGrid(_:)), to: viewMenu, state: layout.alignToGrid)
         viewMenu.addItem(.separator())
-        add("Отображать значки рабочего стола", #selector(toggleShowIcons(_:)), to: viewMenu, state: layout.showIcons)
-        menu.addItem(withTitle: "Вид", action: nil, keyEquivalent: "").submenu = viewMenu
+        add(L("Отображать значки рабочего стола"), #selector(toggleShowIcons(_:)), to: viewMenu, state: layout.showIcons)
+        menu.addItem(withTitle: L("Вид"), action: nil, keyEquivalent: "").submenu = viewMenu
 
         let sortMenu = NSMenu()
         for (n, key) in DesktopSortKey.allCases.enumerated() {
             add(key.title, #selector(sortBy(_:)), to: sortMenu, state: layout.autoArrange && layout.sortKey == key ? true : nil, tag: n)
         }
-        menu.addItem(withTitle: "Сортировка", action: nil, keyEquivalent: "").submenu = sortMenu
-        add("Обновить", #selector(refreshAction(_:)))
+        menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
+        add(L("Обновить"), #selector(refreshAction(_:)))
         menu.addItem(.separator())
-        add("Вставить", #selector(paste(_:)))
+        add(L("Вставить"), #selector(paste(_:)))
         menu.addItem(.separator())
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
         menu.addItem(.separator())
-        add("Открыть «Рабочий стол» в WinEx", #selector(openDesktopAction(_:)))
+        add(L("Открыть «Рабочий стол» в WinEx"), #selector(openDesktopAction(_:)))
         if let terminal = TerminalLauncher.menuItem(for: [desktopURL]) { menu.addItem(terminal) }
-        add("Обои…", #selector(openWallpaperSettings(_:)))
-        menu.addItem(withTitle: "Настройки WinEx…", action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: "")
+        add(L("Обои…"), #selector(openWallpaperSettings(_:)))
+        menu.addItem(withTitle: L("Настройки WinEx…"), action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: "")
             .target = AppDelegate.shared
         return menu
     }

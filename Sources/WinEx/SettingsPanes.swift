@@ -28,11 +28,11 @@ final class SidebarSettingsView: NSView {
 
     private func rebuild() {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let intro = NSTextField(labelWithString: "Показывать в боковом меню:")
+        let intro = NSTextField(labelWithString: L("Показывать в боковом меню:"))
         intro.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         stack.addArrangedSubview(intro)
 
-        heading("Избранное")
+        heading(L("Избранное"))
         let favorites = SidebarConfig.favoritePaths
         let standard = SidebarConfig.standardFavorites
         for folder in standard {
@@ -47,16 +47,16 @@ final class SidebarSettingsView: NSView {
                 if on { SidebarConfig.pin(url) } else { SidebarConfig.unpin(url) }
             }
         }
-        stack.addArrangedSubview(SettingsForm.hint("Перетащите папку в «Избранное» боковой панели, чтобы закрепить её; перетаскиванием меняется и порядок."))
+        stack.addArrangedSubview(SettingsForm.hint(L("Перетащите папку в «Избранное» боковой панели, чтобы закрепить её; перетаскиванием меняется и порядок.")))
 
-        heading("Места")
+        heading(L("Места"))
         for place in SidebarConfig.Place.allCases {
             row(place.title, symbol: place.symbol, on: SidebarConfig.shows(place)) { SidebarConfig.setShows(place, $0) }
         }
 
-        heading("Теги")
-        row("Теги", symbol: "tag", on: SidebarConfig.showsTags) { SidebarConfig.showsTags = $0 }
-        stack.addArrangedSubview(SettingsForm.hint("Какие именно теги показывать — во вкладке «Теги»."))
+        heading(L("Теги"))
+        row(L("Теги"), symbol: "tag", on: SidebarConfig.showsTags) { SidebarConfig.showsTags = $0 }
+        stack.addArrangedSubview(SettingsForm.hint(L("Какие именно теги показывать — во вкладке «Теги».")))
         // A folder pinned or unpinned meanwhile: the window follows the new height
         (nextResponder as? NSViewController)?.preferredContentSize = fittingSize
     }
@@ -116,19 +116,19 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
     private var entries: [TagLibrary.Entry] = []
     private var favorites: [String] = []
     private let observers = Observers()
-    private static let colorNames = ["Без цвета", "Серый", "Зелёный", "Лиловый", "Синий", "Жёлтый", "Красный", "Оранжевый"]
+    private static let colorNames = [L("Без цвета"), L("Серый"), L("Зелёный"), L("Лиловый"), L("Синий"), L("Жёлтый"), L("Красный"), L("Оранжевый")]
     /// Colour popup order, as in Finder's menus.
     private static let colorOrder = [0, 6, 7, 5, 2, 4, 3, 1]
 
     init() {
         super.init(frame: .zero)
-        for (id, title, width) in [("sidebar", "Сбоку", 50.0), ("color", "Цвет", 64.0), ("name", "Тег", 200.0), ("favorite", "Избранный", 96.0)] {
+        for (id, title, width) in [("sidebar", L("Сбоку"), 50.0), ("color", L("Цвет"), 64.0), ("name", L("Тег"), 200.0), ("favorite", L("Избранный"), 96.0)] {
             let column = NSTableColumn(identifier: .init(id))
             column.title = title
             column.width = width
             column.headerToolTip = switch id {
-            case "sidebar": "Показывать в боковом меню"
-            case "favorite": "Цветной ряд в контекстном меню (как в Finder)"
+            case "sidebar": L("Показывать в боковом меню")
+            case "favorite": L("Цветной ряд в контекстном меню (как в Finder)")
             default: nil
             }
             // The name takes whatever room is left
@@ -147,8 +147,8 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         scroll.autohidesScrollers = true
         scroll.borderType = .bezelBorder
 
-        let add = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "Новый тег") ?? NSImage(), target: self, action: #selector(addTag(_:)))
-        removeButton.image = NSImage(systemSymbolName: "minus", accessibilityDescription: "Удалить тег")
+        let add = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Новый тег")) ?? NSImage(), target: self, action: #selector(addTag(_:)))
+        removeButton.image = NSImage(systemSymbolName: "minus", accessibilityDescription: L("Удалить тег"))
         removeButton.target = self
         removeButton.action = #selector(removeTag(_:))
         for button in [add, removeButton] {
@@ -158,13 +158,13 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         let buttons = NSStackView(views: [add, removeButton])
         buttons.spacing = 0
 
-        let hint = SettingsForm.hint("«Сбоку» — показывать тег в боковом меню. «Избранный» — кружок в контекстном меню файлов; этот список общий с Finder. Переименование и смена цвета применяются ко всем файлам с тегом.")
+        let hint = SettingsForm.hint(L("«Сбоку» — показывать тег в боковом меню. «Избранный» — кружок в контекстном меню файлов; этот список общий с Finder. Переименование и смена цвета применяются ко всем файлам с тегом."))
         hint.preferredMaxLayoutWidth = SettingsForm.width - 40
         let tint = ClosureCheckbox {
             Settings.tintFoldersByTags = $0
             NotificationCenter.default.post(name: .fileTagsChanged, object: nil)  // redraw the folders
         }
-        tint.title = "Оттенять папки цветом тега"
+        tint.title = L("Оттенять папки цветом тега")
         tint.state = Settings.tintFoldersByTags ? .on : .off
 
         let stack = NSStackView(views: [scroll, buttons, hint, tint])
@@ -310,9 +310,9 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
 
     @objc private func addTag(_ sender: Any?) {
         let names = Set(TagLibrary.entries.map(\.name))
-        var name = "Новый тег"
+        var name = L("Новый тег")
         var n = 2
-        while names.contains(name) { name = "Новый тег \(n)"; n += 1 }
+        while names.contains(name) { name = L("Новый тег %@", n); n += 1 }
         TagLibrary.entries += [TagLibrary.Entry(name: name, color: 0, inSidebar: true)]
         guard let row = entries.firstIndex(where: { $0.name == name }) else { return }
         table.scrollRowToVisible(row)
@@ -324,10 +324,10 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         guard table.selectedRow >= 0, table.selectedRow < entries.count, let window else { return }
         let name = entries[table.selectedRow].name
         let alert = NSAlert()
-        alert.messageText = "Удалить тег «\(name)»?"
-        alert.informativeText = "Тег будет снят со всех файлов, у которых он есть."
-        alert.addButton(withTitle: "Удалить тег")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = L("Удалить тег «%@»?", name)
+        alert.informativeText = L("Тег будет снят со всех файлов, у которых он есть.")
+        alert.addButton(withTitle: L("Удалить тег"))
+        alert.addButton(withTitle: L("Отмена"))
         alert.buttons.first?.hasDestructiveAction = true
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }

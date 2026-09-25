@@ -6,13 +6,13 @@ enum ViewMode: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .extraLargeIcons: "Огромные значки"
-        case .largeIcons: "Крупные значки"
-        case .mediumIcons: "Обычные значки"
-        case .smallIcons: "Мелкие значки"
-        case .list: "Список"
-        case .details: "Таблица"
-        case .tiles: "Плитка"
+        case .extraLargeIcons: L("Огромные значки")
+        case .largeIcons: L("Крупные значки")
+        case .mediumIcons: L("Обычные значки")
+        case .smallIcons: L("Мелкие значки")
+        case .list: L("Список")
+        case .details: L("Таблица")
+        case .tiles: L("Плитка")
         }
     }
 

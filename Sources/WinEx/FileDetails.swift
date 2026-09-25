@@ -41,63 +41,63 @@ enum FileDetails {
     private static func image(_ url: URL) -> [Section] {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return [] }
-        var picture = Section(title: "Изображение", rows: [])
+        var picture = Section(title: L("Изображение"), rows: [])
         if let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int {
             let megapixels = Double(width * height) / 1_000_000
-            picture.rows.append(Row(label: "Размеры", value: "\(width) × \(height) пикселей"
-                + (megapixels >= 0.95 ? String(format: " (%.1f Мп)", locale: .current, megapixels) : "")))
+            picture.rows.append(Row(label: L("Размеры"), value: L("%@ × %@ пикселей", width, height)
+                + (megapixels >= 0.95 ? String(format: L(" (%.1f Мп)"), locale: Localization.locale, megapixels) : "")))
         }
         if let dpi = properties[kCGImagePropertyDPIWidth] as? Double {
-            picture.rows.append(Row(label: "Разрешение", value: "\(Int(dpi.rounded())) точек на дюйм"))
+            picture.rows.append(Row(label: L("Разрешение"), value: L("%@ точек на дюйм", Int(dpi.rounded()))))
         }
         if let depth = properties[kCGImagePropertyDepth] as? Int {
-            picture.rows.append(Row(label: "Глубина цвета", value: "\(depth) бит на канал"))
+            picture.rows.append(Row(label: L("Глубина цвета"), value: L("%@ бит на канал", depth)))
         }
         if let model = properties[kCGImagePropertyColorModel] as? String {
             let profile = properties[kCGImagePropertyProfileName] as? String
-            picture.rows.append(Row(label: "Цвет", value: model + (profile.map { " · \($0)" } ?? "")))
+            picture.rows.append(Row(label: L("Цвет"), value: model + (profile.map { " · \($0)" } ?? "")))
         }
         if let alpha = properties[kCGImagePropertyHasAlpha] as? Bool {
-            picture.rows.append(Row(label: "Прозрачность", value: alpha ? "Есть" : "Нет"))
+            picture.rows.append(Row(label: L("Прозрачность"), value: alpha ? L("Есть") : L("Нет")))
         }
         let frames = CGImageSourceGetCount(source)
-        if frames > 1 { picture.rows.append(Row(label: "Кадров", value: "\(frames)")) }
+        if frames > 1 { picture.rows.append(Row(label: L("Кадров"), value: "\(frames)")) }
 
-        var camera = Section(title: "Съёмка", rows: [])
+        var camera = Section(title: L("Съёмка"), rows: [])
         let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
         if let taken = exif[kCGImagePropertyExifDateTimeOriginal] as? String, let date = exifDate(taken) {
-            camera.rows.append(Row(label: "Дата съёмки", value: longDate(date)))
+            camera.rows.append(Row(label: L("Дата съёмки"), value: longDate(date)))
         }
         let make = (tiff[kCGImagePropertyTIFFMake] as? String)?.trimmingCharacters(in: .whitespaces)
         if let model = (tiff[kCGImagePropertyTIFFModel] as? String)?.trimmingCharacters(in: .whitespaces) {
             // "Canon Canon EOS R6" → "Canon EOS R6"
             let name = make.map { model.hasPrefix($0) ? model : "\($0) \(model)" } ?? model
-            camera.rows.append(Row(label: "Камера", value: name))
+            camera.rows.append(Row(label: L("Камера"), value: name))
         }
         if let lens = exif[kCGImagePropertyExifLensModel] as? String {
-            camera.rows.append(Row(label: "Объектив", value: lens))
+            camera.rows.append(Row(label: L("Объектив"), value: lens))
         }
         var exposure: [String] = []
         if let time = exif[kCGImagePropertyExifExposureTime] as? Double, time > 0 {
-            exposure.append(time >= 1 ? String(format: "%.1f с", locale: .current, time) : "1/\(Int((1 / time).rounded())) с")
+            exposure.append(time >= 1 ? String(format: L("%.1f с"), locale: Localization.locale, time) : L("1/%@ с", Int((1 / time).rounded())))
         }
-        if let aperture = exif[kCGImagePropertyExifFNumber] as? Double { exposure.append(String(format: "ƒ/%.1f", locale: .current, aperture)) }
+        if let aperture = exif[kCGImagePropertyExifFNumber] as? Double { exposure.append(String(format: "ƒ/%.1f", locale: Localization.locale, aperture)) }
         if let iso = (exif[kCGImagePropertyExifISOSpeedRatings] as? [Int])?.first { exposure.append("ISO \(iso)") }
-        if !exposure.isEmpty { camera.rows.append(Row(label: "Экспозиция", value: exposure.joined(separator: " · "))) }
+        if !exposure.isEmpty { camera.rows.append(Row(label: L("Экспозиция"), value: exposure.joined(separator: " · "))) }
         if let focal = exif[kCGImagePropertyExifFocalLength] as? Double {
             let equivalent = exif[kCGImagePropertyExifFocalLenIn35mmFilm] as? Int
-            camera.rows.append(Row(label: "Фокусное расстояние", value: String(format: "%.0f мм", locale: .current, focal)
-                + (equivalent.map { " (\($0) мм экв.)" } ?? "")))
+            camera.rows.append(Row(label: L("Фокусное расстояние"), value: String(format: L("%.0f мм"), locale: Localization.locale, focal)
+                + (equivalent.map { L(" (%@ мм экв.)", $0) } ?? "")))
         }
         if let flash = exif[kCGImagePropertyExifFlash] as? Int {
-            camera.rows.append(Row(label: "Вспышка", value: flash & 1 == 1 ? "Сработала" : "Не сработала"))
+            camera.rows.append(Row(label: L("Вспышка"), value: flash & 1 == 1 ? L("Сработала") : L("Не сработала")))
         }
         if let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any],
            let lat = gps[kCGImagePropertyGPSLatitude] as? Double, let lon = gps[kCGImagePropertyGPSLongitude] as? Double {
             let latitude = (gps[kCGImagePropertyGPSLatitudeRef] as? String) == "S" ? -lat : lat
             let longitude = (gps[kCGImagePropertyGPSLongitudeRef] as? String) == "W" ? -lon : lon
-            camera.rows.append(Row(label: "Место", value: String(format: "%.5f, %.5f", latitude, longitude),
+            camera.rows.append(Row(label: L("Место"), value: String(format: "%.5f, %.5f", latitude, longitude),
                                    link: URL(string: "https://maps.apple.com/?ll=\(latitude),\(longitude)&q=%D0%A4%D0%BE%D1%82%D0%BE")))
         }
         return [picture, camera].filter { !$0.rows.isEmpty }
@@ -115,13 +115,13 @@ enum FileDetails {
     private static func media(_ url: URL) async -> [Section] {
         let asset = AVURLAsset(url: url)
         var sections: [Section] = []
-        var general = Section(title: "Запись", rows: [])
+        var general = Section(title: L("Запись"), rows: [])
         if let duration = try? await asset.load(.duration), duration.seconds.isFinite, duration.seconds > 0 {
-            general.rows.append(Row(label: "Длительность", value: clock(duration.seconds)))
+            general.rows.append(Row(label: L("Длительность"), value: clock(duration.seconds)))
         }
         if let metadata = try? await asset.load(.commonMetadata) {
-            for (key, label) in [(AVMetadataKey.commonKeyTitle, "Название"), (.commonKeyArtist, "Исполнитель"),
-                                 (.commonKeyAlbumName, "Альбом"), (.commonKeyCreationDate, "Дата")] {
+            for (key, label) in [(AVMetadataKey.commonKeyTitle, L("Название")), (.commonKeyArtist, L("Исполнитель")),
+                                 (.commonKeyAlbumName, L("Альбом")), (.commonKeyCreationDate, L("Дата"))] {
                 if let item = AVMetadataItem.metadataItems(from: metadata, withKey: key, keySpace: .common).first,
                    let value = try? await item.load(.stringValue), !value.isEmpty {
                     general.rows.append(Row(label: label, value: value))
@@ -134,34 +134,34 @@ enum FileDetails {
             for track in tracks {
                 guard let type = Optional(track.mediaType) else { continue }
                 if type == .video {
-                    var video = Section(title: "Видео", rows: [])
+                    var video = Section(title: L("Видео"), rows: [])
                     if let size = try? await track.load(.naturalSize), let transform = try? await track.load(.preferredTransform) {
                         let shown = size.applying(transform)
-                        video.rows.append(Row(label: "Размер кадра", value: "\(Int(abs(shown.width))) × \(Int(abs(shown.height)))"))
+                        video.rows.append(Row(label: L("Размер кадра"), value: "\(Int(abs(shown.width))) × \(Int(abs(shown.height)))"))
                     }
                     if let rate = try? await track.load(.nominalFrameRate), rate > 0 {
-                        video.rows.append(Row(label: "Частота кадров", value: String(format: rate.rounded() == rate ? "%.0f к/с" : "%.2f к/с", locale: .current, rate)))
+                        video.rows.append(Row(label: L("Частота кадров"), value: String(format: rate.rounded() == rate ? L("%.0f к/с") : L("%.2f к/с"), locale: Localization.locale, rate)))
                     }
-                    if let codec = await codec(of: track) { video.rows.append(Row(label: "Кодек", value: codec)) }
+                    if let codec = await codec(of: track) { video.rows.append(Row(label: L("Кодек"), value: codec)) }
                     if let bitrate = try? await track.load(.estimatedDataRate), bitrate > 0 {
-                        video.rows.append(Row(label: "Битрейт", value: bitRate(Double(bitrate))))
+                        video.rows.append(Row(label: L("Битрейт"), value: bitRate(Double(bitrate))))
                     }
                     if !video.rows.isEmpty { sections.append(video) }
-                } else if type == .audio, !sections.contains(where: { $0.title == "Звук" }) {
-                    var audio = Section(title: "Звук", rows: [])
-                    if let codec = await codec(of: track) { audio.rows.append(Row(label: "Кодек", value: codec)) }
+                } else if type == .audio, !sections.contains(where: { $0.title == L("Звук") }) {
+                    var audio = Section(title: L("Звук"), rows: [])
+                    if let codec = await codec(of: track) { audio.rows.append(Row(label: L("Кодек"), value: codec)) }
                     if let description = (try? await track.load(.formatDescriptions))?.first,
                        let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee {
                         if basic.mSampleRate > 0 {
-                            audio.rows.append(Row(label: "Частота", value: String(format: "%.1f кГц", locale: .current, basic.mSampleRate / 1000)))
+                            audio.rows.append(Row(label: L("Частота"), value: String(format: L("%.1f кГц"), locale: Localization.locale, basic.mSampleRate / 1000)))
                         }
                         let channels = Int(basic.mChannelsPerFrame)
                         if channels > 0 {
-                            audio.rows.append(Row(label: "Каналы", value: channels == 1 ? "Моно" : channels == 2 ? "Стерео" : "\(channels)"))
+                            audio.rows.append(Row(label: L("Каналы"), value: channels == 1 ? L("Моно") : channels == 2 ? L("Стерео") : "\(channels)"))
                         }
                     }
                     if let bitrate = try? await track.load(.estimatedDataRate), bitrate > 0 {
-                        audio.rows.append(Row(label: "Битрейт", value: bitRate(Double(bitrate))))
+                        audio.rows.append(Row(label: L("Битрейт"), value: bitRate(Double(bitrate))))
                     }
                     if !audio.rows.isEmpty { sections.append(audio) }
                 }
@@ -191,26 +191,26 @@ enum FileDetails {
     }
 
     private static func bitRate(_ bits: Double) -> String {
-        bits >= 1_000_000 ? String(format: "%.1f Мбит/с", locale: .current, bits / 1_000_000) : String(format: "%.0f кбит/с", locale: .current, bits / 1000)
+        bits >= 1_000_000 ? String(format: L("%.1f Мбит/с"), locale: Localization.locale, bits / 1_000_000) : String(format: L("%.0f кбит/с"), locale: Localization.locale, bits / 1000)
     }
 
     // MARK: Documents
 
     private static func pdf(_ url: URL) -> [Section] {
         guard let document = PDFDocument(url: url) else { return [] }
-        var section = Section(title: "Документ", rows: [Row(label: "Страниц", value: "\(document.pageCount)")])
+        var section = Section(title: L("Документ"), rows: [Row(label: L("Страниц"), value: "\(document.pageCount)")])
         if let page = document.page(at: 0) {
             let box = page.bounds(for: .mediaBox)
             let mm = { (points: CGFloat) in Int((points / 72 * 25.4).rounded()) }
-            section.rows.append(Row(label: "Размер страницы", value: "\(mm(box.width)) × \(mm(box.height)) мм" + paperName(mm(box.width), mm(box.height))))
+            section.rows.append(Row(label: L("Размер страницы"), value: L("%@ × %@ мм", mm(box.width), mm(box.height)) + paperName(mm(box.width), mm(box.height))))
         }
         let attributes = document.documentAttributes ?? [:]
-        for (key, label) in [(PDFDocumentAttribute.titleAttribute, "Заголовок"), (.authorAttribute, "Автор"),
-                             (.creatorAttribute, "Создано в"), (.producerAttribute, "Программа PDF")] {
+        for (key, label) in [(PDFDocumentAttribute.titleAttribute, L("Заголовок")), (.authorAttribute, L("Автор")),
+                             (.creatorAttribute, L("Создано в")), (.producerAttribute, L("Программа PDF"))] {
             if let value = attributes[key] as? String, !value.isEmpty { section.rows.append(Row(label: label, value: value)) }
         }
-        section.rows.append(Row(label: "Версия PDF", value: "\(document.majorVersion).\(document.minorVersion)"))
-        if document.isEncrypted { section.rows.append(Row(label: "Защита", value: document.isLocked ? "Требуется пароль" : "Зашифрован")) }
+        section.rows.append(Row(label: L("Версия PDF"), value: "\(document.majorVersion).\(document.minorVersion)"))
+        if document.isEncrypted { section.rows.append(Row(label: L("Защита"), value: document.isLocked ? L("Требуется пароль") : L("Зашифрован"))) }
         return [section]
     }
 
@@ -230,11 +230,11 @@ enum FileDetails {
         let names: [String.Encoding: String] = [.utf8: "UTF-8", .utf16: "UTF-16", .windowsCP1251: "Windows-1251",
                                                 .macOSRoman: "Mac Roman", .isoLatin1: "ISO Latin 1", .ascii: "ASCII"]
         let number = { (n: Int) in NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal) }
-        return [Section(title: "Текст", rows: [
-            Row(label: "Строк", value: number(lines)),
-            Row(label: "Слов", value: number(words)),
-            Row(label: "Символов", value: number(text.count)),
-            Row(label: "Кодировка", value: names[encoding] ?? String.localizedName(of: encoding)),
+        return [Section(title: L("Текст"), rows: [
+            Row(label: L("Строк"), value: number(lines)),
+            Row(label: L("Слов"), value: number(words)),
+            Row(label: L("Символов"), value: number(text.count)),
+            Row(label: L("Кодировка"), value: names[encoding] ?? String.localizedName(of: encoding)),
         ])]
     }
 
@@ -243,22 +243,22 @@ enum FileDetails {
     private static func app(_ url: URL) -> [Section] {
         guard let bundle = Bundle(url: url) else { return [] }
         let info = bundle.infoDictionary ?? [:]
-        var section = Section(title: "Программа", rows: [])
+        var section = Section(title: L("Программа"), rows: [])
         let version = info["CFBundleShortVersionString"] as? String
         let build = info["CFBundleVersion"] as? String
         if let version {
-            section.rows.append(Row(label: "Версия", value: version + (build.map { $0 != version ? " (\($0))" : "" } ?? "")))
+            section.rows.append(Row(label: L("Версия"), value: version + (build.map { $0 != version ? " (\($0))" : "" } ?? "")))
         }
-        if let identifier = bundle.bundleIdentifier { section.rows.append(Row(label: "Идентификатор", value: identifier)) }
+        if let identifier = bundle.bundleIdentifier { section.rows.append(Row(label: L("Идентификатор"), value: identifier)) }
         if let architectures = bundle.executableArchitectures?.map(\.intValue) {
             let names = architectures.compactMap { [NSBundleExecutableArchitectureARM64: "Apple Silicon", NSBundleExecutableArchitectureX86_64: "Intel"][$0] }
-            if !names.isEmpty { section.rows.append(Row(label: "Процессоры", value: names.joined(separator: ", "))) }
+            if !names.isEmpty { section.rows.append(Row(label: L("Процессоры"), value: names.joined(separator: ", "))) }
         }
         if let minimum = info["LSMinimumSystemVersion"] as? String {
-            section.rows.append(Row(label: "Нужна macOS", value: minimum + " или новее"))
+            section.rows.append(Row(label: L("Нужна macOS"), value: minimum + L(" или новее")))
         }
         if let copyright = info["NSHumanReadableCopyright"] as? String, !copyright.isEmpty {
-            section.rows.append(Row(label: "Авторские права", value: copyright))
+            section.rows.append(Row(label: L("Авторские права"), value: copyright))
         }
         return section.rows.isEmpty ? [] : [section]
     }
@@ -269,9 +269,9 @@ enum FileDetails {
     private static func whereFrom(_ url: URL) -> Section? {
         guard let item = MDItemCreateWithURL(nil, url as CFURL),
               let sources = MDItemCopyAttribute(item, kMDItemWhereFroms) as? [String], !sources.isEmpty else { return nil }
-        var section = Section(title: "Загрузка", rows: [])
+        var section = Section(title: L("Загрузка"), rows: [])
         for (index, source) in sources.prefix(2).enumerated() {
-            section.rows.append(Row(label: index == 0 ? "Откуда" : "Страница", value: source, link: URL(string: source)))
+            section.rows.append(Row(label: index == 0 ? L("Откуда") : L("Страница"), value: source, link: URL(string: source)))
         }
         return section
     }
@@ -295,6 +295,7 @@ enum FileDetails {
 
     static func longDate(_ date: Date) -> String {
         let formatter = DateFormatter()
+        formatter.locale = Localization.locale
         formatter.dateStyle = .long
         formatter.timeStyle = .short
         return formatter.string(from: date)

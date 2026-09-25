@@ -22,6 +22,12 @@ else
 fi
 # Dock icon (regenerate with: swift Resources/make-icon.swift)
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# The languages (texts are in the code, see Sources/WinEx/Localization): the folders tell macOS
+# which languages the app speaks, so its own buttons and units follow the chosen one
+for lang in en ru; do
+  mkdir -p "$APP/Contents/Resources/$lang.lproj"
+  printf '"CFBundleName" = "WinEx";\n' > "$APP/Contents/Resources/$lang.lproj/InfoPlist.strings"
+done
 # A stable signature keeps privacy permissions (Full Disk Access, Desktop, Documents, network
 # volumes) across rebuilds; ad-hoc signatures change every build. See scripts/setup-signing.sh.
 IDENTITY="WinEx Signing"

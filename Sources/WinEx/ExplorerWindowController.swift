@@ -12,11 +12,11 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     var selectedTab: ExplorerTab { tabs[selectedIndex] }
 
     let tabBar = TabBarView()
-    private let backButton = ExplorerWindowController.navButton("arrow.left", "Назад (⌘[)")
-    private let forwardButton = ExplorerWindowController.navButton("arrow.right", "Вперёд (⌘])")
-    private let upButton = ExplorerWindowController.navButton("arrow.up", "Вверх (⌘↑)")
-    private let refreshButton = ExplorerWindowController.navButton("arrow.clockwise", "Обновить (⌘R)")
-    private let settingsButton = ExplorerWindowController.navButton("gearshape", "Настройки")
+    private let backButton = ExplorerWindowController.navButton("arrow.left", L("Назад (⌘[)"))
+    private let forwardButton = ExplorerWindowController.navButton("arrow.right", L("Вперёд (⌘])"))
+    private let upButton = ExplorerWindowController.navButton("arrow.up", L("Вверх (⌘↑)"))
+    private let refreshButton = ExplorerWindowController.navButton("arrow.clockwise", L("Обновить (⌘R)"))
+    private let settingsButton = ExplorerWindowController.navButton("gearshape", L("Настройки"))
     private let pathField = AddressField()
     private let viewModeButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let viewModeToggle = NSSegmentedControl()
@@ -121,7 +121,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         pathField.cell?.isScrollable = true
         pathField.cell?.wraps = false
         pathField.lineBreakMode = .byTruncatingHead
-        pathField.placeholderString = "Путь к папке"
+        pathField.placeholderString = L("Путь к папке")
         pathField.delegate = self
         pathField.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -348,15 +348,15 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         }
         menu.addItem(.separator())
         let show = NSMenu()
-        let hidden = show.addItem(withTitle: "Скрытые файлы", action: #selector(AppDelegate.toggleHiddenFiles(_:)), keyEquivalent: "")
+        let hidden = show.addItem(withTitle: L("Скрытые файлы"), action: #selector(AppDelegate.toggleHiddenFiles(_:)), keyEquivalent: "")
         hidden.target = AppDelegate.shared
         hidden.state = Settings.showHidden ? .on : .off
-        let bar = show.addItem(withTitle: "Панель команд", action: #selector(toggleCommandBar(_:)), keyEquivalent: "")
+        let bar = show.addItem(withTitle: L("Панель команд"), action: #selector(toggleCommandBar(_:)), keyEquivalent: "")
         bar.target = self
         bar.state = Settings.showCommandBar ? .on : .off
-        menu.addItem(withTitle: "Показать", action: nil, keyEquivalent: "").submenu = show
+        menu.addItem(withTitle: L("Показать"), action: nil, keyEquivalent: "").submenu = show
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Применить ко всем папкам", action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
         return menu
     }
 
@@ -371,16 +371,16 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.isEnabled = enabled
         }
         let selected = fileList.hasSelection
-        add("Сжать в ZIP-файл", #selector(FileListViewController.compress(_:)), "archivebox", enabled: selected)
-        add("Добавить в избранное", #selector(FileListViewController.addToFavorites(_:)), "star", enabled: fileList.directory != nil || selected)
-        add("Скопировать путь", #selector(FileListViewController.copyPath(_:)), "link", enabled: fileList.directory != nil || selected)
+        add(L("Сжать в ZIP-файл"), #selector(FileListViewController.compress(_:)), "archivebox", enabled: selected)
+        add(L("Добавить в избранное"), #selector(FileListViewController.addToFavorites(_:)), "star", enabled: fileList.directory != nil || selected)
+        add(L("Скопировать путь"), #selector(FileListViewController.copyPath(_:)), "link", enabled: fileList.directory != nil || selected)
         menu.addItem(.separator())
-        add("Выделить всё", #selector(FileListViewController.selectAllItems(_:)), "checkmark.circle")
-        add("Снять выделение", #selector(FileListViewController.selectNone(_:)), "circle", enabled: selected)
-        add("Обратить выделение", #selector(FileListViewController.invertSelection(_:)), "circle.lefthalf.filled")
+        add(L("Выделить всё"), #selector(FileListViewController.selectAllItems(_:)), "checkmark.circle")
+        add(L("Снять выделение"), #selector(FileListViewController.selectNone(_:)), "circle", enabled: selected)
+        add(L("Обратить выделение"), #selector(FileListViewController.invertSelection(_:)), "circle.lefthalf.filled")
         menu.addItem(.separator())
-        add("Свойства", #selector(FileListViewController.showProperties(_:)), "info.circle")
-        add("Параметры", #selector(AppDelegate.showSettings(_:)), "gearshape", target: AppDelegate.shared)
+        add(L("Свойства"), #selector(FileListViewController.showProperties(_:)), "info.circle")
+        add(L("Параметры"), #selector(AppDelegate.showSettings(_:)), "gearshape", target: AppDelegate.shared)
         return menu
     }
 
@@ -397,7 +397,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         viewModeButton.isBordered = false
         (viewModeButton.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtCenter
         viewModeButton.contentTintColor = .secondaryLabelColor
-        viewModeButton.toolTip = "Вид"
+        viewModeButton.toolTip = L("Вид")
         let menu = viewModeButton.menu!
         menu.addItem(NSMenuItem())  // title item of a pull-down: shows the current view's icon
         for mode in ViewMode.allCases {
@@ -407,7 +407,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: nil)
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Применить ко всем папкам", action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
 
         // Two quick toggles in the status bar, like Explorer's bottom-right corner
         viewModeToggle.segmentCount = 2
@@ -415,12 +415,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         viewModeToggle.segmentStyle = .texturedRounded
         viewModeToggle.controlSize = .regular
         let toggleSymbol = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
-        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.details.symbol, accessibilityDescription: "Таблица")?.withSymbolConfiguration(toggleSymbol), forSegment: 0)
-        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.largeIcons.symbol, accessibilityDescription: "Значки")?.withSymbolConfiguration(toggleSymbol), forSegment: 1)
+        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.details.symbol, accessibilityDescription: L("Таблица"))?.withSymbolConfiguration(toggleSymbol), forSegment: 0)
+        viewModeToggle.setImage(NSImage(systemSymbolName: ViewMode.largeIcons.symbol, accessibilityDescription: L("Значки"))?.withSymbolConfiguration(toggleSymbol), forSegment: 1)
         viewModeToggle.setWidth(34, forSegment: 0)
         viewModeToggle.setWidth(34, forSegment: 1)
-        viewModeToggle.setToolTip("Таблица", forSegment: 0)
-        viewModeToggle.setToolTip("Значки", forSegment: 1)
+        viewModeToggle.setToolTip(L("Таблица"), forSegment: 0)
+        viewModeToggle.setToolTip(L("Значки"), forSegment: 1)
         viewModeToggle.target = self
         viewModeToggle.action = #selector(viewModeToggleChanged(_:))
     }
@@ -474,7 +474,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             searchSettle?.cancel()
             searchField.stringValue = ""
         }
-        searchField.placeholderString = Settings.searchWholeMac ? "Поиск на Mac" : "Поиск: \(searchFolder.displayName)"
+        searchField.placeholderString = Settings.searchWholeMac ? L("Поиск на Mac") : L("Поиск: %@", searchFolder.displayName)
         fileList.load(tab.url, select: tab.pendingSelection)
         tab.pendingSelection = []
         backButton.isEnabled = tab.canGoBack
@@ -614,14 +614,14 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.target = self
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         }
-        add("Копировать адрес", #selector(copyAddress(_:)), "doc.on.doc", enabled: path != nil)
-        add("Копировать адрес как URL", #selector(copyAddressAsURL(_:)), "link", enabled: path != nil)
-        add("Изменить адрес", #selector(focusPathField(_:)), "pencil")
+        add(L("Копировать адрес"), #selector(copyAddress(_:)), "doc.on.doc", enabled: path != nil)
+        add(L("Копировать адрес как URL"), #selector(copyAddressAsURL(_:)), "link", enabled: path != nil)
+        add(L("Изменить адрес"), #selector(focusPathField(_:)), "pencil")
         menu.addItem(.separator())
         if let path, URL(fileURLWithPath: path).isBrowsableDirectory, !SidebarConfig.isFavorite(url) {
-            add("Добавить в избранное", #selector(addCurrentFolderToFavorites(_:)), "star")
+            add(L("Добавить в избранное"), #selector(addCurrentFolderToFavorites(_:)), "star")
         }
-        add("Очистить историю переходов", #selector(clearBrowsingHistory(_:)), "clock.arrow.circlepath",
+        add(L("Очистить историю переходов"), #selector(clearBrowsingHistory(_:)), "clock.arrow.circlepath",
             enabled: tabs.contains { $0.canGoBack || $0.canGoForward })
         MenuStyle.decorate(menu)
         return menu
@@ -724,20 +724,20 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.target = self
             item.state = on ? .on : .off
         }
-        menu.addItem(.sectionHeader(title: "Где искать"))
-        option("В этой папке и вложенных", #selector(searchInFolder(_:)), on: !Settings.searchWholeMac)
-        option("На всём Mac", #selector(searchWholeMac(_:)), on: Settings.searchWholeMac)
-        menu.addItem(.sectionHeader(title: "Что искать"))
-        option("Имена и содержимое", #selector(searchNamesAndContents(_:)), on: Settings.searchContents)
-        option("Только имена", #selector(searchNamesOnly(_:)), on: !Settings.searchContents)
+        menu.addItem(.sectionHeader(title: L("Где искать")))
+        option(L("В этой папке и вложенных"), #selector(searchInFolder(_:)), on: !Settings.searchWholeMac)
+        option(L("На всём Mac"), #selector(searchWholeMac(_:)), on: Settings.searchWholeMac)
+        menu.addItem(.sectionHeader(title: L("Что искать")))
+        option(L("Имена и содержимое"), #selector(searchNamesAndContents(_:)), on: Settings.searchContents)
+        option(L("Только имена"), #selector(searchNamesOnly(_:)), on: !Settings.searchContents)
         menu.addItem(.separator())
-        let title = menu.addItem(withTitle: "Недавние запросы", action: nil, keyEquivalent: "")
+        let title = menu.addItem(withTitle: L("Недавние запросы"), action: nil, keyEquivalent: "")
         title.tag = NSSearchField.recentsTitleMenuItemTag
         let recent = menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
         recent.tag = NSSearchField.recentsMenuItemTag
-        let none = menu.addItem(withTitle: "Нет недавних запросов", action: nil, keyEquivalent: "")
+        let none = menu.addItem(withTitle: L("Нет недавних запросов"), action: nil, keyEquivalent: "")
         none.tag = NSSearchField.noRecentsMenuItemTag
-        let clear = menu.addItem(withTitle: "Очистить недавние", action: nil, keyEquivalent: "")
+        let clear = menu.addItem(withTitle: L("Очистить недавние"), action: nil, keyEquivalent: "")
         clear.tag = NSSearchField.clearRecentsMenuItemTag
         searchField.searchMenuTemplate = menu
         // Our own glass + arrow with a gap (the stock one squeezes them together)
@@ -756,7 +756,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         if let wholeMac { Settings.searchWholeMac = wholeMac }
         if let contents { Settings.searchContents = contents }
         updateSearchMenu()
-        searchField.placeholderString = Settings.searchWholeMac ? "Поиск на Mac" : "Поиск: \(searchFolder.displayName)"
+        searchField.placeholderString = Settings.searchWholeMac ? L("Поиск на Mac") : L("Поиск: %@", searchFolder.displayName)
         if case .search = Location(selectedTab.url) { search(for: searchField.stringValue) }
     }
 
@@ -1108,7 +1108,7 @@ final class RoomySearchFieldCell: NSSearchFieldCell {
 
     /// Magnifying glass, a gap, then the small arrow that opens the menu.
     static func buttonImage(pointSize: CGFloat) -> NSImage {
-        let glass = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Поиск")?
+        let glass = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: L("Поиск"))?
             .withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular)) ?? NSImage()
         let arrow = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: pointSize * 0.55, weight: .semibold)) ?? NSImage()

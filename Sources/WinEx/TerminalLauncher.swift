@@ -52,7 +52,7 @@ final class TerminalLauncher: NSObject {
     /// The context menu's item, if it's switched on.
     static func menuItem(for urls: [URL]) -> NSMenuItem? {
         guard Settings.terminalInMenu, let app = chosen, !urls.isEmpty else { return nil }
-        let item = NSMenuItem(title: app.name == "Терминал" || app.name == "Terminal" ? "Открыть в Терминале" : "Открыть в \(app.name)",
+        let item = NSMenuItem(title: app.name == L("Терминал") || app.name == "Terminal" ? L("Открыть в Терминале") : L("Открыть в %@", app.name),
                               action: #selector(openFromMenu(_:)), keyEquivalent: "")
         item.target = shared
         item.representedObject = urls as NSArray

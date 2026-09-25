@@ -6,9 +6,9 @@ enum DesktopIconSize: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .large: "Крупные значки"
-        case .medium: "Обычные значки"
-        case .small: "Мелкие значки"
+        case .large: L("Крупные значки")
+        case .medium: L("Обычные значки")
+        case .small: L("Мелкие значки")
         }
     }
 
@@ -37,10 +37,10 @@ enum DesktopSortKey: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .name: "Имя"
-        case .size: "Размер"
-        case .type: "Тип элемента"
-        case .date: "Дата изменения"
+        case .name: L("Имя")
+        case .size: L("Размер")
+        case .type: L("Тип элемента")
+        case .date: L("Дата изменения")
         }
     }
 }

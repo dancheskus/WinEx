@@ -39,15 +39,15 @@ final class BreadcrumbBar: NSView {
         }
         switch location {
         case .computer:
-            return (symbol("desktopcomputer"), Places.computerURL, [Crumb(title: "Этот Mac", url: Places.computerURL, folder: nil)])
+            return (symbol("desktopcomputer"), Places.computerURL, [Crumb(title: L("Этот Mac"), url: Places.computerURL, folder: nil)])
         case .network:
-            return (symbol("network"), Places.networkURL, [Crumb(title: "Сеть", url: Places.networkURL, folder: nil)])
+            return (symbol("network"), Places.networkURL, [Crumb(title: L("Сеть"), url: Places.networkURL, folder: nil)])
         case .trash:
-            return (symbol("trash"), Places.trashURL, [Crumb(title: "Корзина", url: Places.trashURL, folder: nil)])
+            return (symbol("trash"), Places.trashURL, [Crumb(title: L("Корзина"), url: Places.trashURL, folder: nil)])
         case .tag(let name):
             return (symbol("tag"), location.url, [Crumb(title: name, url: location.url, folder: nil)])
         case .search(let request):
-            return (symbol("magnifyingglass"), location.url, [Crumb(title: "Результаты поиска «\(request.text)»", url: location.url, folder: nil)])
+            return (symbol("magnifyingglass"), location.url, [Crumb(title: L("Результаты поиска «%@»", request.text), url: location.url, folder: nil)])
         case .folder(let url):
             return folderPath(url)
         }
@@ -61,7 +61,7 @@ final class BreadcrumbBar: NSView {
         var result: [Crumb] = []
         let network = values?.volumeIsLocal == false
         if network {
-            result.append(Crumb(title: "Сеть", url: Places.networkURL, folder: nil))
+            result.append(Crumb(title: L("Сеть"), url: Places.networkURL, folder: nil))
             if let server = Places.serverName(ofVolume: volume) { result.append(Crumb(title: server, url: Places.networkURL, folder: nil)) }
         }
         let volumeName = values?.volumeLocalizedName ?? fm.displayName(atPath: volume.path)
@@ -117,14 +117,14 @@ final class BreadcrumbBar: NSView {
             x += width
         }
         // The location's icon: "Этот Mac" (or "Сеть"); its "›" lists the drives
-        place(CrumbButton(icon: rootIcon, tip: "Этот Mac") { [weak self] _ in
+        place(CrumbButton(icon: rootIcon, tip: L("Этот Mac")) { [weak self] _ in
             guard let self else { return }
             onNavigate?(rootURL)
         }, width: iconWidth)
         place(chevron { Self.drivesMenu(current: $0) }, width: chevronWidth)
         if folded > 0 {
             let hidden = Array(crumbs.prefix(folded))
-            place(CrumbButton(text: "…", font: font, tip: "Предыдущие папки") { [weak self] button in
+            place(CrumbButton(text: "…", font: font, tip: L("Предыдущие папки")) { [weak self] button in
                 self?.popUp(self?.menu(for: hidden.reversed()), under: button)
             }, width: ellipsisWidth)
             place(chevron(listing: crumbs[folded - 1].folder), width: chevronWidth)
@@ -148,7 +148,7 @@ final class BreadcrumbBar: NSView {
 
     private func chevron(_ makeMenu: @escaping (URL?) -> NSMenu) -> CrumbButton {
         let crumbs = crumbs
-        return CrumbButton(chevron: true, tip: "Другие папки") { [weak self] button in
+        return CrumbButton(chevron: true, tip: L("Другие папки")) { [weak self] button in
             guard let self else { return }
             // The step after this chevron is the one to mark in the list
             let index = self.buttons.firstIndex { $0 === button }
@@ -177,14 +177,14 @@ final class BreadcrumbBar: NSView {
             if child.standardizedFileURL.path == current?.standardizedFileURL.path { item.state = .on }
             menu.addItem(item)
         }
-        if children.isEmpty { menu.addItem(withTitle: "Нет вложенных папок", action: nil, keyEquivalent: "").isEnabled = false }
+        if children.isEmpty { menu.addItem(withTitle: L("Нет вложенных папок"), action: nil, keyEquivalent: "").isEnabled = false }
         return menu
     }
 
     /// The drives (and "Этот Mac"), for the root's "›".
     private static func drivesMenu(current: URL?) -> NSMenu {
         let menu = NSMenu()
-        let this = NSMenuItem(title: "Этот Mac", action: nil, keyEquivalent: "")
+        let this = NSMenuItem(title: L("Этот Mac"), action: nil, keyEquivalent: "")
         this.representedObject = Places.computerURL
         this.image = NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
         menu.addItem(this)

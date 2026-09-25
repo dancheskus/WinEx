@@ -18,12 +18,12 @@ final class TabBarView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Новая вкладка")
+        addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: L("Новая вкладка"))
         addButton.isBordered = false
         addButton.bezelStyle = .accessoryBarAction
         addButton.target = self
         addButton.action = #selector(addTab(_:))
-        addButton.toolTip = "Новая вкладка (⌘T)"
+        addButton.toolTip = L("Новая вкладка (⌘T)")
         addSubview(addButton)
     }
 
@@ -243,12 +243,12 @@ final class TabItemView: NSView {
         label.lineBreakMode = .byTruncatingTail
         label.textColor = .secondaryLabelColor
         iconView.imageScaling = .scaleProportionallyDown
-        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Закрыть вкладку")?
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: L("Закрыть вкладку"))?
             .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
         closeButton.isBordered = false
         closeButton.target = self
         closeButton.action = #selector(close(_:))
-        closeButton.toolTip = "Закрыть вкладку (⌘W)"
+        closeButton.toolTip = L("Закрыть вкладку (⌘W)")
         [iconView, label, closeButton].forEach(addSubview)
     }
 

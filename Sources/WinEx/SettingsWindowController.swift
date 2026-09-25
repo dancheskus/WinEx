@@ -9,31 +9,34 @@ final class SettingsWindowController: NSWindowController {
     private let tagsView = TagSettingsView()
     // Основные
     private let startPopup = NSPopUpButton()
+    private let languagePopup = NSPopUpButton()
+    private let languageHint = SettingsForm.hint("")
+    private let restartButton = NSButton(title: L("Перезапустить WinEx"), target: nil, action: nil)
     private let hotKeyPopup = NSPopUpButton()
     private let hotKeyHint = SettingsForm.hint("")
-    private let hiddenCheckbox = NSButton(checkboxWithTitle: "Показывать скрытые файлы", target: nil, action: nil)
-    private let terminalCheckbox = NSButton(checkboxWithTitle: "«Открыть в терминале» в контекстном меню", target: nil, action: nil)
+    private let hiddenCheckbox = NSButton(checkboxWithTitle: L("Показывать скрытые файлы"), target: nil, action: nil)
+    private let terminalCheckbox = NSButton(checkboxWithTitle: L("«Открыть в терминале» в контекстном меню"), target: nil, action: nil)
     private let terminalPopup = NSPopUpButton()
-    private let commandBarCheckbox = NSButton(checkboxWithTitle: "Панель команд под адресной строкой", target: nil, action: nil)
-    private let loginCheckbox = NSButton(checkboxWithTitle: "Открывать WinEx при входе в систему", target: nil, action: nil)
+    private let commandBarCheckbox = NSButton(checkboxWithTitle: L("Панель команд под адресной строкой"), target: nil, action: nil)
+    private let loginCheckbox = NSButton(checkboxWithTitle: L("Открывать WinEx при входе в систему"), target: nil, action: nil)
     private let loginHint = SettingsForm.hint("")
-    private let loginApproveButton = NSButton(title: "Открыть «Объекты входа»…", target: nil, action: nil)
+    private let loginApproveButton = NSButton(title: L("Открыть «Объекты входа»…"), target: nil, action: nil)
     // Finder и рабочий стол
-    private let replaceCheckbox = NSButton(checkboxWithTitle: "Использовать WinEx вместо Finder", target: nil, action: nil)
-    private let resetDesktopButton = NSButton(title: "Сбросить рабочий стол как в Finder…", target: nil, action: nil)
+    private let replaceCheckbox = NSButton(checkboxWithTitle: L("Использовать WinEx вместо Finder"), target: nil, action: nil)
+    private let resetDesktopButton = NSButton(title: L("Сбросить рабочий стол как в Finder…"), target: nil, action: nil)
     // Клавиатура
-    private let windowsKeysCheckbox = NSButton(checkboxWithTitle: "Клавиши как в Windows", target: nil, action: nil)
+    private let windowsKeysCheckbox = NSButton(checkboxWithTitle: L("Клавиши как в Windows"), target: nil, action: nil)
     // Доступ
     private let accessIcon = NSImageView()
     private let accessTitle = NSTextField(labelWithString: "")
     private let accessHint = SettingsForm.hint("")
-    private let accessButton = NSButton(title: "Открыть настройки «Полный доступ к диску»…", target: nil, action: nil)
+    private let accessButton = NSButton(title: L("Открыть настройки «Полный доступ к диску»…"), target: nil, action: nil)
     // Обновления
-    private let updatesCheckbox = NSButton(checkboxWithTitle: "Проверять обновления автоматически", target: nil, action: nil)
+    private let updatesCheckbox = NSButton(checkboxWithTitle: L("Проверять обновления автоматически"), target: nil, action: nil)
 
     private static let startChoices: [(id: String, title: String)] = [
-        ("home", "Домашняя папка"), ("desktop", "Рабочий стол"), ("downloads", "Загрузки"),
-        ("documents", "Документы"), ("computer", "Этот Mac"),
+        ("home", L("Домашняя папка")), ("desktop", L("Рабочий стол")), ("downloads", L("Загрузки")),
+        ("documents", L("Документы")), ("computer", L("Этот Mac")),
     ]
 
     private let observers = Observers()
@@ -42,19 +45,19 @@ final class SettingsWindowController: NSWindowController {
         tabs.tabStyle = .toolbar
         let window = NSWindow(contentViewController: tabs)
         window.styleMask = [.titled, .closable]
-        window.title = "Настройки WinEx"
+        window.title = L("Настройки WinEx")
         window.isReleasedWhenClosed = false
         window.toolbarStyle = .preference
         super.init(window: window)
 
         for (title, symbol, view) in [
-            ("Основные", "gearshape", generalPane()),
-            ("Боковое меню", "sidebar.left", SidebarSettingsView()),
-            ("Теги", "tag", tagsView),
+            (L("Основные"), "gearshape", generalPane()),
+            (L("Боковое меню"), "sidebar.left", SidebarSettingsView()),
+            (L("Теги"), "tag", tagsView),
             ("Finder", "macwindow.on.rectangle", finderPane()),
-            ("Клавиатура", "keyboard", keyboardPane()),
-            ("Доступ", "lock.shield", accessPane()),
-            ("Обновления", "arrow.triangle.2.circlepath", updatesPane()),
+            (L("Клавиатура"), "keyboard", keyboardPane()),
+            (L("Доступ"), "lock.shield", accessPane()),
+            (L("Обновления"), "arrow.triangle.2.circlepath", updatesPane()),
         ] {
             let controller = NSViewController()
             controller.view = view
@@ -94,19 +97,33 @@ final class SettingsWindowController: NSWindowController {
         loginApproveButton.target = self
         loginApproveButton.action = #selector(openLoginItems(_:))
         loginApproveButton.controlSize = .small
+        for language in Localization.Language.allCases {
+            languagePopup.addItem(withTitle: language.title)
+            languagePopup.lastItem?.representedObject = language.rawValue
+        }
+        languagePopup.target = self
+        languagePopup.action = #selector(changeLanguage(_:))
+        restartButton.target = self
+        restartButton.action = #selector(restartForLanguage(_:))
+        restartButton.controlSize = .small
+        let languageRow = NSStackView(views: [languagePopup, restartButton])
+        languageRow.spacing = 10
         return SettingsForm.build([
-            .row("Новые окна открываются в:", startPopup),
-            .row("Окно WinEx из любой программы:", hotKeyPopup),
+            .row(L("Язык:"), languageRow),
+            .row(nil, languageHint),
+            .gap,
+            .row(L("Новые окна открываются в:"), startPopup),
+            .row(L("Окно WinEx из любой программы:"), hotKeyPopup),
             .row(nil, hotKeyHint),
             .gap,
-            .row("Показ:", hiddenCheckbox),
+            .row(L("Показ:"), hiddenCheckbox),
             .row(nil, commandBarCheckbox),
             .gap,
-            .row("Терминал:", terminalCheckbox),
+            .row(L("Терминал:"), terminalCheckbox),
             .row(nil, terminalPopup),
-            .row(nil, SettingsForm.hint("Для папки — она сама, для файла — его папка; на пустом месте — открытая папка или рабочий стол.")),
+            .row(nil, SettingsForm.hint(L("Для папки — она сама, для файла — его папка; на пустом месте — открытая папка или рабочий стол."))),
             .gap,
-            .row("Запуск:", loginCheckbox),
+            .row(L("Запуск:"), loginCheckbox),
             .row(nil, loginHint),
             .row(nil, loginApproveButton),
         ])
@@ -117,21 +134,15 @@ final class SettingsWindowController: NSWindowController {
         replaceCheckbox.action = #selector(toggleReplace(_:))
         resetDesktopButton.target = self
         resetDesktopButton.action = #selector(resetDesktop(_:))
-        let help = SettingsForm.helpButton("""
-            Когда WinEx заменяет Finder:
-            • рабочий стол рисует WinEx, папки с него открываются в WinEx;
-            • «Показать в Finder» в других программах показывает файл в WinEx;
-            • папки, которые другие программы открывают сами, по-прежнему открываются в Finder — macOS не даёт сменить программу для папок;
-            • «Выйти» в строке меню возвращает всё Finder.
-            """)
+        let help = SettingsForm.helpButton(L("Когда WinEx заменяет Finder:\n• рабочий стол рисует WinEx, папки с него открываются в WinEx;\n• «Показать в Finder» в других программах показывает файл в WinEx;\n• папки, которые другие программы открывают сами, по-прежнему открываются в Finder — macOS не даёт сменить программу для папок;\n• «Выйти» в строке меню возвращает всё Finder."))
         let replaceRow = NSStackView(views: [replaceCheckbox, help])
         replaceRow.spacing = 6
         return SettingsForm.build([
-            .row("Рабочий стол:", replaceRow),
-            .row(nil, SettingsForm.hint("Рабочий стол и «Показать в Finder» переходят к WinEx. «Выйти» в строке меню возвращает Finder.")),
+            .row(L("Рабочий стол:"), replaceRow),
+            .row(nil, SettingsForm.hint(L("Рабочий стол и «Показать в Finder» переходят к WinEx. «Выйти» в строке меню возвращает Finder."))),
             .gap,
-            .row("Значки:", resetDesktopButton),
-            .row(nil, SettingsForm.hint("Расставить значки, их размер и сортировку так, как у Finder.")),
+            .row(L("Значки:"), resetDesktopButton),
+            .row(nil, SettingsForm.hint(L("Расставить значки, их размер и сортировку так, как у Finder."))),
         ])
     }
 
@@ -139,18 +150,18 @@ final class SettingsWindowController: NSWindowController {
         windowsKeysCheckbox.target = self
         windowsKeysCheckbox.action = #selector(toggleWindowsKeys(_:))
         return SettingsForm.build([
-            .row("Клавиши:", windowsKeysCheckbox),
-            .row(nil, SettingsForm.hint("Выключено — как в Finder: Enter переименовывает, ⌘↓ или ⌘O открывают, ⌘↑ — вверх.")),
+            .row(L("Клавиши:"), windowsKeysCheckbox),
+            .row(nil, SettingsForm.hint(L("Выключено — как в Finder: Enter переименовывает, ⌘↓ или ⌘O открывают, ⌘↑ — вверх."))),
             .gap,
-            .row(nil, SettingsForm.keyTable(title: "С «Клавишами как в Windows»", [
-                ("Enter", "открыть"), ("F2", "переименовать"), ("Backspace, ⌥↑", "на уровень выше"),
-                ("⌥←  ⌥→", "назад / вперёд"), ("F3", "поиск"), ("F4, ⌥D", "адресная строка"), ("F5", "обновить"),
-                ("F11", "полный экран"), ("Delete", "в Корзину"), ("⇧Delete", "удалить навсегда"), ("⇧F10", "контекстное меню"),
+            .row(nil, SettingsForm.keyTable(title: L("С «Клавишами как в Windows»"), [
+                ("Enter", L("открыть")), ("F2", L("переименовать")), ("Backspace, ⌥↑", L("на уровень выше")),
+                ("⌥←  ⌥→", L("назад / вперёд")), ("F3", L("поиск")), ("F4, ⌥D", L("адресная строка")), ("F5", L("обновить")),
+                ("F11", L("полный экран")), ("Delete", L("в Корзину")), ("⇧Delete", L("удалить навсегда")), ("⇧F10", L("контекстное меню")),
             ])),
             .gap,
-            .row(nil, SettingsForm.keyTable(title: "Всегда", [
-                ("⌃Tab, ⌃⇧Tab", "следующая / предыдущая вкладка"), ("⌃1 … ⌃9", "вкладка по номеру"),
-                ("⌘ + перетащить", "переместить"), ("⌥ + перетащить", "копировать"), ("⌘⌥ + перетащить", "создать псевдоним"),
+            .row(nil, SettingsForm.keyTable(title: L("Всегда"), [
+                ("⌃Tab, ⌃⇧Tab", L("следующая / предыдущая вкладка")), ("⌃1 … ⌃9", L("вкладка по номеру")),
+                (L("⌘ + перетащить"), L("переместить")), (L("⌥ + перетащить"), L("копировать")), (L("⌘⌥ + перетащить"), L("создать псевдоним")),
             ])),
         ])
     }
@@ -163,7 +174,7 @@ final class SettingsWindowController: NSWindowController {
         let status = NSStackView(views: [accessIcon, accessTitle])
         status.spacing = 6
         return SettingsForm.build([
-            .row("Полный доступ к диску:", status),
+            .row(L("Полный доступ к диску:"), status),
             .row(nil, accessHint),
             .row(nil, accessButton),
         ])
@@ -172,15 +183,15 @@ final class SettingsWindowController: NSWindowController {
     private func updatesPane() -> NSView {
         updatesCheckbox.target = self
         updatesCheckbox.action = #selector(toggleUpdates(_:))
-        let checkNow = NSButton(title: "Проверить сейчас", target: AppDelegate.shared, action: #selector(AppDelegate.checkForUpdates(_:)))
-        let releases = NSButton(title: "Страница релизов…", target: self, action: #selector(openReleases(_:)))
-        let version = NSTextField(labelWithString: Updater.shared.currentVersion + (Updater.shared.isDevBuild ? " (своя сборка)" : ""))
+        let checkNow = NSButton(title: L("Проверить сейчас"), target: AppDelegate.shared, action: #selector(AppDelegate.checkForUpdates(_:)))
+        let releases = NSButton(title: L("Страница релизов…"), target: self, action: #selector(openReleases(_:)))
+        let version = NSTextField(labelWithString: Updater.shared.currentVersion + (Updater.shared.isDevBuild ? L(" (своя сборка)") : ""))
         return SettingsForm.build([
-            .row("Версия:", version),
-            .row("Обновления:", updatesCheckbox),
+            .row(L("Версия:"), version),
+            .row(L("Обновления:"), updatesCheckbox),
             .row(nil, SettingsForm.hint(Updater.shared.isDevBuild
-                ? "Своя сборка сама не обновляется — только по кнопке «Проверить сейчас»."
-                : "Раз в сутки WinEx проверяет новые версии и предлагает обновиться. Разрешения сохраняются.")),
+                ? L("Своя сборка сама не обновляется — только по кнопке «Проверить сейчас».")
+                : L("Раз в сутки WinEx проверяет новые версии и предлагает обновиться. Разрешения сохраняются."))),
             .row(nil, NSStackView(views: [checkNow, releases])),
         ])
     }
@@ -191,7 +202,29 @@ final class SettingsWindowController: NSWindowController {
         tabs.selectedTabViewItemIndex = tab.rawValue
     }
 
+    private func syncLanguage() {
+        let chosen = Localization.chosen
+        languagePopup.selectItem(at: Localization.Language.allCases.firstIndex(of: chosen) ?? 0)
+        // The language this run speaks vs the one chosen
+        let running = Localization.isEnglish ? "en" : "ru"
+        let wanted = chosen == .system ? (Locale.preferredLanguages.first?.hasPrefix("ru") == true ? "ru" : "en") : chosen.rawValue
+        let pending = running != wanted
+        languageHint.stringValue = pending ? L("Язык сменится после перезапуска WinEx.")
+            : L("«Как в системе»: русский, если macOS на русском, иначе английский.")
+        restartButton.isHidden = !pending
+    }
+
+    @objc private func changeLanguage(_ sender: NSPopUpButton) {
+        Localization.chosen = Localization.Language(rawValue: sender.selectedItem?.representedObject as? String ?? "") ?? .system
+        syncLanguage()
+    }
+
+    @objc private func restartForLanguage(_ sender: Any?) {
+        Updater.shared.restart()
+    }
+
     func sync() {
+        syncLanguage()
         tagsView.refresh()
         replaceCheckbox.state = Settings.replaceFinder ? .on : .off
         resetDesktopButton.isEnabled = Settings.replaceFinder
@@ -211,8 +244,8 @@ final class SettingsWindowController: NSWindowController {
     private func syncLogin() {
         loginCheckbox.state = LoginItem.isEnabled || LoginItem.needsApproval ? .on : .off
         loginHint.stringValue = LoginItem.needsApproval
-            ? "macOS ждёт разрешения в «Системные настройки ▸ Основные ▸ Объекты входа»."
-            : "Без окна: значок в строке меню и, если WinEx заменяет Finder, рабочий стол."
+            ? L("macOS ждёт разрешения в «Системные настройки ▸ Основные ▸ Объекты входа».")
+            : L("Без окна: значок в строке меню и, если WinEx заменяет Finder, рабочий стол.")
         loginApproveButton.isHidden = !LoginItem.needsApproval
     }
 
@@ -221,10 +254,10 @@ final class SettingsWindowController: NSWindowController {
         let granted = (try? FileManager.default.contentsOfDirectory(atPath: Places.trashURL.path)) != nil
         accessIcon.image = NSImage(systemSymbolName: granted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill", accessibilityDescription: nil)
         accessIcon.contentTintColor = granted ? .systemGreen : .systemOrange
-        accessTitle.stringValue = granted ? "Выдан" : "Не выдан"
+        accessTitle.stringValue = granted ? L("Выдан") : L("Не выдан")
         accessHint.stringValue = granted
-            ? "WinEx видит Корзину, Рабочий стол, Документы, Загрузки и сетевые диски без отдельных вопросов."
-            : "Без него Корзина не открывается, а про Рабочий стол, Документы, Загрузки и сетевые диски macOS спрашивает отдельно. Включите WinEx в списке и нажмите «Закрыть и открыть снова»."
+            ? L("WinEx видит Корзину, Рабочий стол, Документы, Загрузки и сетевые диски без отдельных вопросов.")
+            : L("Без него Корзина не открывается, а про Рабочий стол, Документы, Загрузки и сетевые диски macOS спрашивает отдельно. Включите WinEx в списке и нажмите «Закрыть и открыть снова».")
         accessButton.isHidden = granted
     }
 
@@ -232,11 +265,11 @@ final class SettingsWindowController: NSWindowController {
         let preset = GlobalHotKey.preset
         hotKeyPopup.selectItem(at: GlobalHotKey.Preset.allCases.firstIndex(of: preset) ?? 0)
         if GlobalHotKey.shared.isTaken {
-            hotKeyHint.stringValue = "Это сочетание занято другой программой — выберите другое."
+            hotKeyHint.stringValue = L("Это сочетание занято другой программой — выберите другое.")
         } else if preset == .commandE {
-            hotKeyHint.stringValue = "Из любой программы. В некоторых программах ⌘E — «Искать выделенное»."
+            hotKeyHint.stringValue = L("Из любой программы. В некоторых программах ⌘E — «Искать выделенное».")
         } else {
-            hotKeyHint.stringValue = "Из любой программы, как Win+E в Windows."
+            hotKeyHint.stringValue = L("Из любой программы, как Win+E в Windows.")
         }
     }
 
@@ -253,7 +286,7 @@ final class SettingsWindowController: NSWindowController {
             startPopup.lastItem?.toolTip = current
             startPopup.select(startPopup.lastItem)
         }
-        startPopup.addItem(withTitle: "Другая папка…")
+        startPopup.addItem(withTitle: L("Другая папка…"))
     }
 
     // MARK: - Actions
@@ -282,10 +315,10 @@ final class SettingsWindowController: NSWindowController {
     @objc private func resetDesktop(_ sender: Any?) {
         guard let window else { return }
         let alert = NSAlert()
-        alert.messageText = "Сбросить рабочий стол WinEx?"
-        alert.informativeText = "Значки встанут туда, где они у Finder, а размер значков и сортировка станут как в Finder. Ваша расстановка на рабочем столе WinEx будет потеряна. Файлы не изменятся."
-        alert.addButton(withTitle: "Сбросить")
-        alert.addButton(withTitle: "Отмена")
+        alert.messageText = L("Сбросить рабочий стол WinEx?")
+        alert.informativeText = L("Значки встанут туда, где они у Finder, а размер значков и сортировка станут как в Finder. Ваша расстановка на рабочем столе WinEx будет потеряна. Файлы не изменятся.")
+        alert.addButton(withTitle: L("Сбросить"))
+        alert.addButton(withTitle: L("Отмена"))
         alert.buttons.first?.hasDestructiveAction = true
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
@@ -297,11 +330,11 @@ final class SettingsWindowController: NSWindowController {
         let index = sender.indexOfSelectedItem
         if Self.startChoices.indices.contains(index) {
             Settings.startFolder = Self.startChoices[index].id
-        } else if sender.selectedItem?.title == "Другая папка…" {
+        } else if sender.selectedItem?.title == L("Другая папка…") {
             let panel = NSOpenPanel()
             panel.canChooseDirectories = true
             panel.canChooseFiles = false
-            panel.prompt = "Выбрать"
+            panel.prompt = L("Выбрать")
             if panel.runModal() == .OK, let url = panel.url { Settings.startFolder = url.path }
         }
         syncStartFolder()
@@ -336,7 +369,7 @@ final class SettingsWindowController: NSWindowController {
             if app == TerminalLauncher.chosen { terminalPopup.select(terminalPopup.lastItem) }
         }
         terminalPopup.menu?.addItem(.separator())
-        terminalPopup.addItem(withTitle: "Другая программа…")
+        terminalPopup.addItem(withTitle: L("Другая программа…"))
         terminalPopup.isEnabled = Settings.terminalInMenu
     }
 
@@ -350,7 +383,7 @@ final class SettingsWindowController: NSWindowController {
             Settings.terminalApp = url.path
         } else {
             let panel = NSOpenPanel()
-            panel.title = "Терминал для «Открыть в терминале»"
+            panel.title = L("Терминал для «Открыть в терминале»")
             panel.directoryURL = URL(fileURLWithPath: "/Applications")
             panel.allowedContentTypes = [.application]
             if panel.runModal() == .OK, let url = panel.url { Settings.terminalApp = url.path }

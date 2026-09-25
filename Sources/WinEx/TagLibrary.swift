@@ -41,7 +41,12 @@ enum TagLibrary {
     private static let finder = "com.apple.finder" as CFString
     private static let favoritesKey = "FavoriteTagNames" as CFString
     /// Finder's standard seven, if it has never saved its own list.
-    static let standardNames = ["Красный", "Оранжевый", "Желтый", "Зеленый", "Синий", "Лиловый", "Серый"]
+    /// (Named in the system's language, as Finder names them.)
+    static var standardNames: [String] {
+        Locale.preferredLanguages.first?.hasPrefix("ru") == true
+            ? ["Красный", "Оранжевый", "Желтый", "Зеленый", "Синий", "Лиловый", "Серый"]
+            : ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Gray"]
+    }
 
     /// Scenario runs keep them in the scenario's own store: Finder's settings stay untouched.
     private static var usesFinderSettings: Bool {

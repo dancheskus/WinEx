@@ -106,7 +106,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             item.place = place
             places.append(item)
         }
-        add(.computer, Item(title: "Этот Mac", url: Places.computerURL, symbol: "desktopcomputer"))
+        add(.computer, Item(title: L("Этот Mac"), url: Places.computerURL, symbol: "desktopcomputer"))
         let iCloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         if fm.fileExists(atPath: iCloud.path) {
             add(.iCloud, Item(title: "iCloud Drive", url: iCloud, symbol: "icloud"))
@@ -120,7 +120,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             let place: SidebarConfig.Place
             if values?.volumeIsLocal == false {
                 let server = Places.serverName(ofVolume: url)
-                item = Item(title: server.map { "\(name) на \($0)" } ?? name, url: url, symbol: "externaldrive.connected.to.line.below")
+                item = Item(title: server.map { L("%@ на %@", name, $0) } ?? name, url: url, symbol: "externaldrive.connected.to.line.below")
                 item.toolTip = (try? url.resourceValues(forKeys: [.volumeURLForRemountingKey]))?.volumeURLForRemounting?.absoluteString
                 place = .servers
             } else {
@@ -137,15 +137,15 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             airDrop.action = { Places.openAirDrop() }
             add(.airDrop, airDrop)
         }
-        add(.network, Item(title: "Сеть", url: Places.networkURL, symbol: "network"))
-        add(.trash, Item(title: "Корзина", url: Places.trashURL, symbol: "trash"))
+        add(.network, Item(title: L("Сеть"), url: Places.networkURL, symbol: "network"))
+        add(.trash, Item(title: L("Корзина"), url: Places.trashURL, symbol: "trash"))
 
-        sections = [Section(.favorites, title: "Избранное", items: favorites)]
-        if !places.isEmpty { sections.append(Section(.places, title: "Места", items: places)) }
+        sections = [Section(.favorites, title: L("Избранное"), items: favorites)]
+        if !places.isEmpty { sections.append(Section(.places, title: L("Места"), items: places)) }
         // The tags chosen in Settings ▸ Теги; clicking one lists every file with it
         let tags = TagLibrary.entries.filter(\.inSidebar)
         if SidebarConfig.showsTags, !tags.isEmpty {
-            sections.append(Section(.tags, title: "Теги", items: tags.map {
+            sections.append(Section(.tags, title: L("Теги"), items: tags.map {
                 Item(title: $0.name, url: Location.tagURL($0.name), symbol: "tag", tagColor: $0.color)
             }))
         }
@@ -376,19 +376,19 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         }
         switch section(of: item)?.kind {
         case .favorites:
-            add("Убрать из боковой панели", #selector(removeClicked(_:)))
+            add(L("Убрать из боковой панели"), #selector(removeClicked(_:)))
         case .tags:
-            add("Убрать из боковой панели", #selector(removeClicked(_:)))
+            add(L("Убрать из боковой панели"), #selector(removeClicked(_:)))
         case .places:
-            if item.place == .trash { add("Очистить Корзину…", #selector(emptyTrash(_:))) }
+            if item.place == .trash { add(L("Очистить Корзину…"), #selector(emptyTrash(_:))) }
             if let place = item.place {
                 add(place == .internalDisks || place == .externalDisks || place == .servers
-                    ? "Скрыть «\(place.title)»" : "Убрать из боковой панели", #selector(removeClicked(_:)))
+                    ? L("Скрыть «%@»", place.title) : L("Убрать из боковой панели"), #selector(removeClicked(_:)))
             }
         case nil: break
         }
         menu.addItem(.separator())
-        add("Настроить боковую панель…", #selector(customize(_:)))
+        add(L("Настроить боковую панель…"), #selector(customize(_:)))
         MenuStyle.decorate(menu)
     }
 
@@ -433,11 +433,11 @@ private final class SidebarEjectButton: NSButton {
     init(volume: URL) {
         self.volume = volume
         super.init(frame: .zero)
-        image = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: "Извлечь")?
+        image = NSImage(systemSymbolName: "eject.fill", accessibilityDescription: L("Извлечь"))?
             .withSymbolConfiguration(.init(pointSize: 10, weight: .regular))
         isBordered = false
         contentTintColor = .secondaryLabelColor
-        toolTip = "Извлечь"
+        toolTip = L("Извлечь")
         target = self
         action = #selector(eject(_:))
     }

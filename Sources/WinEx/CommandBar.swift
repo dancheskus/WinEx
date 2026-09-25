@@ -13,16 +13,16 @@ final class CommandBar: NSView {
     /// Scenario hook: "new", "sort", "view", "more" as each menu opens.
     var onMenuOpen: ((String) -> Void)?
 
-    let newButton = CommandButton(symbol: "plus.circle", title: "Создать", tip: "Создать папку или документ", menu: true)
-    let cutButton = CommandButton(symbol: "scissors", tip: "Вырезать (⌘X)")
-    let copyButton = CommandButton(symbol: "doc.on.doc", tip: "Копировать (⌘C)")
-    let pasteButton = CommandButton(symbol: "doc.on.clipboard", tip: "Вставить (⌘V)")
-    let renameButton = CommandButton(symbol: "character.cursor.ibeam", tip: "Переименовать")
-    let shareButton = CommandButton(symbol: "square.and.arrow.up", tip: "Поделиться")
-    let deleteButton = CommandButton(symbol: "trash", tip: "Удалить (⌘⌫)")
-    let sortButton = CommandButton(symbol: "arrow.up.arrow.down", title: "Сортировать", tip: "Порядок файлов", menu: true)
-    let viewButton = CommandButton(symbol: "square.grid.2x2", title: "Просмотреть", tip: "Вид", menu: true)
-    let moreButton = CommandButton(symbol: "ellipsis", tip: "Другие команды")
+    let newButton = CommandButton(symbol: "plus.circle", title: L("Создать"), tip: L("Создать папку или документ"), menu: true)
+    let cutButton = CommandButton(symbol: "scissors", tip: L("Вырезать (⌘X)"))
+    let copyButton = CommandButton(symbol: "doc.on.doc", tip: L("Копировать (⌘C)"))
+    let pasteButton = CommandButton(symbol: "doc.on.clipboard", tip: L("Вставить (⌘V)"))
+    let renameButton = CommandButton(symbol: "character.cursor.ibeam", tip: L("Переименовать"))
+    let shareButton = CommandButton(symbol: "square.and.arrow.up", tip: L("Поделиться"))
+    let deleteButton = CommandButton(symbol: "trash", tip: L("Удалить (⌘⌫)"))
+    let sortButton = CommandButton(symbol: "arrow.up.arrow.down", title: L("Сортировать"), tip: L("Порядок файлов"), menu: true)
+    let viewButton = CommandButton(symbol: "square.grid.2x2", title: L("Просмотреть"), tip: L("Вид"), menu: true)
+    let moreButton = CommandButton(symbol: "ellipsis", tip: L("Другие команды"))
 
     override init(frame: NSRect) {
         super.init(frame: frame)

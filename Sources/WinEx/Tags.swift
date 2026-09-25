@@ -159,10 +159,10 @@ enum FileTags {
         }
         menu.addItem(.separator())
         // A tag that isn't in the list yet
-        let new = menu.addItem(withTitle: "Новый тег…", action: #selector(TagPrompt.ask(_:)), keyEquivalent: "")
+        let new = menu.addItem(withTitle: L("Новый тег…"), action: #selector(TagPrompt.ask(_:)), keyEquivalent: "")
         new.target = TagPrompt.shared
         new.representedObject = urls as NSArray
-        let item = NSMenuItem(title: "Теги", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: L("Теги"), action: nil, keyEquivalent: "")
         item.image = NSImage(systemSymbolName: "tag", accessibilityDescription: nil)
         item.submenu = menu
         return item
@@ -184,13 +184,13 @@ final class TagPrompt: NSObject {
     @objc func ask(_ sender: NSMenuItem) {
         guard let urls = sender.representedObject as? [URL], !urls.isEmpty else { return }
         let alert = NSAlert()
-        alert.messageText = "Новый тег"
-        alert.informativeText = urls.count == 1 ? "Для «\(urls[0].lastPathComponent)»" : "Для \(urls.count) объектов"
+        alert.messageText = L("Новый тег")
+        alert.informativeText = urls.count == 1 ? L("Для «%@»", urls[0].lastPathComponent) : L("Для %@ объектов", urls.count)
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.placeholderString = "Название тега"
+        field.placeholderString = L("Название тега")
         alert.accessoryView = field
-        alert.addButton(withTitle: "Добавить")
-        alert.addButton(withTitle: "Отмена")
+        alert.addButton(withTitle: L("Добавить"))
+        alert.addButton(withTitle: L("Отмена"))
         alert.window.initialFirstResponder = field
         NSApp.activate()
         guard alert.runModal() == .alertFirstButtonReturn else { return }

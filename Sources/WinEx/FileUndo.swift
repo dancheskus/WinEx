@@ -80,19 +80,19 @@ enum FileUndo {
     // MARK: Operations
 
     static func recordRename(from old: URL, to new: URL) {
-        register("Переименование", undo: { move([(new, old)]) }, redo: { move([(old, new)]) })
+        register(L("Переименование"), undo: { move([(new, old)]) }, redo: { move([(old, new)]) })
     }
 
     /// Cut & paste or drag: files went from `from` to `to`.
     static func recordMove(_ pairs: [(from: URL, to: URL)]) {
         guard !pairs.isEmpty else { return }
-        register("Перемещение", undo: { move(pairs.map { ($0.to, $0.from) }) }, redo: { move(pairs) })
+        register(L("Перемещение"), undo: { move(pairs.map { ($0.to, $0.from) }) }, redo: { move(pairs) })
     }
 
     /// Copies are undone by sending them to the Trash (like Finder); redo copies again.
     static func recordCopy(_ pairs: [(from: URL, to: URL)]) {
         guard !pairs.isEmpty else { return }
-        register("Копирование", undo: {
+        register(L("Копирование"), undo: {
             silentlyTrash(pairs.map(\.to))
         }, redo: {
             perform {
@@ -105,14 +105,14 @@ enum FileUndo {
     static func recordTrash(_ moved: [URL: URL]) {
         guard !moved.isEmpty else { return }
         let pairs = moved.map { (from: $0.key, to: $0.value) }
-        register("Перемещение в Корзину", undo: { move(pairs.map { ($0.to, $0.from) }) }, redo: { move(pairs) })
+        register(L("Перемещение в Корзину"), undo: { move(pairs.map { ($0.to, $0.from) }) }, redo: { move(pairs) })
     }
 
     /// A new folder / file: undo sends it to the Trash; redo brings it back.
     static func recordCreate(_ url: URL) {
         var trashed: URL?
         let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-        register(isFolder ? "Создание папки" : "Создание файла", undo: {
+        register(isFolder ? L("Создание папки") : L("Создание файла"), undo: {
             trashed = silentlyTrash([url]).first
         }, redo: {
             if let trashed { move([(trashed, url)]) }
@@ -127,7 +127,7 @@ enum FileUndo {
             for (url, list) in tags { try? FileTags.setTags(list, on: url) }
             NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
         }
-        register("Изменение тегов", undo: { apply(before) }, redo: { apply(after) })
+        register(L("Изменение тегов"), undo: { apply(before) }, redo: { apply(after) })
     }
 
     /// Moves to the Trash right away and returns the new locations.

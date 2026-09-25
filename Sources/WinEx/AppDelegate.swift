@@ -91,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
             for (index, tab) in controller.tabs.enumerated() {
                 var title = tab.title
-                if window.isMiniaturized && index == controller.selectedIndex { title += " (свёрнуто)" }
+                if window.isMiniaturized && index == controller.selectedIndex { title += L(" (свёрнуто)") }
                 let item = menu.addItem(withTitle: title, action: #selector(showFolderFromDock(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = DockTarget(controller: controller, tabID: tab.id)
@@ -101,7 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         }
         if menu.numberOfItems > 0 { menu.addItem(.separator()) }
-        menu.addItem(withTitle: "Новое окно", action: #selector(newWindow(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Новое окно"), action: #selector(newWindow(_:)), keyEquivalent: "").target = self
         return menu
     }
 
@@ -219,14 +219,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         statusItem.button?.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: "WinEx")
 
         let menu = NSMenu()
-        menu.addItem(withTitle: "Новое окно", action: #selector(newWindow(_:)), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Рабочий стол", action: #selector(openDesktopFolder(_:)), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Загрузки", action: #selector(openDownloadsFolder(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Новое окно"), action: #selector(newWindow(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Рабочий стол"), action: #selector(openDesktopFolder(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Загрузки"), action: #selector(openDownloadsFolder(_:)), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Настройки…", action: #selector(showSettings(_:)), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Проверить обновления…", action: #selector(checkForUpdates(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Настройки…"), action: #selector(showSettings(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Проверить обновления…"), action: #selector(checkForUpdates(_:)), keyEquivalent: "").target = self
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Выйти из WinEx (вернуть Finder)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: L("Выйти из WinEx (вернуть Finder)"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         statusItem.menu = menu
     }
 

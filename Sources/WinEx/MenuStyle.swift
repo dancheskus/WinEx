@@ -40,8 +40,8 @@ enum MenuStyle {
 
     /// Submenus by title.
     private static let submenuSymbols: [String: String] = [
-        "Вид": "square.grid.2x2", "Сортировка": "arrow.up.arrow.down", "Создать": "plus.circle",
-        "Открыть с помощью": "arrow.up.forward.app", "Теги": "tag",
+        L("Вид"): "square.grid.2x2", L("Сортировка"): "arrow.up.arrow.down", L("Создать"): "plus.circle",
+        L("Открыть с помощью"): "arrow.up.forward.app", L("Теги"): "tag",
     ]
 
     /// Gives every item of `menu` its icon and shortcut. The icon goes into the title (a text
@@ -190,7 +190,7 @@ enum MenuStyle {
         case String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): name = "↑"
         case String(Character(UnicodeScalar(NSBackspaceCharacter)!)): name = "⌫"
         case "\r": name = "↩"
-        case " ": name = "Пробел"
+        case " ": name = L("Пробел")
         default:
             // Upper-case letters stand for ⇧ + letter in key equivalents
             if key.uppercased() == key && key.lowercased() != key { modifiers.insert(.shift) }

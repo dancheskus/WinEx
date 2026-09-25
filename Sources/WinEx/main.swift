@@ -1,5 +1,7 @@
 import AppKit
 
+Localization.start()
+
 MainActor.assumeIsolated {
     let app = NSApplication.shared
     let delegate = AppDelegate()

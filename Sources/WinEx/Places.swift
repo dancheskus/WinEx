@@ -65,11 +65,11 @@ enum Places {
     static func deleteForever(_ urls: [URL], emptying: Bool) {
         guard !urls.isEmpty else { return }
         let alert = NSAlert()
-        alert.messageText = emptying ? "Очистить Корзину?" : "Удалить \(urls.count == 1 ? "«\(urls[0].lastPathComponent)»" : "\(urls.count) объектов") навсегда?"
-        alert.informativeText = "Это действие нельзя отменить."
+        alert.messageText = emptying ? L("Очистить Корзину?") : L("Удалить %@ навсегда?", urls.count == 1 ? "«\(urls[0].lastPathComponent)»" : L("%@ объектов", urls.count))
+        alert.informativeText = L("Это действие нельзя отменить.")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: emptying ? "Очистить Корзину" : "Удалить")
-        alert.addButton(withTitle: "Отменить")
+        alert.addButton(withTitle: emptying ? L("Очистить Корзину") : L("Удалить"))
+        alert.addButton(withTitle: L("Отменить"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         MainActor.assumeIsolated { FileOperations.start(.delete, urls) }
     }
@@ -179,7 +179,7 @@ enum NetworkMounter {
             MainActor.assumeIsolated {
                 if status != 0, status != Int32(ECANCELED), status != Int32(EEXIST) {
                     NSAlert(error: NSError(domain: NSPOSIXErrorDomain, code: Int(status),
-                                           userInfo: [NSLocalizedDescriptionKey: "Не удалось подключиться к «\(url.host ?? url.absoluteString)»."])).runModal()
+                                           userInfo: [NSLocalizedDescriptionKey: L("Не удалось подключиться к «%@».", url.host ?? url.absoluteString)])).runModal()
                 }
                 completion(path.map { URL(fileURLWithPath: $0) } ?? existingMount(for: url))
             }
@@ -200,13 +200,13 @@ enum NetworkMounter {
     @MainActor
     static func askAndMount(completion: @escaping @MainActor (URL?) -> Void) {
         let alert = NSAlert()
-        alert.messageText = "Подключение к серверу"
-        alert.informativeText = "Например: smb://NAS.local или afp://192.168.1.10/Share"
+        alert.messageText = L("Подключение к серверу")
+        alert.informativeText = L("Например: smb://NAS.local или afp://192.168.1.10/Share")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
         field.stringValue = AppDefaults.store.string(forKey: "lastServerAddress") ?? "smb://"
         alert.accessoryView = field
-        alert.addButton(withTitle: "Подключиться")
-        alert.addButton(withTitle: "Отменить")
+        alert.addButton(withTitle: L("Подключиться"))
+        alert.addButton(withTitle: L("Отменить"))
         alert.window.initialFirstResponder = field
         NSApp.activate()
         guard alert.runModal() == .alertFirstButtonReturn else { return }

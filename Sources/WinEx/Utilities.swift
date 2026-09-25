@@ -280,7 +280,7 @@ enum FileOps {
         let ext = (name as NSString).pathExtension
         var n = 1
         repeat {
-            let suffix = n == 1 ? " - копия" : " - копия (\(n))"
+            let suffix = n == 1 ? L(" - копия") : L(" - копия (%@)", n)
             candidate = directory.appendingPathComponent(base + suffix + (ext.isEmpty ? "" : "." + ext))
             n += 1
         } while fm.fileExists(atPath: candidate.path)
@@ -302,7 +302,7 @@ enum FileOps {
     }
 
     static func newFolderURL(in directory: URL) -> URL {
-        newItemURL(named: "Новая папка", in: directory)
+        newItemURL(named: L("Новая папка"), in: directory)
     }
 
     /// Moves or copies files into `directory` in the background, with Explorer's progress window
@@ -335,7 +335,10 @@ enum FileOps {
 }
 
 /// Russian plural: plural(5, "элемент", "элемента", "элементов") → "элементов"
+/// Russian forms for 1, 2–4 and 5+ ("файл", "файла", "файлов"); in English the singular for 1,
+/// the plural otherwise (the translations of `one` and `many`).
 func plural(_ n: Int, _ one: String, _ few: String, _ many: String) -> String {
+    if Localization.isEnglish { return n == 1 ? L(one) : L(many) }
     let mod10 = n % 10, mod100 = n % 100
     if mod10 == 1 && mod100 != 11 { return one }
     if (2...4).contains(mod10) && !(12...14).contains(mod100) { return few }

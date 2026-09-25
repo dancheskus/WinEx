@@ -375,7 +375,7 @@ enum Scenarios {
             }
         }
         let folder = s.makeFiles(["a.txt", "b.txt"], in: "Папка")
-        func window() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.title.hasPrefix("Свойства") } }
+        func window() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.title.hasPrefix(L("Свойства")) } }
         func tabs() -> PropertiesTabBar? { s.find(PropertiesTabBar.self, in: window()?.contentView) }
         @MainActor func shot(_ index: Int, then next: @escaping @MainActor () -> Void) {
             guard let number = window()?.windowNumber else { s.note("  (no window for shot \(index))"); return next() }

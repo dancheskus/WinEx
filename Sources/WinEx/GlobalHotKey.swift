@@ -11,11 +11,11 @@ final class GlobalHotKey {
 
         var title: String {
             switch self {
-            case .off: "Выключено"
+            case .off: L("Выключено")
             case .optionCommandE: "⌥⌘E"
             case .controlOptionE: "⌃⌥E"
             case .shiftCommandE: "⇧⌘E"
-            case .commandE: "⌘E — как Win+E"
+            case .commandE: L("⌘E — как Win+E")
             }
         }
 

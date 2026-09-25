@@ -80,7 +80,7 @@ final class Updater {
                 let release = try JSONDecoder().decode(Release.self, from: data)
                 handle(release, userInitiated: userInitiated)
             } catch {
-                if userInitiated { tell("Не удалось проверить обновления", error.localizedDescription) }
+                if userInitiated { tell(L("Не удалось проверить обновления"), error.localizedDescription) }
             }
         }
     }
@@ -90,10 +90,10 @@ final class Updater {
         if isDevBuild {
             guard userInitiated else { return }
             let alert = NSAlert()
-            alert.messageText = "Это своя сборка WinEx"
-            alert.informativeText = "Она собрана из исходников и не заменяется релизами (последний — \(release.version)). Чтобы получать обновления автоматически, установите WinEx со страницы релизов."
+            alert.messageText = L("Это своя сборка WinEx")
+            alert.informativeText = L("Она собрана из исходников и не заменяется релизами (последний — %@). Чтобы получать обновления автоматически, установите WinEx со страницы релизов.", release.version)
             alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Страница релизов…")
+            alert.addButton(withTitle: L("Страница релизов…"))
             NSApp.activate()
             if alert.runModal() == .alertSecondButtonReturn, let url = release.html_url ?? URL(string: "https://github.com/\(Self.repository)/releases") {
                 NSWorkspace.shared.open(url)
@@ -101,7 +101,7 @@ final class Updater {
             return
         }
         guard Self.isVersion(release.version, newerThan: currentVersion), release.archive != nil else {
-            if userInitiated { tell("Установлена последняя версия", "WinEx \(currentVersion) — самая новая.") }
+            if userInitiated { tell(L("Установлена последняя версия"), L("WinEx %@ — самая новая.", currentVersion)) }
             return
         }
         if !userInitiated && AppDefaults.store.string(forKey: "skippedVersion") == release.version { return }
@@ -110,13 +110,13 @@ final class Updater {
         if ProcessInfo.processInfo.environment["WINEX_AUTO_UPDATE"] != nil { return install(release) }
         #endif
         let alert = NSAlert()
-        alert.messageText = "Доступна новая версия WinEx \(release.version)"
+        alert.messageText = L("Доступна новая версия WinEx %@", release.version)
         var notes = (release.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if notes.count > 900 { notes = String(notes.prefix(900)) + "…" }
-        alert.informativeText = "У вас \(currentVersion)." + (notes.isEmpty ? "" : "\n\n" + notes)
-        alert.addButton(withTitle: "Обновить и перезапустить")
-        alert.addButton(withTitle: "Позже")
-        alert.addButton(withTitle: "Пропустить эту версию")
+        alert.informativeText = L("У вас %@.", currentVersion) + (notes.isEmpty ? "" : "\n\n" + notes)
+        alert.addButton(withTitle: L("Обновить и перезапустить"))
+        alert.addButton(withTitle: L("Позже"))
+        alert.addButton(withTitle: L("Пропустить эту версию"))
         NSApp.activate()
         switch alert.runModal() {
         case .alertFirstButtonReturn: install(release)
@@ -142,22 +142,22 @@ final class Updater {
         guard let asset = release.archive else { return }
         let target = Bundle.main.bundleURL
         guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
-            tell("Не удалось обновить WinEx", "Нет прав на запись в «\(target.deletingLastPathComponent().path)». Переместите WinEx в «Программы».")
+            tell(L("Не удалось обновить WinEx"), L("Нет прав на запись в «%@». Переместите WinEx в «Программы».", target.deletingLastPathComponent().path))
             return
         }
-        let indicator = BusyIndicator(title: "Загрузка WinEx \(release.version)…") {}
+        let indicator = BusyIndicator(title: L("Загрузка WinEx %@…", release.version)) {}
         Task {
             do {
                 let app = try await download(asset.browser_download_url)
                 indicator.close()
                 guard Self.isSignedLikeUs(app) else {
-                    tell("Обновление не установлено", "Новая версия подписана другим сертификатом — это может быть подделка. Скачайте WinEx вручную со страницы релизов.")
+                    tell(L("Обновление не установлено"), L("Новая версия подписана другим сертификатом — это может быть подделка. Скачайте WinEx вручную со страницы релизов."))
                     return
                 }
                 relaunch(replacing: target, with: app)
             } catch {
                 indicator.close()
-                tell("Не удалось загрузить обновление", error.localizedDescription)
+                tell(L("Не удалось загрузить обновление"), error.localizedDescription)
             }
         }
     }
@@ -224,9 +224,32 @@ final class Updater {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch {
-            tell("Не удалось обновить WinEx", error.localizedDescription)
+            tell(L("Не удалось обновить WinEx"), error.localizedDescription)
             return
         }
+        isRelaunching = true
+        NSApp.terminate(nil)
+    }
+
+    /// Quits and starts again (a new language takes effect); Finder isn't brought back meanwhile.
+    func restart() {
+        #if DEBUG
+        if Scenario.isRequested { return }  // never relaunch the user's WinEx from a test run
+        #endif
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let marker = FinderReplacement.updateMarker(for: pid)
+        FileManager.default.createFile(atPath: marker, contents: nil)
+        let script = """
+            while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
+            /usr/bin/open "\(Bundle.main.bundleURL.path)"
+            sleep 5; rm -f "\(marker)"
+            """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return }
         isRelaunching = true
         NSApp.terminate(nil)
     }

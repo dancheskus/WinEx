@@ -91,7 +91,7 @@ final class DrivesView: NSScrollView {
             return tile
         }
         headers = []
-        for title in ["Устройства и диски", "Сетевые расположения"] {
+        for title in [L("Устройства и диски"), L("Сетевые расположения")] {
             let label = NSTextField(labelWithString: title)
             label.font = .systemFont(ofSize: 15)
             label.textColor = .controlAccentColor
@@ -159,14 +159,14 @@ final class DrivesView: NSScrollView {
             item.target = handler
             item.representedObject = handler
         }
-        add("Открыть") { [weak self] in self?.onOpen?(drive.url) }
-        add("Открыть в новой вкладке") { [weak self] in self?.onOpenInNewTab?(drive.url) }
+        add(L("Открыть")) { [weak self] in self?.onOpen?(drive.url) }
+        add(L("Открыть в новой вкладке")) { [weak self] in self?.onOpenInNewTab?(drive.url) }
         if drive.ejectable {
             menu.addItem(.separator())
-            add("Извлечь «\(drive.name)»") { SystemDesktop.eject(drive.url) }
+            add(L("Извлечь «%@»", drive.name)) { SystemDesktop.eject(drive.url) }
         }
         menu.addItem(.separator())
-        add("Свойства") { [weak self] in self?.onProperties?(drive.url) }
+        add(L("Свойства")) { [weak self] in self?.onProperties?(drive.url) }
         return menu
     }
 }
@@ -209,7 +209,7 @@ private final class DriveTile: NSView {
         NSColor.separatorColor.setStroke()
         NSBezierPath(roundedRect: bar, xRadius: 3, yRadius: 3).stroke()
         let format = { (bytes: Int64) in ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
-        "\(format(free)) свободно из \(format(total))".draw(at: NSPoint(x: left, y: 44), withAttributes: [
+        L("%@ свободно из %@", format(free), format(total)).draw(at: NSPoint(x: left, y: 44), withAttributes: [
             .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor,
         ])
     }

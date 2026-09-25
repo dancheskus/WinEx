@@ -52,6 +52,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Localization.locale
         formatter.dateStyle = .short
         formatter.timeStyle = .short
         return formatter
@@ -306,7 +307,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             guard !request.isTooShort else {
                 startSearch(nil)
                 errorMessage = nil
-                searchNote = "Введите хотя бы 2 символа для поиска на всём Mac"
+                searchNote = L("Введите хотя бы 2 символа для поиска на всём Mac")
                 refilter(keepSelection: false)
                 return
             }
@@ -453,7 +454,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 symbol.withSymbolConfiguration(.init(pointSize: 40, weight: .light))?.draw(in: DesktopView.aspectFit(symbol.size, in: rect.insetBy(dx: 8, dy: 8)))
                 return true
             } } ?? NSImage()
-        allItems = NetworkBrowser.shared.servers.map { FileItem(virtual: $0.name, url: $0.url, icon: icon, kind: "Сервер (\($0.url.scheme?.uppercased() ?? ""))") }
+        allItems = NetworkBrowser.shared.servers.map { FileItem(virtual: $0.name, url: $0.url, icon: icon, kind: L("Сервер (%@)", $0.url.scheme?.uppercased() ?? "")) }
         allItemsOrder = nil
         errorMessage = nil
     }
@@ -463,7 +464,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         allItemsOrder = listing.order
         errorMessage = listing.error.map { error in
             location == .trash
-                ? "WinEx нужен «Полный доступ к диску», чтобы показать Корзину (правый клик → открыть настройки)"
+                ? L("WinEx нужен «Полный доступ к диску», чтобы показать Корзину (правый клик → открыть настройки)")
                 : error.localizedDescription
         }
     }
@@ -496,7 +497,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         emptyState.isHidden = true
         drivesView.reload()
         view.window?.makeFirstResponder(drivesView)
-        delegate?.fileList(self, didUpdateStatus: "\(drivesView.driveCount) \(plural(drivesView.driveCount, "диск", "диска", "дисков"))")
+        delegate?.fileList(self, didUpdateStatus: "\(drivesView.driveCount) \(plural(drivesView.driveCount, L("диск"), L("диска"), L("дисков")))")
     }
 
     // MARK: Size of the selection
@@ -513,7 +514,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         guard let size = selectionSize else { return nil }
         let bytes = ByteCountFormatter.string(fromByteCount: size.bytes, countStyle: .file)
         if !size.counting { return bytes }
-        return size.bytes > 0 ? "\(bytes) + папки…" : "размер считается…"
+        return size.bytes > 0 ? L("%@ + папки…", bytes) : L("размер считается…")
     }
 
     /// Files are summed right away; folders are walked at background priority once the selection
@@ -555,22 +556,22 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         trashBar.canEmpty = inTrash && errorMessage == nil && !allItems.isEmpty
         guard items.isEmpty, drivesView.isHidden else { return emptyState.isHidden = true }
         if location == .trash, errorMessage != nil {
-            emptyState.show("Нет доступа к Корзине",
-                            detail: "macOS показывает Корзину только программам с «Полным доступом к диску». Включите WinEx в настройках и нажмите «Закрыть и открыть снова». После пересборки WinEx доступ нужно дать заново.",
-                            button: "Открыть настройки «Полный доступ к диску»…") { Places.openFullDiskAccessSettings() }
+            emptyState.show(L("Нет доступа к Корзине"),
+                            detail: L("macOS показывает Корзину только программам с «Полным доступом к диску». Включите WinEx в настройках и нажмите «Закрыть и открыть снова». После пересборки WinEx доступ нужно дать заново."),
+                            button: L("Открыть настройки «Полный доступ к диску»…")) { Places.openFullDiskAccessSettings() }
         } else if let errorMessage {
-            emptyState.show("Нет доступа к папке", detail: errorMessage)
+            emptyState.show(L("Нет доступа к папке"), detail: errorMessage)
         } else if let searchNote {
             emptyState.show(searchNote)
         } else if case .search = location {
-            if searchState.gathering || searchState.walking { emptyState.isHidden = true } else { emptyState.show("Ничего не найдено") }
+            if searchState.gathering || searchState.walking { emptyState.isHidden = true } else { emptyState.show(L("Ничего не найдено")) }
         } else if location == .network {
-            emptyState.show("Серверы не найдены", detail: "Подключиться к серверу по адресу — ⌘K.")
+            emptyState.show(L("Серверы не найдены"), detail: L("Подключиться к серверу по адресу — ⌘K."))
         } else if case .tag = location {
             emptyState.isHidden = !(search.map { !$0.state.gathering } ?? true)
-            if !emptyState.isHidden { emptyState.show("Нет файлов с этим тегом") }
+            if !emptyState.isHidden { emptyState.show(L("Нет файлов с этим тегом")) }
         } else if !loader.isWaiting {
-            emptyState.show(location == .trash ? "Корзина пуста" : "Эта папка пуста")
+            emptyState.show(location == .trash ? L("Корзина пуста") : L("Эта папка пуста"))
         } else {
             emptyState.isHidden = true
         }
@@ -579,19 +580,19 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func updateStatus() {
         guard drivesView.isHidden else { return }  // "Этот Mac" keeps its own status
         updateEmptyState()
-        var status = "\(items.count) \(plural(items.count, "элемент", "элемента", "элементов"))"
+        var status = "\(items.count) \(plural(items.count, L("элемент"), L("элемента"), L("элементов")))"
         if search != nil, case .search = location {
-            status = "Найдено: \(items.count)"
-            if searchState.truncated { status += " (показаны самые подходящие)" }
-            if searchState.gathering || searchState.walking { status += "    Поиск…" }
+            status = L("Найдено: %@", items.count)
+            if searchState.truncated { status += L(" (показаны самые подходящие)") }
+            if searchState.gathering || searchState.walking { status += L("    Поиск…") }
         }
         if let searchNote { status = searchNote }
         let selected = selectedIndexes.count
         if selected > 0 {
-            status += "    Выбрано: \(selected)"
+            status += L("    Выбрано: %@", selected)
             if let size = selectionSizeText() { status += " — \(size)" }
         }
-        if let errorMessage { status = "Нет доступа: \(errorMessage)" }
+        if let errorMessage { status = L("Нет доступа: %@", errorMessage) }
         delegate?.fileList(self, didUpdateStatus: status)
         QuickLook.selectionChanged(in: self)
     }
@@ -897,8 +898,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let failed = Places.putBack(targetURLs)
         if !failed.isEmpty {
             let alert = NSAlert()
-            alert.messageText = "Не удалось вернуть: \(failed.map(\.lastPathComponent).joined(separator: ", "))"
-            alert.informativeText = "Для этих объектов не сохранилось исходное расположение."
+            alert.messageText = L("Не удалось вернуть: %@", failed.map(\.lastPathComponent).joined(separator: ", "))
+            alert.informativeText = L("Для этих объектов не сохранилось исходное расположение.")
             alert.runModal()
         }
     }
@@ -1003,20 +1004,20 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
         if clickedIndex >= 0 && showingNetwork {
-            add("Подключиться", #selector(openSelected(_:)))
+            add(L("Подключиться"), #selector(openSelected(_:)))
             return
         }
         if clickedIndex >= 0 && location == .trash {
-            add("Вернуть", #selector(putBackFromTrash(_:)))
-            add("Удалить навсегда", #selector(deleteForever(_:)))
+            add(L("Вернуть"), #selector(putBackFromTrash(_:)))
+            add(L("Удалить навсегда"), #selector(deleteForever(_:)))
             menu.addItem(.separator())
-            add("Быстрый просмотр", #selector(quickLook(_:)))
-            add("Свойства", #selector(showProperties(_:)))
+            add(L("Быстрый просмотр"), #selector(quickLook(_:)))
+            add(L("Свойства"), #selector(showProperties(_:)))
             return
         }
         if clickedIndex < 0 && location == .trash {
-            add("Очистить Корзину", #selector(emptyTrash(_:)))
-            if errorMessage != nil { add("Открыть настройки «Полный доступ к диску»…", #selector(openFullDiskAccess(_:))) }
+            add(L("Очистить Корзину"), #selector(emptyTrash(_:)))
+            if errorMessage != nil { add(L("Открыть настройки «Полный доступ к диску»…"), #selector(openFullDiskAccess(_:))) }
             return
         }
         if clickedIndex >= 0 {
@@ -1026,12 +1027,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                                      customizableFolder: rows.count == 1 && rows.first.map { items[$0].isFolder } == true)
             if search != nil, rows.count == 1, let open = menu.items.firstIndex(where: { $0.action == #selector(openSelected(_:)) }) {
                 // Search and tag results come from anywhere: Explorer's "Open file location"
-                let reveal = NSMenuItem(title: "Показать в папке", action: #selector(revealInFolder(_:)), keyEquivalent: "")
+                let reveal = NSMenuItem(title: L("Показать в папке"), action: #selector(revealInFolder(_:)), keyEquivalent: "")
                 reveal.target = self
                 menu.insertItem(reveal, at: open + 1)
             }
         } else {
-            let viewItem = NSMenuItem(title: "Вид", action: nil, keyEquivalent: "")
+            let viewItem = NSMenuItem(title: L("Вид"), action: nil, keyEquivalent: "")
             let viewMenu = NSMenu()
             for mode in ViewMode.allCases {
                 let item = viewMenu.addItem(withTitle: mode.title, action: #selector(changeViewMode(_:)), keyEquivalent: "")
@@ -1039,21 +1040,21 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 item.tag = mode.rawValue
             }
             viewMenu.addItem(.separator())
-            viewMenu.addItem(withTitle: "Применить ко всем папкам", action: #selector(applyToAllFolders(_:)), keyEquivalent: "").target = self
+            viewMenu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyToAllFolders(_:)), keyEquivalent: "").target = self
             viewItem.submenu = viewMenu
             menu.addItem(viewItem)
 
             let sortMenu = makeSortMenu()
-            menu.addItem(withTitle: "Сортировка", action: nil, keyEquivalent: "").submenu = sortMenu
-            add("Обновить", #selector(refresh(_:)))
+            menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
+            add(L("Обновить"), #selector(refresh(_:)))
             menu.addItem(.separator())
-            add("Вставить", #selector(paste(_:)))
+            add(L("Вставить"), #selector(paste(_:)))
             menu.addItem(.separator())
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
             menu.addItem(.separator())
-            add("Копировать путь к папке", #selector(copyPath(_:)))
+            add(L("Копировать путь к папке"), #selector(copyPath(_:)))
             if let directory, let terminal = TerminalLauncher.menuItem(for: [directory]) { menu.addItem(terminal) }
-            add("Свойства", #selector(showProperties(_:)))
+            add(L("Свойства"), #selector(showProperties(_:)))
         }
     }
 
@@ -1070,11 +1071,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         for key in [FileColumn.name, .date, .type] { addKey(key, to: sortMenu) }
         let more = NSMenu()
         for key in [FileColumn.size, .created, .added] { addKey(key, to: more) }
-        let moreItem = sortMenu.addItem(withTitle: "Дополнительно", action: nil, keyEquivalent: "")
+        let moreItem = sortMenu.addItem(withTitle: L("Дополнительно"), action: nil, keyEquivalent: "")
         moreItem.submenu = more
         if more.items.contains(where: { $0.state == .on }) { moreItem.state = .on }
         sortMenu.addItem(.separator())
-        for (ascending, title) in [(true, "По возрастанию"), (false, "По убыванию")] {
+        for (ascending, title) in [(true, L("По возрастанию")), (false, L("По убыванию"))] {
             let item = sortMenu.addItem(withTitle: title, action: #selector(sortOrder(_:)), keyEquivalent: "")
             item.target = self
             item.tag = ascending ? 1 : 0
@@ -1216,8 +1217,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.target = self
             return item
         }
-        add("Столбец по размеру содержимого", #selector(fitClickedColumn(_:))).isEnabled = headerMenuColumn != nil
-        add("Все столбцы по размеру содержимого", #selector(fitAllColumns(_:)))
+        add(L("Столбец по размеру содержимого"), #selector(fitClickedColumn(_:))).isEnabled = headerMenuColumn != nil
+        add(L("Все столбцы по размеру содержимого"), #selector(fitAllColumns(_:)))
         menu.addItem(.separator())
         for column in FileColumn.allCases where column != .folder {
             let item = add(column.title, #selector(toggleColumn(_:)))
@@ -1478,15 +1479,15 @@ private final class TrashBar: NSView {
     static let height: CGFloat = 40
     var onEmpty: (() -> Void)?
     var canEmpty = false { didSet { button.isEnabled = canEmpty } }
-    private let button = NSButton(title: "Очистить", target: nil, action: nil)
+    private let button = NSButton(title: L("Очистить"), target: nil, action: nil)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        let title = NSTextField(labelWithString: "Корзина")
+        let title = NSTextField(labelWithString: L("Корзина"))
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         button.bezelStyle = .push
         button.controlSize = .regular
-        button.toolTip = "Удалить навсегда всё, что лежит в Корзине"
+        button.toolTip = L("Удалить навсегда всё, что лежит в Корзине")
         button.target = self
         button.action = #selector(empty(_:))
         let line = NSBox()
@@ -1518,14 +1519,14 @@ enum FileColumn: String, CaseIterable {
 
     var title: String {
         switch self {
-        case .name: "Имя"
-        case .date: "Дата изменения"
-        case .created: "Дата создания"
-        case .added: "Дата добавления"
-        case .type: "Тип"
-        case .size: "Размер"
-        case .tags: "Теги"
-        case .folder: "Папка"
+        case .name: L("Имя")
+        case .date: L("Дата изменения")
+        case .created: L("Дата создания")
+        case .added: L("Дата добавления")
+        case .type: L("Тип")
+        case .size: L("Размер")
+        case .tags: L("Теги")
+        case .folder: L("Папка")
         }
     }
 

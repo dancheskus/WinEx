@@ -21,21 +21,21 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
 
     /// Curated SF Symbols, in the same spirit as Finder's sections.
     private static let symbolSections: [(String, [String])] = [
-        ("Люди", ["person.fill", "person.2.fill", "person.crop.circle", "figure.stand", "figure.2.and.child.holdinghands",
+        (L("Люди"), ["person.fill", "person.2.fill", "person.crop.circle", "figure.stand", "figure.2.and.child.holdinghands",
                   "face.smiling", "brain.head.profile", "eye", "hand.raised.fill", "hand.thumbsup.fill", "heart.fill", "star.fill"]),
-        ("Животные и природа", ["hare.fill", "tortoise.fill", "dog.fill", "cat.fill", "bird.fill", "fish.fill",
+        (L("Животные и природа"), ["hare.fill", "tortoise.fill", "dog.fill", "cat.fill", "bird.fill", "fish.fill",
                                 "pawprint.fill", "leaf.fill", "tree.fill", "flame.fill", "drop.fill", "sun.max.fill",
                                 "moon.fill", "cloud.fill", "snowflake", "bolt.fill"]),
-        ("Работа и учёба", ["briefcase.fill", "doc.text.fill", "folder.fill", "book.fill", "graduationcap.fill", "pencil",
+        (L("Работа и учёба"), ["briefcase.fill", "doc.text.fill", "folder.fill", "book.fill", "graduationcap.fill", "pencil",
                             "paintbrush.fill", "hammer.fill", "wrench.and.screwdriver.fill", "chart.bar.fill", "calendar",
                             "tray.full.fill", "archivebox.fill", "paperclip", "lock.fill", "key.fill"]),
-        ("Медиа", ["photo.fill", "camera.fill", "video.fill", "film.fill", "music.note", "headphones", "mic.fill",
+        (L("Медиа"), ["photo.fill", "camera.fill", "video.fill", "film.fill", "music.note", "headphones", "mic.fill",
                    "gamecontroller.fill", "tv.fill", "play.rectangle.fill"]),
-        ("Техника", ["desktopcomputer", "laptopcomputer", "iphone", "keyboard", "server.rack", "externaldrive.fill",
+        (L("Техника"), ["desktopcomputer", "laptopcomputer", "iphone", "keyboard", "server.rack", "externaldrive.fill",
                      "cpu.fill", "terminal.fill", "chevron.left.forwardslash.chevron.right", "network", "wifi", "globe"]),
-        ("Места и транспорт", ["house.fill", "building.2.fill", "map.fill", "mappin.and.ellipse", "airplane", "car.fill",
+        (L("Места и транспорт"), ["house.fill", "building.2.fill", "map.fill", "mappin.and.ellipse", "airplane", "car.fill",
                                "bicycle", "tram.fill", "ferry.fill", "suitcase.fill"]),
-        ("Покупки и деньги", ["cart.fill", "bag.fill", "creditcard.fill", "banknote.fill", "gift.fill", "tag.fill"]),
+        (L("Покупки и деньги"), ["cart.fill", "bag.fill", "creditcard.fill", "banknote.fill", "gift.fill", "tag.fill"]),
     ]
 
     init(folder: URL) {
@@ -76,8 +76,8 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
             grid.trailingAnchor.constraint(lessThanOrEqualTo: clip.trailingAnchor),
         ])
 
-        let clear = NSButton(title: "Очистить", target: self, action: #selector(clearCustomization(_:)))
-        let emoji = NSButton(title: "Эмодзи", image: NSImage(systemSymbolName: "face.smiling", accessibilityDescription: nil)!,
+        let clear = NSButton(title: L("Очистить"), target: self, action: #selector(clearCustomization(_:)))
+        let emoji = NSButton(title: L("Эмодзи"), image: NSImage(systemSymbolName: "face.smiling", accessibilityDescription: nil)!,
                              target: self, action: #selector(pickEmoji(_:)))
         emoji.imagePosition = .imageLeading
         let buttons = NSStackView(views: [clear, emoji])
@@ -184,9 +184,9 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         }
 
         tagRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let removeAll = circleButton(image: NSImage(systemSymbolName: "tag.slash", accessibilityDescription: "Снять теги")!,
+        let removeAll = circleButton(image: NSImage(systemSymbolName: "tag.slash", accessibilityDescription: L("Снять теги"))!,
                                      color: nil, checked: false, action: #selector(removeAllTags(_:)))
-        removeAll.toolTip = "Снять все теги"
+        removeAll.toolTip = L("Снять все теги")
         tagRow.addArrangedSubview(removeAll)
         let applied = tags
         for tag in applied {
@@ -205,9 +205,9 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
             button.identifier = NSUserInterfaceItemIdentifier(tag.name)
             tagRow.addArrangedSubview(button)
         }
-        let add = circleButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: "Добавить тег")!,
+        let add = circleButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить тег"))!,
                                color: nil, checked: false, action: #selector(addCustomTag(_:)))
-        add.toolTip = "Добавить тег…"
+        add.toolTip = L("Добавить тег…")
         tagRow.addArrangedSubview(add)
     }
 
@@ -258,12 +258,12 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
 
     @objc private func addCustomTag(_ sender: Any?) {
         let alert = NSAlert()
-        alert.messageText = "Новый тег"
+        alert.messageText = L("Новый тег")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
-        field.placeholderString = "Название тега"
+        field.placeholderString = L("Название тега")
         alert.accessoryView = field
-        alert.addButton(withTitle: "Добавить")
-        alert.addButton(withTitle: "Отменить")
+        alert.addButton(withTitle: L("Добавить"))
+        alert.addButton(withTitle: L("Отменить"))
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let name = field.stringValue.trimmingCharacters(in: .whitespaces)

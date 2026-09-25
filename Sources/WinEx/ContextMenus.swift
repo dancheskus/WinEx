@@ -36,47 +36,47 @@ enum FileContextMenu {
         }
         // Windows 11: the everyday actions as a row of icon buttons on top
         menu.addItem(MenuStyle.actionRow(target: target, actions: [
-            ("Вырезать", "scissors", #selector(FileMenuActions.cut(_:))),
-            ("Копировать", "doc.on.doc", #selector(FileMenuActions.copy(_:))),
-            ("Переим.", "pencil", #selector(FileMenuActions.renameSelected(_:))),
-            ("Поделиться", "square.and.arrow.up", #selector(FileMenuActions.share(_:))),
-            ("Удалить", "trash", #selector(FileMenuActions.moveToTrash(_:))),
+            (L("Вырезать"), "scissors", #selector(FileMenuActions.cut(_:))),
+            (L("Копировать"), "doc.on.doc", #selector(FileMenuActions.copy(_:))),
+            (L("Переим."), "pencil", #selector(FileMenuActions.renameSelected(_:))),
+            (L("Поделиться"), "square.and.arrow.up", #selector(FileMenuActions.share(_:))),
+            (L("Удалить"), "trash", #selector(FileMenuActions.moveToTrash(_:))),
         ]))
         menu.addItem(.separator())
-        add("Открыть", #selector(FileMenuActions.openSelected(_:)))
+        add(L("Открыть"), #selector(FileMenuActions.openSelected(_:)))
         let single = urls.count == 1 ? urls.first : nil
         // Like Explorer: "Открыть" shows the app the file opens in
         if let single, !single.hasDirectoryPath, let app = NSWorkspace.shared.urlForApplication(toOpen: single) {
             menu.items.last?.image = NSWorkspace.shared.icon(forFile: app.path)
         }
         if let single, FileCommands.isPackage(single) {
-            add("Показать содержимое пакета", #selector(FileMenuActions.showPackageContents(_:)))
+            add(L("Показать содержимое пакета"), #selector(FileMenuActions.showPackageContents(_:)))
         }
         if let single, FileCommands.isAlias(single) {
-            add("Показать оригинал", #selector(FileMenuActions.showOriginal(_:)))
+            add(L("Показать оригинал"), #selector(FileMenuActions.showOriginal(_:)))
         }
         if let openWith = OpenWithMenu.item(for: urls) { menu.addItem(openWith) }
         if folderTabs {
-            add("Открыть в новой вкладке", #selector(FileMenuActions.openInNewTab(_:)))
-            add("Открыть в новом окне", #selector(FileMenuActions.openInNewWindow(_:)))
+            add(L("Открыть в новой вкладке"), #selector(FileMenuActions.openInNewTab(_:)))
+            add(L("Открыть в новом окне"), #selector(FileMenuActions.openInNewWindow(_:)))
         }
         if let terminal = TerminalLauncher.menuItem(for: urls) { menu.addItem(terminal) }
         menu.addItem(.separator())
-        add("Копировать путь", #selector(FileMenuActions.copyPath(_:)))
-        add("Дублировать", #selector(FileMenuActions.duplicate(_:)))
-        add("Создать псевдоним", #selector(FileMenuActions.makeAlias(_:)))
-        add(single.map { "Сжать «\($0.lastPathComponent)»" } ?? "Сжать \(urls.count) \(plural(urls.count, "объект", "объекта", "объектов"))",
+        add(L("Копировать путь"), #selector(FileMenuActions.copyPath(_:)))
+        add(L("Дублировать"), #selector(FileMenuActions.duplicate(_:)))
+        add(L("Создать псевдоним"), #selector(FileMenuActions.makeAlias(_:)))
+        add(single.map { L("Сжать «%@»", $0.lastPathComponent) } ?? L("Сжать %@ %@", urls.count, plural(urls.count, L("объект"), L("объекта"), L("объектов"))),
             #selector(FileMenuActions.compress(_:)))
         if let single, FileCommands.isZip(single) {
-            add("Распаковать", #selector(FileMenuActions.extractArchive(_:)))
+            add(L("Распаковать"), #selector(FileMenuActions.extractArchive(_:)))
         }
         menu.addItem(.separator())
         // Finder's row of tag colours, then the tags submenu
         menu.addItem(TagRowMenuView.menuItem(for: urls))
         menu.addItem(FileTags.menuItem(for: urls, target: target, action: #selector(FileMenuActions.toggleTag(_:))))
-        if customizableFolder { add("Настроить папку…", #selector(FileMenuActions.customizeFolder(_:))) }
+        if customizableFolder { add(L("Настроить папку…"), #selector(FileMenuActions.customizeFolder(_:))) }
         menu.addItem(.separator())
-        add("Свойства", #selector(FileMenuActions.showProperties(_:)))
+        add(L("Свойства"), #selector(FileMenuActions.showProperties(_:)))
         MenuStyle.decorate(menu)
     }
 
@@ -119,7 +119,7 @@ final class OpenWithMenu: NSObject {
         let menu = NSMenu()
         for (index, app) in apps.enumerated() {
             let isDefault = index == 0 && app == defaultApp
-            let title = appName(app) + (isDefault ? " (по умолчанию)" : "")
+            let title = appName(app) + (isDefault ? L(" (по умолчанию)") : "")
             let item = menu.addItem(withTitle: title, action: #selector(openWith(_:)), keyEquivalent: "")
             item.target = shared
             item.representedObject = Request(urls: urls, app: app)
@@ -129,11 +129,11 @@ final class OpenWithMenu: NSObject {
             if isDefault && apps.count > 1 { menu.addItem(.separator()) }
         }
         if !apps.isEmpty { menu.addItem(.separator()) }
-        let other = menu.addItem(withTitle: "Выбрать другую программу…", action: #selector(chooseOther(_:)), keyEquivalent: "")
+        let other = menu.addItem(withTitle: L("Выбрать другую программу…"), action: #selector(chooseOther(_:)), keyEquivalent: "")
         other.target = shared
         other.representedObject = Request(urls: urls, app: nil)
 
-        let item = NSMenuItem(title: "Открыть с помощью", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: L("Открыть с помощью"), action: nil, keyEquivalent: "")
         item.submenu = menu
         return item
     }
@@ -152,8 +152,8 @@ final class OpenWithMenu: NSObject {
     @objc private func chooseOther(_ sender: NSMenuItem) {
         guard let request = sender.representedObject as? Request else { return }
         let panel = NSOpenPanel()
-        panel.title = "Выберите программу"
-        panel.prompt = "Открыть"
+        panel.title = L("Выберите программу")
+        panel.prompt = L("Открыть")
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowedContentTypes = [.application]
         panel.canChooseDirectories = false
@@ -183,20 +183,20 @@ final class NewItemTemplate: NSObject {
 
     var isFolder: Bool { makeData == nil }
 
-    static let folder = NewItemTemplate("Папку", fileName: "Новая папка", symbol: "folder", type: nil, data: nil)
+    static let folder = NewItemTemplate(L("Папку"), fileName: L("Новая папка"), symbol: "folder", type: nil, data: nil)
 
     static let files: [NewItemTemplate] = [
-        NewItemTemplate("Текстовый документ", fileName: "Новый текстовый документ.txt", symbol: "doc.plaintext",
+        NewItemTemplate(L("Текстовый документ"), fileName: L("Новый текстовый документ.txt"), symbol: "doc.plaintext",
                         type: .plainText, data: { Data() }),
-        NewItemTemplate("Документ RTF", fileName: "Новый документ RTF.rtf", symbol: "doc.richtext",
+        NewItemTemplate(L("Документ RTF"), fileName: L("Новый документ RTF.rtf"), symbol: "doc.richtext",
                         type: .rtf, data: { NSAttributedString(string: "").rtf(from: NSRange(location: 0, length: 0), documentAttributes: [:]) ?? Data() }),
-        NewItemTemplate("Документ Markdown", fileName: "Новый документ Markdown.md", symbol: "doc.text",
+        NewItemTemplate(L("Документ Markdown"), fileName: L("Новый документ Markdown.md"), symbol: "doc.text",
                         type: UTType("net.daringfireball.markdown"), data: { Data() }),
-        NewItemTemplate("Документ Microsoft Word", fileName: "Новый документ Microsoft Word.docx", symbol: "doc.richtext.fill",
+        NewItemTemplate(L("Документ Microsoft Word"), fileName: L("Новый документ Microsoft Word.docx"), symbol: "doc.richtext.fill",
                         type: UTType("org.openxmlformats.wordprocessingml.document"), data: OfficeFiles.docx),
-        NewItemTemplate("Лист Microsoft Excel", fileName: "Новый лист Microsoft Excel.xlsx", symbol: "tablecells",
+        NewItemTemplate(L("Лист Microsoft Excel"), fileName: L("Новый лист Microsoft Excel.xlsx"), symbol: "tablecells",
                         type: UTType("org.openxmlformats.spreadsheetml.sheet"), data: OfficeFiles.xlsx),
-        NewItemTemplate("Презентация Microsoft PowerPoint", fileName: "Новая презентация Microsoft PowerPoint.pptx", symbol: "rectangle.on.rectangle",
+        NewItemTemplate(L("Презентация Microsoft PowerPoint"), fileName: L("Новая презентация Microsoft PowerPoint.pptx"), symbol: "rectangle.on.rectangle",
                         type: UTType("org.openxmlformats.presentationml.presentation"), data: OfficeFiles.pptx),
     ]
 
@@ -232,7 +232,7 @@ final class NewItemTemplate: NSObject {
         add(folder)
         menu.addItem(.separator())
         availableFiles.forEach(add)
-        let item = NSMenuItem(title: "Создать", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: L("Создать"), action: nil, keyEquivalent: "")
         item.submenu = menu
         return item
     }

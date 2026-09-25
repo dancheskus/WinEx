@@ -31,7 +31,7 @@ enum SidebarConfig {
             folder(.picturesDirectory, "photo"),
             folder(.musicDirectory, "music.note"),
             folder(.moviesDirectory, "film"),
-            Standard(title: "Программы", url: URL(fileURLWithPath: "/Applications"), symbol: "square.grid.3x3"),
+            Standard(title: L("Программы"), url: URL(fileURLWithPath: "/Applications"), symbol: "square.grid.3x3"),
         ].compactMap { $0 }
     }
 
@@ -88,14 +88,14 @@ enum SidebarConfig {
 
         var title: String {
             switch self {
-            case .computer: "Этот Mac"
+            case .computer: L("Этот Mac")
             case .iCloud: "iCloud Drive"
-            case .internalDisks: "Внутренние диски"
-            case .externalDisks: "Внешние диски"
-            case .servers: "Подключённые серверы"
+            case .internalDisks: L("Внутренние диски")
+            case .externalDisks: L("Внешние диски")
+            case .servers: L("Подключённые серверы")
             case .airDrop: "AirDrop"
-            case .network: "Сеть"
-            case .trash: "Корзина"
+            case .network: L("Сеть")
+            case .trash: L("Корзина")
             }
         }
 

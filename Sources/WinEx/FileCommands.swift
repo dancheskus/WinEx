@@ -23,7 +23,7 @@ enum FileCommands {
         guard let first = urls.first else { return }
         let folder = first.deletingLastPathComponent()
         let items = urls.filter { $0.deletingLastPathComponent().standardizedFileURL == folder.standardizedFileURL }
-        let base = items.count == 1 ? first.lastPathComponent : "Архив"
+        let base = items.count == 1 ? first.lastPathComponent : L("Архив")
         let archive = FileOps.newItemURL(named: base + ".zip", in: folder)
         let arguments: [String]
         let tool: String
@@ -46,7 +46,7 @@ enum FileCommands {
             arguments = ["-r", "-y", archive.path] + items.map(\.lastPathComponent)
             marker = "  adding: "
         }
-        let headline: [(text: String, link: URL?)] = [("Сжатие \(items.count) \(plural(items.count, "элемента", "элементов", "элементов")) в «\(archive.lastPathComponent)»", nil)]
+        let headline: [(text: String, link: URL?)] = [(L("Сжатие %@ %@ в «%@»", items.count, plural(items.count, L("элемента"), L("элементов"), L("элементов")), archive.lastPathComponent), nil)]
         run(tool, arguments, in: folder, headline: headline, total: total, marker: marker) { ok in
             if ok {
                 FileUndo.recordCreate(archive)
@@ -62,7 +62,7 @@ enum FileCommands {
         let fm = FileManager.default
         let folder = archive.deletingLastPathComponent()
         let staging = folder.appendingPathComponent(".winex-extract-\(UUID().uuidString)")
-        let headline: [(text: String, link: URL?)] = [("Распаковка «\(archive.lastPathComponent)» в ", nil), (folder.displayName, folder)]
+        let headline: [(text: String, link: URL?)] = [(L("Распаковка «%@» в ", archive.lastPathComponent), nil), (folder.displayName, folder)]
         run("/usr/bin/ditto", ["-V", "-x", "-k", archive.path, staging.path], in: folder, headline: headline,
             total: entryCount(of: archive), marker: "copying file ") { ok in
             defer { try? fm.removeItem(at: staging) }
@@ -128,7 +128,7 @@ enum FileCommands {
                     panel.close()
                     if !ok && !panel.cancelled {
                         let alert = NSAlert()
-                        alert.messageText = (headline.first?.text ?? "Архив") + " — не удалось"
+                        alert.messageText = (headline.first?.text ?? L("Архив")) + L(" — не удалось")
                         alert.informativeText = message.suffix(600).trimmingCharacters(in: .whitespacesAndNewlines)
                         alert.runModal()
                     }
@@ -154,7 +154,7 @@ enum FileCommands {
     static func makeAliases(_ urls: [URL], in folder: URL? = nil) {
         for url in urls {
             let target = folder ?? url.deletingLastPathComponent()
-            let alias = FileOps.newItemURL(named: "\(url.lastPathComponent) псевдоним", in: target)
+            let alias = FileOps.newItemURL(named: L("%@ псевдоним", url.lastPathComponent), in: target)
             do {
                 let data = try url.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil)
                 try URL.writeBookmarkData(data, to: alias)
@@ -180,8 +180,8 @@ enum FileCommands {
     static func showOriginal(of url: URL, reveal: (URL) -> Void) {
         guard let original = original(of: url) else {
             let alert = NSAlert()
-            alert.messageText = "Не удалось найти оригинал «\(url.lastPathComponent)»"
-            alert.informativeText = "Возможно, он удалён или находится на отключённом диске."
+            alert.messageText = L("Не удалось найти оригинал «%@»", url.lastPathComponent)
+            alert.informativeText = L("Возможно, он удалён или находится на отключённом диске.")
             alert.runModal()
             return
         }
@@ -235,7 +235,7 @@ final class ArchiveProgress {
     private(set) var cancelled = false
     private var closed = false
     private let total: Int
-    private let percent = NSTextField(labelWithString: "Подготовка…")
+    private let percent = NSTextField(labelWithString: L("Подготовка…"))
     private let bar = NSProgressIndicator()
     private let name = NSTextField(labelWithString: "")
 
@@ -250,7 +250,7 @@ final class ArchiveProgress {
         guard total > 0 else { return }
         let fraction = min(0.99, Double(done) / Double(total))
         bar.doubleValue = fraction * 100
-        percent.stringValue = "\(Int(fraction * 100))% выполнено"
+        percent.stringValue = L("%@% выполнено", Int(fraction * 100))
         window?.title = percent.stringValue
         name.stringValue = current
     }
@@ -268,9 +268,9 @@ final class ArchiveProgress {
         if total == 0 { bar.startAnimation(nil) }
         name.textColor = .secondaryLabelColor
         name.lineBreakMode = .byTruncatingMiddle
-        let stop = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: "Отмена") ?? NSImage(), target: nil, action: nil)
+        let stop = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: L("Отмена")) ?? NSImage(), target: nil, action: nil)
         stop.isBordered = false
-        stop.toolTip = "Отмена"
+        stop.toolTip = L("Отмена")
         let handler = ButtonHandler { [weak self] in
             self?.cancelled = true
             cancel()

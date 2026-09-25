@@ -22,10 +22,10 @@ enum FileOperations {
         operation.onError = { error, url in
             waitForMain { answer in
                 let alert = NSAlert()
-                alert.messageText = "Не удалось обработать «\(url.lastPathComponent)»"
+                alert.messageText = L("Не удалось обработать «%@»", url.lastPathComponent)
                 alert.informativeText = error.localizedDescription
-                alert.addButton(withTitle: "Пропустить")
-                alert.addButton(withTitle: "Отмена")
+                alert.addButton(withTitle: L("Пропустить"))
+                alert.addButton(withTitle: L("Отмена"))
                 answer(alert.runModal() == .alertFirstButtonReturn ? .skip : .cancel)
             }
         }
@@ -81,17 +81,17 @@ enum FileOperations {
 
     /// "Копирование 3 элементов из [Загрузки] в [Temp]" — folder names are links.
     static func headline(_ kind: FileOperation.Kind, count: Int, from: URL?, to: URL?) -> [(text: String, link: URL?)] {
-        let items = "\(count) \(plural(count, "элемента", "элементов", "элементов"))"
+        let items = "\(count) \(plural(count, L("элемента"), L("элементов"), L("элементов")))"
         var parts: [(String, URL?)]
         switch kind {
-        case .copy: parts = [("Копирование \(items)", nil)]
-        case .move: parts = [("Перемещение \(items)", nil)]
-        case .trash: parts = [("Перемещение \(items)", nil)]
-        case .delete: parts = [("Удаление \(items)", nil)]
+        case .copy: parts = [(L("Копирование %@", items), nil)]
+        case .move: parts = [(L("Перемещение %@", items), nil)]
+        case .trash: parts = [(L("Перемещение %@", items), nil)]
+        case .delete: parts = [(L("Удаление %@", items), nil)]
         }
-        if let from { parts += [(" из ", nil), (from.displayName, from)] }
-        if kind == .trash { parts.append((" в Корзину", nil)) }
-        if let to { parts += [(" в ", nil), (to.displayName, to)] }
+        if let from { parts += [(L(" из "), nil), (from.displayName, from)] }
+        if kind == .trash { parts.append((L(" в Корзину"), nil)) }
+        if let to { parts += [(L(" в "), nil), (to.displayName, to)] }
         return parts
     }
 }
@@ -101,7 +101,7 @@ enum FileOperations {
 @MainActor
 final class FileOperationWindowController: NSWindowController, NSWindowDelegate {
     private let operation: FileOperation
-    private let percentLabel = NSTextField(labelWithString: "Подготовка…")
+    private let percentLabel = NSTextField(labelWithString: L("Подготовка…"))
     private let pauseButton = NSButton()
     private let cancelButton = NSButton()
     private let graph = SpeedGraphView()
@@ -124,7 +124,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
                               styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        window.title = "Подготовка…"
+        window.title = L("Подготовка…")
         super.init(window: window)
         window.delegate = self
         build()
@@ -137,7 +137,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         let header = FileOperationUI.headlineView(headline)
 
         percentLabel.font = .systemFont(ofSize: 18)
-        for (button, symbol, tip) in [(pauseButton, "pause.fill", "Приостановить"), (cancelButton, "xmark", "Отмена")] {
+        for (button, symbol, tip) in [(pauseButton, "pause.fill", L("Приостановить")), (cancelButton, "xmark", L("Отмена"))] {
             button.bezelStyle = .accessoryBarAction
             button.isBordered = false
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: tip)
@@ -163,7 +163,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         details.orientation = .vertical
         details.alignment = .leading
         details.spacing = 6
-        for view in [graph, row("Имя:", nameValue), row("Осталось времени:", timeValue), row("Осталось элементов:", itemsValue)] {
+        for view in [graph, row(L("Имя:"), nameValue), row(L("Осталось времени:"), timeValue), row(L("Осталось элементов:"), itemsValue)] {
             details.addArrangedSubview(view)
         }
         graph.widthAnchor.constraint(equalTo: details.widthAnchor).isActive = true
@@ -236,14 +236,14 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         let percent = Int(progress.fraction * 100)
         let title: String
         switch progress.phase {
-        case .counting: title = "Подготовка…"
-        case .waiting: title = "Ожидание ответа…"
-        case .working, .finished: title = progress.paused ? "Приостановлено — \(percent)%" : "\(percent)% выполнено"
+        case .counting: title = L("Подготовка…")
+        case .waiting: title = L("Ожидание ответа…")
+        case .working, .finished: title = progress.paused ? L("Приостановлено — %@%", percent) : L("%@% выполнено", percent)
         }
         percentLabel.stringValue = title
         window?.title = title
         pauseButton.image = NSImage(systemSymbolName: progress.paused ? "play.fill" : "pause.fill", accessibilityDescription: nil)
-        pauseButton.toolTip = progress.paused ? "Продолжить" : "Приостановить"
+        pauseButton.toolTip = progress.paused ? L("Продолжить") : L("Приостановить")
 
         // Speed: smoothed over the last samples
         let now = Date()
@@ -260,7 +260,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         lastSample = (now, progress.doneBytes, progress.doneItems)
         graph.fraction = progress.fraction
         graph.speedText = progress.byBytes && speed > 0
-            ? "Скорость: \(ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file))/с" : ""
+            ? L("Скорость: %@/с", ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file)) : ""
 
         nameValue.stringValue = progress.currentName
         let remainingItems = max(0, progress.totalItems - progress.doneItems)
@@ -270,7 +270,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
             : "\(remainingItems)"
         let left = progress.byBytes ? Double(remainingBytes) : Double(remainingItems)
         timeValue.stringValue = speed > 0 && progress.phase == .working && !progress.paused
-            ? Self.duration(left / speed) : "Вычисление…"
+            ? Self.duration(left / speed) : L("Вычисление…")
     }
 
     static func duration(_ seconds: Double) -> String {
@@ -279,7 +279,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         formatter.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
         formatter.maximumUnitCount = 2
         formatter.calendar?.locale = Locale(identifier: "ru_RU")
-        return "около " + (formatter.string(from: max(1, seconds.rounded())) ?? "")
+        return L("около ") + (formatter.string(from: max(1, seconds.rounded())) ?? "")
     }
 
     // MARK: Actions
@@ -291,7 +291,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
 
     @objc private func cancelTransfer(_ sender: Any?) {
         operation.cancel()
-        percentLabel.stringValue = "Отмена…"
+        percentLabel.stringValue = L("Отмена…")
     }
 
     @objc private func toggleDetails(_ sender: Any?) {
@@ -301,7 +301,7 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
     private func showDetails(_ show: Bool) {
         details.isHidden = !show
         UserDefaults.standard.set(show, forKey: "operationDetails")
-        detailsToggle.title = show ? "Меньше подробностей" : "Больше подробностей"
+        detailsToggle.title = show ? L("Меньше подробностей") : L("Больше подробностей")
         detailsToggle.image = NSImage(systemSymbolName: show ? "chevron.up.circle" : "chevron.down.circle", accessibilityDescription: nil)
         fitToContent()
     }
@@ -413,7 +413,7 @@ final class ConflictWindowController: NSWindowController, NSWindowDelegate {
         self.conflicts = conflicts
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 450, height: 280), styleMask: [.titled, .closable],
                               backing: .buffered, defer: true)
-        window.title = "Замена или пропуск файлов"
+        window.title = L("Замена или пропуск файлов")
         window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
@@ -424,19 +424,19 @@ final class ConflictWindowController: NSWindowController, NSWindowDelegate {
 
     private var question: String {
         let n = conflicts.count
-        return "В папке назначения уже есть \(n) \(plural(n, "элемент", "элемента", "элементов")) с \(n == 1 ? "таким же именем" : "такими же именами")"
+        return L("В папке назначения уже есть %@ %@ с %@", n, plural(n, L("элемент"), L("элемента"), L("элементов")), n == 1 ? L("таким же именем") : L("такими же именами"))
     }
 
     /// The three big choices, like Explorer.
     private func showChoices() {
         let title = NSTextField(wrappingLabelWithString: question)
         title.font = .systemFont(ofSize: 16)
-        let replace = ChoiceButton(symbol: "checkmark", title: "Заменить файлы в папке назначения", target: self, action: #selector(replaceAll(_:)))
-        let skip = ChoiceButton(symbol: "arrow.uturn.backward", title: "Пропустить эти файлы", target: self, action: #selector(skipAll(_:)))
-        let decide = ChoiceButton(symbol: "arrow.triangle.branch", title: "Решить для каждого файла", target: self, action: #selector(decideEach(_:)))
+        let replace = ChoiceButton(symbol: "checkmark", title: L("Заменить файлы в папке назначения"), target: self, action: #selector(replaceAll(_:)))
+        let skip = ChoiceButton(symbol: "arrow.uturn.backward", title: L("Пропустить эти файлы"), target: self, action: #selector(skipAll(_:)))
+        let decide = ChoiceButton(symbol: "arrow.triangle.branch", title: L("Решить для каждого файла"), target: self, action: #selector(decideEach(_:)))
         replace.keyEquivalent = "\r"
         let names = NSTextField(wrappingLabelWithString: conflicts.prefix(8).map(\.source.lastPathComponent).joined(separator: ", ")
-                                + (conflicts.count > 8 ? " и ещё \(conflicts.count - 8)" : ""))
+                                + (conflicts.count > 8 ? L(" и ещё %@", conflicts.count - 8) : ""))
         names.textColor = .secondaryLabelColor
         names.font = .systemFont(ofSize: 11)
         setContent([FileOperationUI.headlineView(headline), title, replace, skip, decide, names], widths: [title, replace, skip, decide, names])
@@ -444,7 +444,7 @@ final class ConflictWindowController: NSWindowController, NSWindowDelegate {
 
     /// One row per clashing item: what's being copied, what's there, and what to do.
     @objc private func decideEach(_ sender: Any?) {
-        let title = NSTextField(wrappingLabelWithString: "Выберите, что сделать с каждым элементом")
+        let title = NSTextField(wrappingLabelWithString: L("Выберите, что сделать с каждым элементом"))
         title.font = .systemFont(ofSize: 16)
         let list = NSStackView()
         list.orientation = .vertical
@@ -458,7 +458,7 @@ final class ConflictWindowController: NSWindowController, NSWindowDelegate {
             let name = NSTextField(labelWithString: conflict.source.lastPathComponent)
             name.font = .systemFont(ofSize: 13, weight: .medium)
             name.lineBreakMode = .byTruncatingMiddle
-            let info = NSTextField(labelWithString: "Новый: \(Self.describe(conflict.source))\nВ папке: \(Self.describe(conflict.existing))")
+            let info = NSTextField(labelWithString: L("Новый: %@\nВ папке: %@", Self.describe(conflict.source), Self.describe(conflict.existing)))
             info.font = .systemFont(ofSize: 11)
             info.textColor = .secondaryLabelColor
             let text = NSStackView(views: [name, info])
@@ -467,7 +467,7 @@ final class ConflictWindowController: NSWindowController, NSWindowDelegate {
             text.spacing = 2
             text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             let popup = NSPopUpButton()
-            popup.addItems(withTitles: ["Заменить", "Пропустить", "Оставить оба"])
+            popup.addItems(withTitles: [L("Заменить"), L("Пропустить"), L("Оставить оба")])
             popup.selectItem(at: 1)
             choices.append(popup)
             let row = NSStackView(views: [icon, text, NSView(), popup])
@@ -489,9 +489,9 @@ final class ConflictWindowController: NSWindowController, NSWindowDelegate {
         list.topAnchor.constraint(equalTo: clip.topAnchor).isActive = true
         scroll.heightAnchor.constraint(equalToConstant: min(300, CGFloat(conflicts.count) * 52)).isActive = true
 
-        let cancel = NSButton(title: "Отмена", target: self, action: #selector(cancelAll(_:)))
+        let cancel = NSButton(title: L("Отмена"), target: self, action: #selector(cancelAll(_:)))
         cancel.keyEquivalent = "\u{1b}"
-        let go = NSButton(title: "Продолжить", target: self, action: #selector(applyEach(_:)))
+        let go = NSButton(title: L("Продолжить"), target: self, action: #selector(applyEach(_:)))
         go.keyEquivalent = "\r"
         let buttons = NSStackView(views: [NSView(), cancel, go])
         setContent([FileOperationUI.headlineView(headline), title, scroll, buttons], widths: [title, scroll, buttons])
@@ -500,9 +500,9 @@ final class ConflictWindowController: NSWindowController, NSWindowDelegate {
     private static func describe(_ url: URL) -> String {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isDirectoryKey])
         let size = values?.isDirectory == true
-            ? "папка" : ByteCountFormatter.string(fromByteCount: Int64(values?.fileSize ?? 0), countStyle: .file)
+            ? L("папка") : ByteCountFormatter.string(fromByteCount: Int64(values?.fileSize ?? 0), countStyle: .file)
         let date = values?.contentModificationDate.map { DateFormatter.localizedString(from: $0, dateStyle: .short, timeStyle: .short) } ?? ""
-        return "\(size), изменён \(date)"
+        return L("%@, изменён %@", size, date)
     }
 
     private func setContent(_ views: [NSView], widths: [NSView]) {
