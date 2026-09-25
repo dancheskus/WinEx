@@ -46,7 +46,10 @@ enum FileContextMenu {
         add(L("Открыть"), #selector(FileMenuActions.openSelected(_:)))
         let single = urls.count == 1 ? urls.first : nil
         // Like Explorer: "Открыть" shows the app the file opens in
-        if let single, !single.hasDirectoryPath, let app = NSWorkspace.shared.urlForApplication(toOpen: single) {
+        if let single, single.isBrowsableDirectory {
+            // A folder opens here, in WinEx
+            menu.items.last?.image = NSApp.applicationIconImage
+        } else if let single, let app = NSWorkspace.shared.urlForApplication(toOpen: single) {
             menu.items.last?.image = NSWorkspace.shared.icon(forFile: app.path)
         }
         if let single, FileCommands.isPackage(single) {
