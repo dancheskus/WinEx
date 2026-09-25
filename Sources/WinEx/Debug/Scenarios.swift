@@ -29,6 +29,7 @@ enum Scenarios {
         "properties": properties,
         "terminal": terminalMenu,
         "session": session,
+        "apps": appsSettings,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -455,6 +456,20 @@ enum Scenarios {
                 menu.delegate?.menuNeedsUpdate?(menu)
                 s.note("  has it: \(menu.items.contains { $0.action == NSSelectorFromString("openFromMenu:") })  expect true")
             }),
+            (0.3, "folder menu", {
+                try? FileManager.default.createDirectory(at: base.appendingPathComponent("папка"), withIntermediateDirectories: true)
+                s.window?.refresh(nil)
+            }),
+            (0.8, "folder menu items", {
+                s.setViewMode(.details)
+                s.select("папка")
+                guard let table = s.table, let menu = table.menu else { return }
+                s.note("  selected: \(s.selectedNames)")
+                guard let list = table.delegate as? FileListViewController else { return }
+                menu.removeAllItems()
+                FileContextMenu.addItems(to: menu, for: [base.appendingPathComponent("папка")], target: list, folderTabs: true, customizableFolder: true)
+                s.note("  folder menu: \(menu.items.map { $0.attributedTitle?.string.trimmingCharacters(in: .whitespaces) ?? $0.title }.filter { !$0.isEmpty })")
+            }),
             (0.3, "squeeze the window", {
                 guard let window = s.window?.window else { return }
                 window.setFrame(NSRect(x: 200, y: 200, width: 800, height: 500), display: true)
@@ -498,6 +513,42 @@ enum Scenarios {
                 s.note("  settings open: \(NSApp.windows.contains { $0.isVisible && $0.contentViewController is NSTabViewController })  expect true")
                 s.note("  session cleared: \(!app.restoreSession())  expect true")
             }),
+        ])
+    }
+
+    /// Settings ▸ Программы: an added app with its own item, a hidden app, a custom template.
+    static func appsSettings(_ s: Scenario) {
+        let base = s.makeFiles(["заметка.rtf"])
+        let folder = base.appendingPathComponent("проект")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let workspace = NSWorkspace.shared
+        let code = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode")
+        let pages = workspace.urlForApplication(withBundleIdentifier: "com.apple.iWork.Pages")
+        if let code { AppsConfig.apps = [AppsConfig.App(path: code.path, scope: .all, extensions: ["rtf", "md"], inMainMenu: true)] }
+        if let pages { AppsConfig.hiddenApps = [AppsConfig.identity(of: pages)] }
+        let sample = base.appendingPathComponent("образец.md")
+        try? "# Заметка\n".write(to: sample, atomically: true, encoding: .utf8)
+        AppsConfig.templates = [AppsConfig.Template(title: "Заметка Markdown", fileName: "Заметка.md", sourcePath: sample.path)]
+        AppsConfig.hiddenTemplates = ["pptx"]
+        func titles(_ item: NSMenuItem?) -> [String] { item?.submenu?.items.map(\.title).filter { !$0.isEmpty } ?? [] }
+        s.note("  VS Code: \(code != nil), Pages: \(pages != nil)")
+        s.note("  folder «Открыть с помощью»: \(titles(OpenWithMenu.item(for: [folder])))")
+        s.note("  folder own items: \(OpenWithMenu.mainMenuItems(for: [folder]).map(\.title))  expect [Открыть в Visual Studio Code]")
+        let rtf = base.appendingPathComponent("заметка.rtf")
+        s.note("  rtf «Открыть с помощью»: \(titles(OpenWithMenu.item(for: [rtf])))  expect no Pages")
+        s.note("  rtf own items: \(OpenWithMenu.mainMenuItems(for: [rtf]).map(\.title))")
+        s.note("  «Создать»: \(NewItemTemplate.availableFiles.map(\.title))  expect no PowerPoint, + Заметка Markdown")
+        if let custom = NewItemTemplate.availableFiles.last, let made = try? custom.create(in: folder) {
+            s.note("  created \(made.lastPathComponent): \((try? String(contentsOf: made, encoding: .utf8)) ?? "?")")
+        }
+        AppDelegate.shared.showSettings(tab: .apps)
+        s.run([
+            (1.2, "photograph", {
+                if let window = NSApp.windows.first(where: { $0.isVisible && $0.contentViewController is NSTabViewController }) {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (2.0, "done", {}),
         ])
     }
 

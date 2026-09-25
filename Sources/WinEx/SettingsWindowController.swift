@@ -3,7 +3,7 @@ import AppKit
 /// Settings, the way Mac apps lay them out: tabs in the toolbar, each a short form
 /// ("label: control", labels right-aligned in one column); explanations in "?" popovers.
 final class SettingsWindowController: NSWindowController {
-    enum Tab: Int { case general, sidebar, tags, finder, keyboard, access, updates }
+    enum Tab: Int { case general, sidebar, tags, apps, finder, keyboard, access, updates }
 
     private let tabs = NSTabViewController()
     private let tagsView = TagSettingsView()
@@ -53,6 +53,7 @@ final class SettingsWindowController: NSWindowController {
             (L("Основные"), "gearshape", generalPane()),
             (L("Боковое меню"), "sidebar.left", SidebarSettingsView()),
             (L("Теги"), "tag", tagsView),
+            (L("Программы"), "square.grid.2x2", AppsSettingsView()),
             ("Finder", "macwindow.on.rectangle", finderPane()),
             (L("Клавиатура"), "keyboard", keyboardPane()),
             (L("Доступ"), "lock.shield", accessPane()),
@@ -399,7 +400,7 @@ enum SettingsForm {
         case gap
     }
 
-    static let width: CGFloat = 540
+    static let width: CGFloat = 660
     static let controlWidth: CGFloat = 330
 
     static func build(_ rows: [Row]) -> NSView {
@@ -436,6 +437,13 @@ enum SettingsForm {
             container.widthAnchor.constraint(equalToConstant: width),
         ])
         return container
+    }
+
+    /// A grey explanation across the whole pane.
+    static func wideHint(_ text: String) -> NSTextField {
+        let label = hint(text)
+        label.preferredMaxLayoutWidth = width - 40
+        return label
     }
 
     /// Small grey explanation under a control.

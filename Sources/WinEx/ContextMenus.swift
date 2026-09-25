@@ -56,6 +56,7 @@ enum FileContextMenu {
             add(L("Показать оригинал"), #selector(FileMenuActions.showOriginal(_:)))
         }
         if let openWith = OpenWithMenu.item(for: urls) { menu.addItem(openWith) }
+        OpenWithMenu.mainMenuItems(for: urls).forEach(menu.addItem)
         if folderTabs {
             add(L("Открыть в новой вкладке"), #selector(FileMenuActions.openInNewTab(_:)))
             add(L("Открыть в новом окне"), #selector(FileMenuActions.openInNewWindow(_:)))
@@ -108,10 +109,14 @@ final class OpenWithMenu: NSObject {
         let defaultApp = workspace.urlForApplication(toOpen: first)
         var seen = Set<String>()
         var apps: [URL] = []
-        for app in [defaultApp].compactMap({ $0 }) + workspace.urlsForApplications(toOpen: first) {
+        // The system's apps for the first item (the ones hidden in Settings ▸ Программы left out,
+        // except the default one), then the apps added there
+        let added = AppsConfig.apps.filter { $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) }.map(\.url)
+        for app in [defaultApp].compactMap({ $0 }) + workspace.urlsForApplications(toOpen: first) + added {
             let name = appName(app)
             // Skip duplicates (several copies of one app) and WinEx itself
             guard !seen.contains(name), app.standardizedFileURL != Bundle.main.bundleURL.standardizedFileURL else { continue }
+            if app != defaultApp, AppsConfig.isHidden(app), !added.contains(app) { continue }
             seen.insert(name)
             apps.append(app)
         }
@@ -138,8 +143,22 @@ final class OpenWithMenu: NSObject {
         return item
     }
 
+    /// "Открыть в Visual Studio Code": the apps chosen in Settings ▸ Программы to have an item
+    /// of their own in the context menu.
+    static func mainMenuItems(for urls: [URL]) -> [NSMenuItem] {
+        AppsConfig.apps.filter { $0.inMainMenu && $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) }.map { app in
+            let item = NSMenuItem(title: L("Открыть в %@", app.name), action: #selector(openWith(_:)), keyEquivalent: "")
+            item.target = shared
+            item.representedObject = Request(urls: urls, app: app.url)
+            let icon = NSWorkspace.shared.icon(forFile: app.path)
+            icon.size = NSSize(width: 18, height: 18)
+            item.image = icon
+            return item
+        }
+    }
+
     /// Localized app name without ".app" ("Книги", "Visual Studio Code").
-    private static func appName(_ app: URL) -> String {
+    nonisolated static func appName(_ app: URL) -> String {
         let name = FileManager.default.displayName(atPath: app.path)
         return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
     }
@@ -173,7 +192,13 @@ final class NewItemTemplate: NSObject {
     private let contentType: UTType?
     private let makeData: (() throws -> Data)?
 
-    private init(_ title: String, fileName: String, symbol: String, type: UTType?, data: (() throws -> Data)?) {
+    /// Settings ▸ Программы: built-ins by this id can be switched off.
+    let id: String
+    /// A custom entry's sample file (copied for each new one).
+    private var source: URL?
+
+    private init(_ id: String, _ title: String, fileName: String, symbol: String, type: UTType?, data: (() throws -> Data)?) {
+        self.id = id
         self.title = title
         self.fileName = fileName
         self.symbol = symbol
@@ -183,35 +208,48 @@ final class NewItemTemplate: NSObject {
 
     var isFolder: Bool { makeData == nil }
 
-    static let folder = NewItemTemplate(L("Папку"), fileName: L("Новая папка"), symbol: "folder", type: nil, data: nil)
+    static let folder = NewItemTemplate("folder", L("Папку"), fileName: L("Новая папка"), symbol: "folder", type: nil, data: nil)
 
     static let files: [NewItemTemplate] = [
-        NewItemTemplate(L("Текстовый документ"), fileName: L("Новый текстовый документ.txt"), symbol: "doc.plaintext",
+        NewItemTemplate("txt", L("Текстовый документ"), fileName: L("Новый текстовый документ.txt"), symbol: "doc.plaintext",
                         type: .plainText, data: { Data() }),
-        NewItemTemplate(L("Документ RTF"), fileName: L("Новый документ RTF.rtf"), symbol: "doc.richtext",
+        NewItemTemplate("rtf", L("Документ RTF"), fileName: L("Новый документ RTF.rtf"), symbol: "doc.richtext",
                         type: .rtf, data: { NSAttributedString(string: "").rtf(from: NSRange(location: 0, length: 0), documentAttributes: [:]) ?? Data() }),
-        NewItemTemplate(L("Документ Markdown"), fileName: L("Новый документ Markdown.md"), symbol: "doc.text",
+        NewItemTemplate("md", L("Документ Markdown"), fileName: L("Новый документ Markdown.md"), symbol: "doc.text",
                         type: UTType("net.daringfireball.markdown"), data: { Data() }),
-        NewItemTemplate(L("Документ Microsoft Word"), fileName: L("Новый документ Microsoft Word.docx"), symbol: "doc.richtext.fill",
+        NewItemTemplate("docx", L("Документ Microsoft Word"), fileName: L("Новый документ Microsoft Word.docx"), symbol: "doc.richtext.fill",
                         type: UTType("org.openxmlformats.wordprocessingml.document"), data: OfficeFiles.docx),
-        NewItemTemplate(L("Лист Microsoft Excel"), fileName: L("Новый лист Microsoft Excel.xlsx"), symbol: "tablecells",
+        NewItemTemplate("xlsx", L("Лист Microsoft Excel"), fileName: L("Новый лист Microsoft Excel.xlsx"), symbol: "tablecells",
                         type: UTType("org.openxmlformats.spreadsheetml.sheet"), data: OfficeFiles.xlsx),
-        NewItemTemplate(L("Презентация Microsoft PowerPoint"), fileName: L("Новая презентация Microsoft PowerPoint.pptx"), symbol: "rectangle.on.rectangle",
+        NewItemTemplate("pptx", L("Презентация Microsoft PowerPoint"), fileName: L("Новая презентация Microsoft PowerPoint.pptx"), symbol: "rectangle.on.rectangle",
                         type: UTType("org.openxmlformats.presentationml.presentation"), data: OfficeFiles.pptx),
     ]
 
-    /// File types an installed app can open.
+    /// File types an installed app can open (and not switched off), then the user's own.
     static var availableFiles: [NewItemTemplate] {
-        files.filter { template in
+        let hidden = AppsConfig.hiddenTemplates
+        return files.filter { template in
+            guard !hidden.contains(template.id) else { return false }
             guard let type = template.contentType else { return true }
             return NSWorkspace.shared.urlForApplication(toOpen: type) != nil
-        }
+        } + AppsConfig.templates.map(custom)
+    }
+
+    /// Settings ▸ Программы ▸ Создать: an entry of the user's.
+    static func custom(_ template: AppsConfig.Template) -> NewItemTemplate {
+        let item = NewItemTemplate(template.id, template.title, fileName: template.fileName, symbol: "doc.badge.plus",
+                                   type: nil, data: { Data() })
+        item.source = template.sourcePath.map(URL.init(fileURLWithPath:))
+        return item
     }
 
     /// Creates the item with a free name ("… (2)") and returns its URL.
     func create(in directory: URL) throws -> URL {
         let url = FileOps.newItemURL(named: fileName, in: directory)
-        if let makeData {
+        if let source, FileManager.default.fileExists(atPath: source.path) {
+            // A copy of the sample (a document package too)
+            try FileManager.default.copyItem(at: source, to: url)
+        } else if let makeData {
             try makeData().write(to: url, options: .withoutOverwriting)
         } else {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)

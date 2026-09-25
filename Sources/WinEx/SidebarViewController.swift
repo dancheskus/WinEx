@@ -374,6 +374,13 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         func add(_ title: String, _ action: Selector) {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
+        // A folder or disk: open it with another app, like in the file list
+        if item.url.isFileURL, item.action == nil, !Places.isTrash(item.url), item.url.isBrowsableDirectory {
+            if let openWith = OpenWithMenu.item(for: [item.url]) { menu.addItem(openWith) }
+            OpenWithMenu.mainMenuItems(for: [item.url]).forEach(menu.addItem)
+            if let terminal = TerminalLauncher.menuItem(for: [item.url]) { menu.addItem(terminal) }
+            if menu.items.count > 0 { menu.addItem(.separator()) }
+        }
         switch section(of: item)?.kind {
         case .favorites:
             add(L("Убрать из боковой панели"), #selector(removeClicked(_:)))

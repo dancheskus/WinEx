@@ -335,3 +335,360 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         }
     }
 }
+
+/// Settings ▸ Программы: "Открыть с помощью" (added apps, where they're offered, an item of their
+/// own in the context menu; apps left out) and the entries of "Создать".
+final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
+    private let appsTable = NSTableView()
+    private let hiddenTable = NSTableView()
+    private let templatesTable = NSTableView()
+    private let removeApp = NSButton()
+    private let removeHidden = NSButton()
+    private let removeTemplate = NSButton()
+    private var apps: [AppsConfig.App] = []
+    private var hiddenList: [String] = []
+    /// Built-ins first (they can only be switched off), then the user's own.
+    private var rows: [(builtin: NewItemTemplate?, custom: AppsConfig.Template?)] = []
+
+    init() {
+        super.init(frame: .zero)
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        stack.addArrangedSubview(Self.heading(L("Открыть с помощью")))
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Свои программы — для каких объектов и типов файлов их предлагать; «В меню» — отдельный пункт «Открыть в …» в контекстном меню.")))
+        setUp(appsTable, columns: [("app", L("Программа"), 205), ("scope", L("Для"), 150), ("ext", L("Расширения"), 140), ("menu", L("В меню"), 90)])
+        stack.addArrangedSubview(Self.scroll(appsTable, height: 130))
+        stack.addArrangedSubview(buttons(add: #selector(addApp(_:)), remove: removeApp, action: #selector(removeApp(_:))))
+        stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
+
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Не предлагать в «Открыть с помощью»:")))
+        setUp(hiddenTable, columns: [("hidden", L("Программа"), 590)])
+        hiddenTable.headerView = nil
+        stack.addArrangedSubview(Self.scroll(hiddenTable, height: 90))
+        stack.addArrangedSubview(buttons(add: #selector(addHidden(_:)), remove: removeHidden, action: #selector(removeHidden(_:))))
+        stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
+
+        stack.addArrangedSubview(Self.heading(L("Создать")))
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Какие файлы предлагать в «Создать ▸». Свой тип — название, имя нового файла с расширением и, если нужно, файл-образец, который будет копироваться.")))
+        setUp(templatesTable, columns: [("on", "", 34), ("title", L("Название"), 210), ("file", L("Имя файла"), 230), ("source", L("Образец"), 110)])
+        stack.addArrangedSubview(Self.scroll(templatesTable, height: 240))
+        stack.addArrangedSubview(buttons(add: #selector(addTemplate(_:)), remove: removeTemplate, action: #selector(removeTemplate(_:))))
+
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
+            widthAnchor.constraint(equalToConstant: SettingsForm.width),
+        ])
+        for view in stack.arrangedSubviews where view is NSScrollView {
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+        reload()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private static func heading(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        return label
+    }
+
+    private static func scroll(_ table: NSTableView, height: CGFloat) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.borderType = .bezelBorder
+        scroll.heightAnchor.constraint(equalToConstant: height).isActive = true
+        return scroll
+    }
+
+    private func setUp(_ table: NSTableView, columns: [(String, String, CGFloat)]) {
+        for (id, title, width) in columns {
+            let column = NSTableColumn(identifier: .init(id))
+            column.title = title
+            column.width = width
+            table.addTableColumn(column)
+        }
+        table.rowHeight = 26
+        table.usesAlternatingRowBackgroundColors = true
+        table.dataSource = self
+        table.delegate = self
+    }
+
+    private func buttons(add: Selector, remove: NSButton, action: Selector) -> NSView {
+        let plus = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить")) ?? NSImage(), target: self, action: add)
+        remove.image = NSImage(systemSymbolName: "minus", accessibilityDescription: L("Удалить"))
+        remove.target = self
+        remove.action = action
+        for button in [plus, remove] {
+            button.bezelStyle = .smallSquare
+            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        }
+        let row = NSStackView(views: [plus, remove])
+        row.spacing = 0
+        return row
+    }
+
+    private func reload() {
+        apps = AppsConfig.apps
+        hiddenList = AppsConfig.hiddenApps
+        rows = NewItemTemplate.files.map { ($0, nil) } + AppsConfig.templates.map { (nil, $0) }
+        [appsTable, hiddenTable, templatesTable].forEach { $0.reloadData() }
+        updateButtons()
+    }
+
+    private func updateButtons() {
+        removeApp.isEnabled = appsTable.selectedRow >= 0
+        removeHidden.isEnabled = hiddenTable.selectedRow >= 0
+        removeTemplate.isEnabled = rows.indices.contains(templatesTable.selectedRow) && rows[templatesTable.selectedRow].custom != nil
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) { updateButtons() }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        tableView === appsTable ? apps.count : tableView === hiddenTable ? hiddenList.count : rows.count
+    }
+
+    // MARK: Cells
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        cell(tableView, tableColumn, row).map { view in
+            // Vertically centred in the row, a little inset
+            let holder = NSView()
+            view.translatesAutoresizingMaskIntoConstraints = false
+            holder.addSubview(view)
+            let centreX = view is NSButton && (view as? NSButton)?.title.isEmpty == true
+            NSLayoutConstraint.activate([
+                view.centerYAnchor.constraint(equalTo: holder.centerYAnchor),
+                centreX ? view.centerXAnchor.constraint(equalTo: holder.centerXAnchor)
+                        : view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 4),
+                view.trailingAnchor.constraint(lessThanOrEqualTo: holder.trailingAnchor, constant: -4),
+            ])
+            if view is NSTextField { view.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -4).isActive = true }
+            return holder
+        }
+    }
+
+    private func cell(_ tableView: NSTableView, _ tableColumn: NSTableColumn?, _ row: Int) -> NSView? {
+        let id = tableColumn?.identifier.rawValue ?? ""
+        if tableView === hiddenTable {
+            let identity = hiddenList[row]
+            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identity) ?? URL(fileURLWithPath: identity)
+            return appCell(url)
+        }
+        if tableView === appsTable {
+            let app = apps[row]
+            switch id {
+            case "app": return appCell(app.url)
+            case "scope":
+                let popup = NSPopUpButton()
+                popup.isBordered = false
+                for scope in AppsConfig.Scope.allCases { popup.addItem(withTitle: scope.title) }
+                popup.selectItem(at: AppsConfig.Scope.allCases.firstIndex(of: app.scope) ?? 0)
+                popup.tag = row
+                popup.target = self
+                popup.action = #selector(changeScope(_:))
+                return popup
+            case "ext":
+                let field = editable(app.extensions.joined(separator: ", "), tag: row, placeholder: L("любые"))
+                field.isEnabled = app.scope != .folders
+                field.identifier = .init("ext")
+                return field
+            default:
+                return checkbox(app.inMainMenu, tag: row, action: #selector(toggleInMenu(_:)))
+            }
+        }
+        let entry = rows[row]
+        switch id {
+        case "on":
+            let box = checkbox(!AppsConfig.hiddenTemplates.contains(entry.builtin?.id ?? ""), tag: row, action: #selector(toggleTemplate(_:)))
+            box.isEnabled = entry.builtin != nil
+            return box
+        case "title":
+            if let builtin = entry.builtin { return label(builtin.title) }
+            let field = editable(entry.custom?.title ?? "", tag: row, placeholder: "")
+            field.identifier = .init("title")
+            return field
+        case "file":
+            if let builtin = entry.builtin { return label(builtin.fileName, secondary: true) }
+            let field = editable(entry.custom?.fileName ?? "", tag: row, placeholder: "")
+            field.identifier = .init("file")
+            return field
+        default:
+            guard let custom = entry.custom else { return label(L("пустой"), secondary: true) }
+            let button = NSButton(title: custom.sourcePath.map { ($0 as NSString).lastPathComponent } ?? L("Выбрать…"),
+                                  target: self, action: #selector(chooseSample(_:)))
+            button.isBordered = false
+            button.contentTintColor = .linkColor
+            button.tag = row
+            button.toolTip = custom.sourcePath ?? L("Файл, который будет копироваться; без него создаётся пустой файл")
+            return button
+        }
+    }
+
+    private func appCell(_ url: URL) -> NSView {
+        let icon = NSImageView(image: NSWorkspace.shared.icon(forFile: url.path))
+        icon.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        let name = NSTextField(labelWithString: OpenWithMenu.appName(url))
+        name.lineBreakMode = .byTruncatingTail
+        let stack = NSStackView(views: [icon, name])
+        stack.spacing = 6
+        return stack
+    }
+
+    private func label(_ text: String, secondary: Bool = false) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.lineBreakMode = .byTruncatingTail
+        if secondary { label.textColor = .secondaryLabelColor }
+        return label
+    }
+
+    private func editable(_ text: String, tag: Int, placeholder: String) -> NSTextField {
+        let field = NSTextField(string: text)
+        field.isBordered = false
+        field.drawsBackground = false
+        field.placeholderString = placeholder
+        field.tag = tag
+        field.delegate = self
+        field.lineBreakMode = .byTruncatingTail
+        return field
+    }
+
+    private func checkbox(_ on: Bool, tag: Int, action: Selector) -> NSButton {
+        let box = NSButton(checkboxWithTitle: "", target: self, action: action)
+        box.state = on ? .on : .off
+        box.tag = tag
+        return box
+    }
+
+    // MARK: Changes
+
+    @objc private func addApp(_ sender: Any?) {
+        guard let app = chooseApp() else { return }
+        var list = AppsConfig.apps
+        guard !list.contains(where: { $0.path == app.path }) else { return }
+        list.append(AppsConfig.App(path: app.path))
+        AppsConfig.apps = list
+        reload()
+    }
+
+    @objc private func removeApp(_ sender: Any?) {
+        guard apps.indices.contains(appsTable.selectedRow) else { return }
+        var list = apps
+        list.remove(at: appsTable.selectedRow)
+        AppsConfig.apps = list
+        reload()
+    }
+
+    @objc private func addHidden(_ sender: Any?) {
+        guard let app = chooseApp() else { return }
+        let identity = AppsConfig.identity(of: app)
+        if !AppsConfig.hiddenApps.contains(identity) { AppsConfig.hiddenApps += [identity] }
+        reload()
+    }
+
+    @objc private func removeHidden(_ sender: Any?) {
+        guard hiddenList.indices.contains(hiddenTable.selectedRow) else { return }
+        AppsConfig.hiddenApps = hiddenList.enumerated().filter { $0.offset != hiddenTable.selectedRow }.map(\.element)
+        reload()
+    }
+
+    private func chooseApp() -> URL? {
+        let panel = NSOpenPanel()
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowedContentTypes = [.application]
+        panel.prompt = L("Выбрать")
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    @objc private func changeScope(_ sender: NSPopUpButton) {
+        guard apps.indices.contains(sender.tag) else { return }
+        var list = apps
+        list[sender.tag].scope = AppsConfig.Scope.allCases[max(0, sender.indexOfSelectedItem)]
+        AppsConfig.apps = list
+        reload()
+    }
+
+    @objc private func toggleInMenu(_ sender: NSButton) {
+        guard apps.indices.contains(sender.tag) else { return }
+        var list = apps
+        list[sender.tag].inMainMenu = sender.state == .on
+        AppsConfig.apps = list
+        apps = list
+    }
+
+    @objc private func toggleTemplate(_ sender: NSButton) {
+        guard rows.indices.contains(sender.tag), let id = rows[sender.tag].builtin?.id else { return }
+        var off = AppsConfig.hiddenTemplates.filter { $0 != id }
+        if sender.state == .off { off.append(id) }
+        AppsConfig.hiddenTemplates = off
+    }
+
+    @objc private func addTemplate(_ sender: Any?) {
+        AppsConfig.templates += [AppsConfig.Template(title: L("Новый тип"), fileName: L("Новый файл.txt"))]
+        reload()
+        let row = rows.count - 1
+        templatesTable.scrollRowToVisible(row)
+        templatesTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        templatesTable.editColumn(templatesTable.column(withIdentifier: .init("title")), row: row, with: nil, select: true)
+    }
+
+    @objc private func removeTemplate(_ sender: Any?) {
+        guard rows.indices.contains(templatesTable.selectedRow), let custom = rows[templatesTable.selectedRow].custom else { return }
+        AppsConfig.templates = AppsConfig.templates.filter { $0.id != custom.id }
+        reload()
+    }
+
+    @objc private func chooseSample(_ sender: NSButton) {
+        guard rows.indices.contains(sender.tag), let custom = rows[sender.tag].custom else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.treatsFilePackagesAsDirectories = false
+        panel.prompt = L("Выбрать")
+        panel.message = L("Файл, который будет копироваться; без него создаётся пустой файл")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        AppsConfig.templates = AppsConfig.templates.map { template in
+            guard template.id == custom.id else { return template }
+            var changed = template
+            changed.sourcePath = url.path
+            // The new file gets the sample's extension
+            if (changed.fileName as NSString).pathExtension.lowercased() != url.pathExtension.lowercased() {
+                changed.fileName = ((changed.fileName as NSString).deletingPathExtension as NSString).appendingPathExtension(url.pathExtension) ?? changed.fileName
+            }
+            return changed
+        }
+        reload()
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField else { return }
+        let text = field.stringValue.trimmingCharacters(in: .whitespaces)
+        switch field.identifier?.rawValue {
+        case "ext":
+            guard apps.indices.contains(field.tag) else { return }
+            var list = apps
+            list[field.tag].extensions = text.lowercased().split(whereSeparator: { ", ;".contains($0) })
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }.filter { !$0.isEmpty }
+            AppsConfig.apps = list
+        case "title", "file":
+            guard rows.indices.contains(field.tag), let custom = rows[field.tag].custom, !text.isEmpty else { return reload() }
+            AppsConfig.templates = AppsConfig.templates.map { template in
+                guard template.id == custom.id else { return template }
+                var changed = template
+                if field.identifier?.rawValue == "title" { changed.title = text } else { changed.fileName = text }
+                return changed
+            }
+        default: return
+        }
+        reload()
+    }
+}
