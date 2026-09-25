@@ -159,6 +159,10 @@ final class CommandButton: NSView {
             ])
         }
         setContentCompressionResistancePriority(.required, for: .horizontal)
+        // The explanation shows under the mouse wherever it is on the button (the icon and the
+        // title cover it: AppKit asks the view under the mouse)
+        func share(_ view: NSView) { view.toolTip = tip; view.subviews.forEach(share) }
+        subviews.forEach(share)
     }
 
     required init?(coder: NSCoder) { fatalError() }

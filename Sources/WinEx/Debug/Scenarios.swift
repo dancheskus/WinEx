@@ -263,6 +263,12 @@ enum Scenarios {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             s.select("заметки.txt")
             s.note("  bar: \(bar() != nil), cut enabled: \(bar()?.cutButton.isEnabled == true), new enabled: \(bar()?.newButton.isEnabled == true)  expect true, true, true")
+            if let bar = bar(), let content = bar.window?.contentView {
+                let tips = [bar.cutButton, bar.copyButton, bar.pasteButton, bar.renameButton, bar.shareButton, bar.deleteButton, bar.moreButton].map { button in
+                    content.hitTest(content.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button))?.toolTip ?? "none"
+                }
+                s.note("  tooltips under the mouse: \(tips)")
+            }
             shot(0, window: s.window?.window?.windowNumber) {
                 menuShot(1, open: { bar()?.sortButton.onClick?() }) {
                     menuShot(2, open: { bar()?.viewButton.onClick?() }) {
