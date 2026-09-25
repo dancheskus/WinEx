@@ -44,7 +44,13 @@ struct DSStoreTests {
         dilc.replaceSubrange(4..<8, with: DSStoreFixture.be32(0x0001_0000))
         dilc.replaceSubrange(8..<12, with: DSStoreFixture.be32(UInt32(bitPattern: -65)))
         dilc.replaceSubrange(12..<16, with: DSStoreFixture.be32(79))
+        // On the second monitor (bytes 0…3 = 1), anchored at its center, 398 pt left of it
+        var left = [UInt8](repeating: 0, count: 32)
+        left.replaceSubrange(0..<4, with: DSStoreFixture.be32(1))
+        left.replaceSubrange(8..<12, with: DSStoreFixture.be32(UInt32(bitPattern: -398)))
+        left.replaceSubrange(12..<16, with: DSStoreFixture.be32(22))
         let data = DSStoreFixture.file(records: [
+            DSStoreFixture.record("DSC.webp", "dilc", .blob(left)),
             DSStoreFixture.record("zefir-bot", "dilc", .blob(dilc)),
             DSStoreFixture.record("Отчёт.docx", "ptbL", .ustr("Users/me/Desktop/")),
             DSStoreFixture.record("Отчёт.docx", "ptbN", .ustr("Отчёт.docx")),
@@ -53,10 +59,15 @@ struct DSStoreTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         try data.write(to: dir.appendingPathComponent(".DS_Store"))
 
-        let centers = FinderDesktopLayout.iconCenters(in: dir, screenSize: CGSize(width: 1710, height: 1107))
-        let zefir = try #require(centers["zefir-bot"])
-        #expect(abs(zefir.x - (1710 - 65) / 1710) < 0.0001)
-        #expect(abs(zefir.y - 79.0 / 1107) < 0.0001)
+        let places = FinderDesktopLayout.iconPlaces(in: dir, screenSizes: [CGSize(width: 1710, height: 1107), CGSize(width: 2560, height: 1440)])
+        let zefir = try #require(places["zefir-bot"])
+        #expect(zefir.screen == 0)
+        #expect(abs(zefir.point.x - (1710 - 65) / 1710) < 0.0001)
+        #expect(abs(zefir.point.y - 79.0 / 1107) < 0.0001)
+        let photo = try #require(places["DSC.webp"])
+        #expect(photo.screen == 1)
+        #expect(abs(photo.point.x - (1280 - 398) / 2560.0) < 0.0001)
+        #expect(abs(photo.point.y - (720 + 22) / 1440.0) < 0.0001)
 
         var strings: [String: String] = [:]
         try FinderDesktopLayout.DSStore(bytes: [UInt8](data)).forEachRecord({ _, _, _ in }, strings: { name, structure, value in
@@ -70,6 +81,6 @@ struct DSStoreTests {
         let dir = tempFolder()
         defer { try? FileManager.default.removeItem(at: dir) }
         try Data((0..<500).map { UInt8($0 % 251) }).write(to: dir.appendingPathComponent(".DS_Store"))
-        #expect(FinderDesktopLayout.iconCenters(in: dir, screenSize: CGSize(width: 100, height: 100)).isEmpty)
+        #expect(FinderDesktopLayout.iconPlaces(in: dir, screenSizes: [CGSize(width: 100, height: 100)]).isEmpty)
     }
 }

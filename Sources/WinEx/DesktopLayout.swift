@@ -45,8 +45,8 @@ enum DesktopSortKey: String, CaseIterable {
 }
 
 /// Icon positions and view options of the WinEx desktop, persisted in user defaults.
-/// Positions are icon centers as fractions of the screen (y from the top) so they survive
-/// resolution changes — the same convention Finder uses.
+/// A position is the icon center as fractions of its monitor (y from the top), so it survives
+/// resolution changes — the same convention Finder uses — plus the monitor it's on.
 @MainActor
 final class DesktopLayout {
     private struct Stored: Codable {
@@ -57,12 +57,26 @@ final class DesktopLayout {
         var showIcons = true
         var sortKey = DesktopSortKey.name.rawValue
         var importedFromFinder = false
+        /// File name → display UUID of the monitor it's on (none: the main monitor).
+        var screens: [String: String]?
+    }
+
+    /// Where an icon is: center as fractions of the monitor, and the monitor (nil: the main one).
+    struct Place: Equatable {
+        var point: CGPoint
+        var screenID: String?
+    }
+
+    /// A connected monitor, main first: its display UUID and size.
+    struct Screen {
+        var id: String
+        var size: CGSize
     }
 
     private static let defaultsKey = "desktopLayout"
     private var stored: Stored
 
-    init(desktop: URL, screenSize: CGSize) {
+    init(desktop: URL, screens: [Screen]) {
         if let data = AppDefaults.store.data(forKey: Self.defaultsKey),
            let decoded = try? JSONDecoder().decode(Stored.self, from: data) {
             stored = decoded
@@ -71,9 +85,13 @@ final class DesktopLayout {
         }
         if !stored.importedFromFinder {
             // First run (or after a reset): take the arrangement and view options the user has in Finder
-            for (name, point) in FinderDesktopLayout.iconCenters(in: desktop, screenSize: screenSize) {
-                stored.positions[name] = [point.x, point.y]
+            var screenIDs: [String: String] = [:]
+            for (name, place) in FinderDesktopLayout.iconPlaces(in: desktop, screenSizes: screens.map(\.size)) {
+                stored.positions[name] = [place.point.x, place.point.y]
+                // Finder numbers monitors in the system's order, main first
+                if place.screen > 0, screens.indices.contains(place.screen) { screenIDs[name] = screens[place.screen].id }
             }
+            stored.screens = screenIDs
             let options = FinderDesktopLayout.viewOptions(
                 UserDefaults(suiteName: "com.apple.finder")?.dictionary(forKey: "DesktopViewSettings"))
             stored.iconSize = options.iconSize.rawValue
@@ -115,18 +133,22 @@ final class DesktopLayout {
         set { stored.sortKey = newValue.rawValue; save() }
     }
 
-    func position(for name: String) -> CGPoint? {
+    func place(for name: String) -> Place? {
         guard let value = stored.positions[name], value.count == 2 else { return nil }
-        return CGPoint(x: value[0], y: value[1])
+        return Place(point: CGPoint(x: value[0], y: value[1]), screenID: stored.screens?[name])
     }
 
     /// Call `save()` after a batch of updates.
-    func setPosition(_ point: CGPoint, for name: String) {
-        stored.positions[name] = [point.x, point.y]
+    func setPlace(_ place: Place, for name: String) {
+        stored.positions[name] = [place.point.x, place.point.y]
+        stored.screens = stored.screens ?? [:]
+        stored.screens?[name] = place.screenID
     }
 
     func renamePosition(from oldName: String, to newName: String) {
         stored.positions[newName] = stored.positions.removeValue(forKey: oldName)
+        let screen = stored.screens?.removeValue(forKey: oldName)
+        stored.screens?[newName] = screen
         save()
     }
 
@@ -134,6 +156,7 @@ final class DesktopLayout {
     func prune(keeping names: Set<String>) {
         let before = stored.positions.count
         stored.positions = stored.positions.filter { names.contains($0.key) }
+        stored.screens = stored.screens?.filter { names.contains($0.key) }
         if stored.positions.count != before { save() }
     }
 
@@ -148,6 +171,7 @@ final class DesktopLayout {
 ///
 /// The file is a B-tree of records (name, 4-char structure id, typed value). Desktop positions
 /// live in `dilc` blobs (32 bytes, big-endian) describing the icon center:
+///  - bytes 0…3: the monitor (0 main, 1 the next one…);
 ///  - bytes 4…5: anchor — 0 screen center, 1 top-right, 2 bottom-right, 3 bottom-left, 4 top-left;
 ///  - bytes 8…15: Int32 x, y offset in points from the anchor (y grows downwards);
 ///  - bytes 16…23: the same point as fractions of the screen × 100 000 (can be stale, used as a fallback).
@@ -179,18 +203,22 @@ enum FinderDesktopLayout {
     }
 
 
-    /// Icon centers as fractions of the screen (y from the top).
-    static func iconCenters(in desktop: URL, screenSize: CGSize) -> [String: CGPoint] {
+    /// Icon centers as fractions of their monitor (y from the top) and the monitor's number
+    /// (0 is the main one). `screenSizes` are the connected monitors in the system's order.
+    static func iconPlaces(in desktop: URL, screenSizes: [CGSize]) -> [String: (screen: Int, point: CGPoint)] {
         guard let data = try? Data(contentsOf: desktop.appendingPathComponent(".DS_Store")),
-              screenSize.width > 0, screenSize.height > 0 else { return [:] }
-        var result: [String: CGPoint] = [:]
+              let main = screenSizes.first, main.width > 0, main.height > 0 else { return [:] }
+        var result: [String: (screen: Int, point: CGPoint)] = [:]
         try? DSStore(bytes: [UInt8](data)).forEachRecord { name, structure, value in
             guard structure == "dilc", value.count >= 24 else { return }
+            let screen = Int(DSStore.u32(value, 0))
             let anchor = Int(DSStore.u32(value, 4) >> 16)
             let dx = Double(Int32(bitPattern: DSStore.u32(value, 8)))
             let dy = Double(Int32(bitPattern: DSStore.u32(value, 12)))
-            let (w, h) = (Double(screenSize.width), Double(screenSize.height))
-            let origin: (Double, Double)? = switch anchor {
+            // Offsets are measured on the icon's own monitor; one that isn't connected: fractions only
+            let size = screenSizes.indices.contains(screen) ? screenSizes[screen] : nil
+            let (w, h) = (Double(size?.width ?? 0), Double(size?.height ?? 0))
+            var origin: (Double, Double)? = switch anchor {
             case 0: (w / 2, h / 2)
             case 1: (w, 0)
             case 2: (w, h)
@@ -198,6 +226,7 @@ enum FinderDesktopLayout {
             case 4: (0, 0)
             default: nil
             }
+            if w <= 0 || h <= 0 { origin = nil }
             var point: CGPoint
             if let origin {
                 point = CGPoint(x: (origin.0 + dx) / w, y: (origin.1 + dy) / h)
@@ -206,7 +235,7 @@ enum FinderDesktopLayout {
                                 y: Double(Int32(bitPattern: DSStore.u32(value, 20))) / 100_000)
             }
             guard (0...1).contains(point.x), (0...1).contains(point.y) else { return }
-            result[name] = point
+            result[name] = (screen, point)
         }
         return result
     }
@@ -311,5 +340,39 @@ enum FinderDesktopLayout {
 
             try readNode(root, depth: 0)
         }
+    }
+}
+
+/// Desktop icon labels the way Finder draws them: at most two lines; the first breaks after a word
+/// (inside a word if one doesn't fit), the second is shortened in the middle so the end of the
+/// name — the extension — stays visible: "Снимок экрана —" / "2026-0…9.44.png".
+enum DesktopLabel {
+    static func lines(_ text: NSAttributedString, width: CGFloat) -> [NSAttributedString] {
+        guard text.length > 0, text.size().width > width else { return [text] }
+        let typesetter = CTTypesetterCreateWithAttributedString(text)
+        var count = CTTypesetterSuggestLineBreak(typesetter, 0, Double(width))
+        if count <= 0 { count = CTTypesetterSuggestClusterBreak(typesetter, 0, Double(width)) }
+        count = min(max(count, 1), text.length)
+        let first = trimmed(text.attributedSubstring(from: NSRange(location: 0, length: count)))
+        let rest = trimmed(text.attributedSubstring(from: NSRange(location: count, length: text.length - count)))
+        return rest.length > 0 ? [first, middleTruncating(rest)] : [first]
+    }
+
+    /// Drawn in a one-line rect, the text loses its middle instead of spilling over.
+    private static func middleTruncating(_ text: NSAttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: text)
+        let paragraph = ((text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?
+            .mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingMiddle
+        result.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: result.length))
+        return result
+    }
+
+    private static func trimmed(_ text: NSAttributedString) -> NSAttributedString {
+        let string = text.string as NSString
+        var start = 0, end = string.length
+        while start < end, CharacterSet.whitespaces.contains(UnicodeScalar(string.character(at: start)) ?? " ") { start += 1 }
+        while end > start, CharacterSet.whitespaces.contains(UnicodeScalar(string.character(at: end - 1)) ?? " ") { end -= 1 }
+        return text.attributedSubstring(from: NSRange(location: start, length: end - start))
     }
 }

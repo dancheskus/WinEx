@@ -15,7 +15,45 @@ enum Scenarios {
         "desktopreset": desktopReset,
         "placement2": placementSecondScreen,
         "mousedrag": mouseDrag,
+        "monitorgone": monitorGone,
     ]
+
+    /// An icon whose monitor isn't connected shows on the main one; its place is kept for when the
+    /// monitor comes back. (Pretends the second monitor's icons belong to a monitor that's gone.)
+    static func monitorGone(_ s: Scenario) {
+        let controller = DesktopController()
+        controller.show()
+        func views() -> [DesktopView] { NSApp.windows.compactMap { $0.contentView as? DesktopView } }
+        func counts() -> String { views().forEach { $0.displayIfNeeded() }; return views().map { "\($0.window?.screen?.localizedName ?? "?"): \($0.subviews.count)" }.joined(separator: ", ") }
+        var moved: [String] = []
+        s.run([
+            (1.5, "start", { s.note("  icons: \(counts())") }),
+            (0.2, "second monitor's icons → a monitor that isn't connected", {
+                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
+                      let second = NSScreen.screens.dropFirst().first?.displayUUID else { s.note("  (one monitor only)"); return }
+                let fm = FileManager.default
+                let names = (try? fm.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? []
+                for name in names {
+                    guard let place = main.layout.place(for: name), place.screenID == second else { continue }
+                    main.layout.setPlace(DesktopLayout.Place(point: place.point, screenID: "GONE"), for: name)
+                    moved.append(name)
+                }
+                views().forEach { $0.reloadShared() }
+                s.note("  moved \(moved.count); icons: \(counts())  expect all on the main monitor")
+                let kept = moved.compactMap { main.layout.place(for: $0)?.screenID }
+                s.note("  stored monitor kept: \(kept.allSatisfy { $0 == "GONE" } && !kept.isEmpty)")
+                // Put them back (the layout lives in the scenario's own settings anyway)
+                for name in moved {
+                    if let place = main.layout.place(for: name) {
+                        main.layout.setPlace(DesktopLayout.Place(point: place.point, screenID: second), for: name)
+                    }
+                }
+                views().forEach { $0.reloadShared() }
+                s.note("  back: \(counts())")
+                controller.hide()
+            }),
+        ])
+    }
 
     /// Real-mouse check, driven by `scripts/mouse-drag-check.swift` (run with the user's consent):
     /// the app places its window and writes where to grab it and where the close button is — only
@@ -170,7 +208,7 @@ enum Scenarios {
             (0.2, "press reset", { _ = press("Сбросить рабочий стол как в Finder…", in: settingsWindow()?.contentView) }),
             (0.5, "Reset", { answer("Сбросить") }),
             (0.5, "check", {
-                let finder = FinderDesktopLayout.iconCenters(in: desktopURL, screenSize: NSScreen.screens.first?.frame.size ?? .zero)
+                let finder = FinderDesktopLayout.iconPlaces(in: desktopURL, screenSizes: NSScreen.screens.map(\.frame.size))
                 s.note("  after reset (WinEx desktop off): \(stored())  expect - (imported on next start)")
                 AppDefaults.store.set(try? JSONSerialization.data(withJSONObject: ["iconSize": 2, "importedFromFinder": true, "positions": [:]]), forKey: "desktopLayout")
                 desktop.resetToFinder()
@@ -224,10 +262,15 @@ enum Scenarios {
                 view.keyDown(with: event)
                 s.note("  icons: \(view.subviews.count) subviews")
             }),
-            (1.0, "snapshot", {
-                guard let view, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-                view.cacheDisplay(in: view.bounds, to: rep)
-                try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("desktop.png"))
+            (1.0, "snapshot of every monitor", {
+                let views = NSApp.windows.compactMap { $0.contentView as? DesktopView }
+                for view in views {
+                    guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    let name = view.window?.screen?.localizedName ?? "?"
+                    s.note("  \(name): \(view.subviews.count) icons")
+                    try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("desktop-\(name).png"))
+                }
                 controller.hide()
             }),
         ])

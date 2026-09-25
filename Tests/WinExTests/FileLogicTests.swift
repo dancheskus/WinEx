@@ -242,3 +242,32 @@ struct WindowConstrainTests {
         #expect(window.constrainFrameRect(frame, to: screens[0]) == frame)
     }
 }
+
+struct DesktopLabelTests {
+    let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium)]
+    func lines(_ name: String, width: CGFloat = 96) -> [String] {
+        DesktopLabel.lines(NSAttributedString(string: name, attributes: attributes), width: width).map(\.string)
+    }
+
+    @Test func shortNamesStayOnOneLine() {
+        #expect(lines("mafia") == ["mafia"])
+    }
+
+    @Test func breaksAfterAWord() {
+        #expect(lines("Tabletop Simulator.docx") == ["Tabletop", "Simulator.docx"])
+    }
+
+    @Test func longWordsBreakInside() {
+        let result = lines("account_confirmation.pdf")
+        #expect(result.count == 2 && result.joined() == "account_confirmation.pdf")
+    }
+
+    /// The rest goes to the second line whole; drawing shortens it in the middle.
+    @Test func secondLineIsMiddleTruncated() {
+        let text = DesktopLabel.lines(NSAttributedString(string: "Снимок экрана — 2026-08-18 в 12.34.56.png", attributes: attributes), width: 96)
+        #expect(text.count == 2)
+        let style = text.last?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.lineBreakMode == .byTruncatingMiddle)
+        #expect(text.last?.string.hasSuffix(".png") == true)
+    }
+}

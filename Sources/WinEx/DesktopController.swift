@@ -4,14 +4,79 @@ import QuickLookThumbnailing
 
 /// Draws desktop icons in place of Finder (Finder's desktop is off in replacement mode).
 /// Double-clicking a folder opens it in WinEx; icons can be moved, arranged and sorted like on Windows.
+///
+/// One window per monitor (with "Displays have separate Spaces" — the macOS default — a window
+/// can't span monitors). All of them share one layout; each shows the icons placed on its monitor,
+/// the main one also those of monitors that aren't connected.
 @MainActor
 final class DesktopController {
-    private var window: DesktopWindow?
-    private let desktopView = DesktopView()
+    private var desktops: [(window: DesktopWindow, view: DesktopView)] = []
+    private var layout: DesktopLayout?
     private let observers = Observers()
+    private var shown = false
 
     func show() {
-        guard window == nil else { return }
+        guard !shown else { return }
+        shown = true
+        layout = DesktopLayout(desktop: DesktopView.desktopURL, screens: DesktopView.layoutScreens())
+        updateScreens()
+        observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.updateScreens() }
+    }
+
+    func resetToFinder() {
+        DesktopLayout.forget()
+        let fresh = DesktopLayout(desktop: DesktopView.desktopURL, screens: DesktopView.layoutScreens())
+        layout = fresh
+        for desktop in desktops { desktop.view.resetToFinder(fresh) }
+    }
+
+    func hide() {
+        guard shown else { return }
+        shown = false
+        observers.removeAll()
+        for desktop in desktops {
+            desktop.view.stop()
+            desktop.window.orderOut(nil)
+        }
+        desktops = []
+    }
+
+    /// A window for every monitor, main first; windows of monitors that are gone are closed.
+    private func updateScreens() {
+        guard let layout, let main = NSScreen.screens.first else { return }
+        let screens = NSScreen.screens
+        let connected = Set(screens.compactMap(\.displayUUID))
+        let mainID = main.displayUUID ?? ""
+        var kept: [(window: DesktopWindow, view: DesktopView)] = []
+        for screen in screens {
+            let id = screen.displayUUID ?? ""
+            let desktop = desktops.first { $0.view.screens.first?.id == id } ?? makeDesktop(layout: layout)
+            desktop.window.setFrame(screen.frame, display: true)
+            let frame = screen.frame, visible = screen.visibleFrame
+            desktop.view.mainScreenID = mainID
+            desktop.view.connectedScreenIDs = connected
+            desktop.view.screens = [DesktopView.Screen(
+                id: id, frame: NSRect(origin: .zero, size: frame.size),
+                iconArea: NSRect(x: visible.minX - frame.minX, y: frame.maxY - visible.maxY, width: visible.width, height: visible.height))]
+            kept.append(desktop)
+        }
+        for desktop in desktops where !kept.contains(where: { $0.view === desktop.view }) {
+            desktop.view.stop()
+            desktop.window.orderOut(nil)
+        }
+        let isNew = kept.map { desktop in !desktops.contains { $0.view === desktop.view } }
+        desktops = kept
+        for (desktop, new) in zip(kept, isNew) {
+            if new {
+                desktop.view.start()
+                desktop.window.orderFront(nil)
+            } else {
+                desktop.view.reloadShared()
+            }
+        }
+    }
+
+    private func makeDesktop(layout: DesktopLayout) -> (window: DesktopWindow, view: DesktopView) {
         let window = DesktopWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
         window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)))
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
@@ -20,31 +85,18 @@ final class DesktopController {
         window.hasShadow = false
         window.isReleasedWhenClosed = false
         window.isExcludedFromWindowsMenu = true
-        window.contentView = desktopView
-        self.window = window
-        updateFrame()
-        desktopView.start()
-        window.orderFront(nil)
-
-        observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.updateFrame() }
-    }
-
-    func resetToFinder() { desktopView.resetToFinder() }
-
-    func hide() {
-        observers.removeAll()
-        desktopView.stop()
-        window?.orderOut(nil)
-        window = nil
-    }
-
-    /// Covers the main screen; icons are laid out inside the visible frame (no menu bar / Dock).
-    private func updateFrame() {
-        guard let window, let screen = NSScreen.screens.first else { return }
-        window.setFrame(screen.frame, display: true)
-        let frame = screen.frame, visible = screen.visibleFrame
-        desktopView.iconArea = NSRect(x: visible.minX - frame.minX, y: frame.maxY - visible.maxY,
-                                      width: visible.width, height: visible.height)
+        let view = DesktopView()
+        view.layout = layout
+        // Icons moved to another monitor, view options changed: the other monitors follow
+        view.sharedChange = { [weak self] sender in
+            self?.desktops.filter { $0.view !== sender }.forEach { $0.view.reloadShared() }
+        }
+        // Selecting on one monitor deselects the others, like one desktop
+        view.selectionStarted = { [weak self] sender in
+            self?.desktops.filter { $0.view !== sender }.forEach { $0.view.clearSelection() }
+        }
+        window.contentView = view
+        return (window, view)
     }
 }
 
@@ -63,10 +115,50 @@ final class DesktopWindow: NSWindow {
 final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuItemValidation,
     QLPreviewPanelDataSource, QLPreviewPanelDelegate, FileMenuActions {
     /// Screen area not covered by the menu bar and Dock (view coordinates, y from the top).
-    var iconArea: NSRect = .zero { didSet { if iconArea != oldValue { relayout() } } }
+    /// A monitor in view coordinates; the first is the main one.
+    struct Screen: Equatable {
+        var id: String
+        var frame: NSRect
+        /// Visible part: without the menu bar and the Dock.
+        var iconArea: NSRect
+    }
 
-    private let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
-    private lazy var layout = DesktopLayout(desktop: desktopURL, screenSize: window?.frame.size ?? NSScreen.screens.first?.frame.size ?? .zero)
+    var screens: [Screen] = [] { didSet { if screens != oldValue { relayout() } } }
+
+    static let desktopURL = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+    private var desktopURL: URL { Self.desktopURL }
+    /// Shared by the desktops of all monitors (set by `DesktopController`).
+    var layout: DesktopLayout!
+    var mainScreenID = ""
+    var connectedScreenIDs = Set<String>()
+    /// Called after a change other monitors must see (icons moved here, view options).
+    var sharedChange: ((DesktopView) -> Void)?
+    var selectionStarted: ((DesktopView) -> Void)?
+
+    private var isMain: Bool { screens.first?.id == mainScreenID }
+
+    /// Whether the icon is shown on this monitor: it was placed here; or on the main monitor, it
+    /// has no place yet, or its monitor isn't connected. Volumes always live on the main one.
+    private func belongsHere(_ key: String, isVolume: Bool) -> Bool {
+        guard !isVolume, let id = layout.place(for: key)?.screenID, connectedScreenIDs.contains(id) else { return isMain }
+        return id == screens.first?.id
+    }
+
+    /// Re-reads after a change made on another monitor.
+    func reloadShared() {
+        reload()
+    }
+
+    func clearSelection() {
+        guard !selection.isEmpty else { return }
+        selection = []
+        needsDisplay = true
+    }
+
+    /// Every connected monitor, main first (Finder numbers them this way).
+    static func layoutScreens() -> [DesktopLayout.Screen] {
+        NSScreen.screens.map { DesktopLayout.Screen(id: $0.displayUUID ?? "", size: $0.frame.size) }
+    }
     /// Desktop widgets (Notification Center windows above the icons); icons are kept out of them, like Finder does.
     private var widgetRects: [NSRect] = []
     /// Paths of volumes shown on the desktop (Finder's "Show these items on the desktop").
@@ -153,8 +245,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             at: desktopURL, includingPropertiesForKeys: FileItem.keys, options: [.skipsHiddenFiles])) ?? []
         let volumes = SystemDesktop.desktopVolumes()
         volumePaths = Set(volumes.map(\.path))
-        items = volumes.map(FileItem.init) + urls.map(FileItem.init).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        layout.prune(keeping: Set(items.indices.map(name(of:))))
+        let all = volumes.map(FileItem.init) + urls.map(FileItem.init).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // Forget places of files that are gone — judged by the whole desktop, not this monitor's part
+        let volumeCount = volumes.count
+        func key(_ n: Int) -> String { n < volumeCount ? all[n].url.path : all[n].url.lastPathComponent }
+        layout.prune(keeping: Set(all.indices.map(key)))
+        items = all.indices.filter { belongsHere(key($0), isVolume: $0 < volumeCount) }.map { all[$0] }
         // Drop previews of files that are gone or changed
         let live = Set(items.map(thumbnailKey))
         thumbnails = thumbnails.filter { live.contains($0.key) }
@@ -178,7 +274,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     /// Places every icon: stored positions, free grid cells for new files, or a sorted grid with auto-arrange.
     private func relayout() {
-        guard bounds.width > 0, iconArea.width > 0 else { return }
+        guard !screens.isEmpty else { return }
         widgetRects = Self.widgetFrames(in: window)
         centers = Array(repeating: .zero, count: items.count)
         if layout.autoArrange {
@@ -187,17 +283,19 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
         var placed: [CGPoint] = []
         var unplaced: [Int] = []
-        var underWidgets: [Int] = []
+        var displaced: [Int] = []
         for i in items.indices {
-            if let fraction = layout.position(for: name(of: i)) {
-                centers[i] = clamp(CGPoint(x: fraction.x * bounds.width, y: fraction.y * bounds.height))
-                if isUnderWidget(centers[i]) { underWidgets.append(i) } else { placed.append(centers[i]) }
-            } else {
-                unplaced.append(i)
-            }
+            guard let place = layout.place(for: name(of: i)) else { unplaced.append(i); continue }
+            // On a monitor that isn't connected: shown on the main one for now (see below)
+            let screen = screens.first { $0.id == place.screenID } ?? screens[0]
+            let away = place.screenID != nil && screen.id != place.screenID
+            centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * screen.frame.width,
+                                       y: screen.frame.minY + place.point.y * screen.frame.height))
+            if away || isUnderWidget(centers[i]) { displaced.append(i) } else { placed.append(centers[i]) }
         }
-        // Shown next to the widget; the stored position is kept in case the widget goes away
-        for i in underWidgets {
+        // Icons under a widget or from a disconnected monitor go to the nearest free cell; their
+        // stored position is kept, so they come back when the widget goes away / the monitor returns
+        for i in displaced {
             centers[i] = nearestFreeCell(to: centers[i], occupied: placed)
             placed.append(centers[i])
         }
@@ -211,10 +309,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     /// Settings ▸ reset: positions and view options as Finder has them.
-    func resetToFinder() {
+    func resetToFinder(_ fresh: DesktopLayout) {
         endRename()
-        DesktopLayout.forget()
-        layout = DesktopLayout(desktop: desktopURL, screenSize: window?.frame.size ?? NSScreen.screens.first?.frame.size ?? .zero)
+        layout = fresh
         thumbnails = [:]
         requestedThumbnails = []
         selection = []
@@ -222,8 +319,24 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func storePosition(of index: Int) {
-        let center = centers[index]
-        layout.setPosition(CGPoint(x: center.x / bounds.width, y: center.y / bounds.height), for: name(of: index))
+        layout.setPlace(place(of: centers[index]), for: name(of: index))
+    }
+
+    /// A point in view coordinates as a stored place: fractions of the monitor it's on.
+    private func place(of point: CGPoint) -> DesktopLayout.Place {
+        let screen = self.screen(at: point)
+        let main = mainScreenID
+        return DesktopLayout.Place(point: CGPoint(x: (point.x - screen.frame.minX) / max(screen.frame.width, 1),
+                                                  y: (point.y - screen.frame.minY) / max(screen.frame.height, 1)),
+                                   screenID: screen.id == main ? nil : screen.id)
+    }
+
+    /// The monitor showing `point`, or the nearest one.
+    private func screen(at point: CGPoint) -> Screen {
+        func distance(_ rect: NSRect) -> CGFloat {
+            hypot(max(rect.minX - point.x, 0, point.x - rect.maxX), max(rect.minY - point.y, 0, point.y - rect.maxY))
+        }
+        return screens.min { distance($0.frame) < distance($1.frame) } ?? Screen(id: "", frame: bounds, iconArea: bounds)
     }
 
     private func storeAllPositions() {
@@ -255,15 +368,21 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return items.indices.reversed().first { hitRect($0).contains(point) }
     }
 
-    /// Keeps an icon (and its label) inside the visible desktop area.
+    /// Keeps an icon (and its label) inside the visible area of its monitor.
     private func clamp(_ point: CGPoint) -> CGPoint {
+        let iconArea = screen(at: point).iconArea
         let minX = iconArea.minX + cellSize.width / 2, maxX = iconArea.maxX - cellSize.width / 2
         let minY = iconArea.minY + iconSide / 2 + 4, maxY = iconArea.maxY - iconSide / 2 - 38
         return CGPoint(x: min(max(point.x, minX), max(minX, maxX)), y: min(max(point.y, minY), max(minY, maxY)))
     }
 
-    /// Grid cells, filled in columns from the top-right corner (where macOS keeps desktop icons).
+    /// Grid cells of every monitor (main first), each filled in columns from the top-right corner,
+    /// where macOS keeps desktop icons.
     private func gridCells() -> [CGPoint] {
+        screens.flatMap { gridCells(in: $0.iconArea) }
+    }
+
+    private func gridCells(in iconArea: NSRect) -> [CGPoint] {
         let columns = max(1, Int((iconArea.width - 24) / cellSize.width))
         let rows = max(1, Int((iconArea.height - 24) / cellSize.height))
         var cells: [CGPoint] = []
@@ -288,8 +407,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     /// Frames of desktop widgets in view coordinates (window list bounds are top-left based, like this view).
     private static func widgetFrames(in window: NSWindow?) -> [NSRect] {
-        guard let window, let screen = window.screen ?? NSScreen.screens.first,
-              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        guard let window, let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
         let desktopLevel = Int(CGWindowLevelForKey(.desktopIconWindow))
         let screenTop = NSScreen.screens.first.map { $0.frame.maxY } ?? 0
         return list.compactMap { info in
@@ -299,7 +417,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                   let bounds = info[kCGWindowBounds as String] as? NSDictionary,
                   let rect = CGRect(dictionaryRepresentation: bounds) else { return nil }
             // Window-list y is measured from the top of the primary screen
-            return NSRect(x: rect.minX - screen.frame.minX, y: rect.minY - (screenTop - screen.frame.maxY),
+            return NSRect(x: rect.minX - window.frame.minX, y: rect.minY - (screenTop - window.frame.maxY),
                           width: rect.width, height: rect.height)
         }
     }
@@ -372,7 +490,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func setPlacement(_ point: CGPoint, forName name: String) {
-        layout.setPosition(CGPoint(x: point.x / bounds.width, y: point.y / bounds.height), for: name)
+        layout.setPlace(place(of: point), for: name)
     }
 
     // MARK: - Drawing
@@ -428,28 +546,44 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard items.indices.contains(i) else { return }
         let item = items[i]
         let attributes = labelAttributes()
-        let options: NSString.DrawingOptions = [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
         let iconRect = iconRect(at: centers[i])
         let labelRect = labelRect(at: centers[i])
         let isRenaming = renamingName == name(of: i)
-        let label = labelText(for: item, attributes: attributes)
+        let lines = DesktopLabel.lines(labelText(for: item, attributes: attributes), width: labelRect.width)
+        let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 12)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let lineRects = lines.enumerated().map { n, line in
+            let width = min(ceil(line.size().width), labelRect.width)
+            return NSRect(x: labelRect.midX - width / 2, y: labelRect.minY + CGFloat(n) * lineHeight, width: width, height: lineHeight)
+        }
 
         if selection.contains(i) || dropTarget == i {
             NSColor.white.withAlphaComponent(dropTarget == i ? 0.35 : 0.2).setFill()
             NSBezierPath(roundedRect: iconRect.insetBy(dx: -4, dy: -4), xRadius: 6, yRadius: 6).fill()
         }
         if selection.contains(i) && !isRenaming {
-            let textBounds = label.boundingRect(with: labelRect.size, options: options)
-            let highlight = NSRect(x: labelRect.midX - textBounds.width / 2 - 4, y: labelRect.minY - 1,
-                                   width: textBounds.width + 8, height: textBounds.height + 2)
+            // One rounded highlight per line, like Finder
             NSColor.selectedContentBackgroundColor.setFill()
-            NSBezierPath(roundedRect: highlight, xRadius: 4, yRadius: 4).fill()
+            for rect in lineRects {
+                NSBezierPath(roundedRect: rect.insetBy(dx: -4, dy: -1), xRadius: 4, yRadius: 4).fill()
+            }
         }
         let alpha = FileClipboard.shared.isCut(item.url) ? FileListViewController.cutAlpha : 1
         let image = image(for: i)
-        image.draw(in: Self.aspectFit(image.size, in: iconRect), from: .zero, operation: .sourceOver,
-                   fraction: alpha, respectFlipped: true, hints: nil)
-        if !isRenaming { label.draw(with: labelRect, options: options) }
+        let imageRect = Self.aspectFit(image.size, in: iconRect)
+        NSGraphicsContext.saveGraphicsState()
+        if thumbnails[thumbnailKey(item)] === image {
+            // Previews get rounded corners, like Finder's
+            let radius = max(3, min(imageRect.width, imageRect.height) * 0.1)
+            NSBezierPath(roundedRect: imageRect, xRadius: radius, yRadius: radius).addClip()
+        }
+        image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: alpha, respectFlipped: true, hints: nil)
+        NSGraphicsContext.restoreGraphicsState()
+        if !isRenaming {
+            for (line, rect) in zip(lines, lineRects) {
+                line.draw(in: rect.insetBy(dx: -2, dy: 0))
+            }
+        }
     }
 
     /// Largest rect with the image's proportions inside `rect` (previews aren't square).
@@ -504,6 +638,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         endRename()
         window?.makeKey()
         window?.makeFirstResponder(self)
+        selectionStarted?(self)
         let point = convert(event.locationInWindow, from: nil)
         let toggles = !event.modifierFlags.intersection([.command, .shift]).isEmpty
         mouseDownPoint = point
@@ -652,7 +787,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             setPlacement(spot, forName: url.lastPathComponent)
         }
         layout.save()
-        if !FileDrop.perform(sender, into: desktopURL) { relayout() }
+        // Icons dragged over from another monitor: already on the desktop, only their place changes
+        if !FileDrop.perform(sender, into: desktopURL) { reload() }
+        sharedChange?(self)
         return true
     }
 
@@ -910,22 +1047,26 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         requestedThumbnails = []
         if layout.autoArrange { arrange(by: layout.sortKey) } else if layout.alignToGrid { snapAllToGrid() }
         needsDisplay = true
+        sharedChange?(self)
     }
 
     @objc private func toggleAutoArrange(_ sender: Any?) {
         layout.autoArrange.toggle()
         if layout.autoArrange { arrange(by: layout.sortKey) }
+        sharedChange?(self)
     }
 
     @objc private func toggleAlignToGrid(_ sender: Any?) {
         layout.alignToGrid.toggle()
         if layout.alignToGrid { snapAllToGrid() }
+        sharedChange?(self)
     }
 
     @objc private func toggleShowIcons(_ sender: Any?) {
         layout.showIcons.toggle()
         selection = []
         needsDisplay = true
+        sharedChange?(self)
     }
 
     /// Like Explorer: sorting rearranges the icons once (and keeps them sorted with auto-arrange).
@@ -933,6 +1074,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let key = DesktopSortKey.allCases[sender.tag]
         layout.sortKey = key
         arrange(by: key)
+        sharedChange?(self)
     }
 
     /// "Создать ▸ …": the new item appears where the menu was opened and goes straight into rename.
