@@ -8,8 +8,6 @@ enum Places {
 
     static let networkURL = URL(string: "x-winex-network://network")!
 
-    static func isNetwork(_ url: URL) -> Bool { url.scheme == networkURL.scheme }
-
     /// smb:// / afp:// server addresses (items of the "Сеть" location).
     static func isServer(_ url: URL) -> Bool { ["smb", "afp", "nfs", "ftp"].contains(url.scheme ?? "") }
 

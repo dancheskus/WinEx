@@ -248,7 +248,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let tab = selectedTab
         // Leaving the address bar mid-edit (tab switch, sidebar click…) drops the edit and its selection
         if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.focusView) }
-        pathField.stringValue = locationText(tab.url)
+        pathField.stringValue = Location(tab.url).addressText
         searchField.stringValue = ""
         searchField.placeholderString = "Поиск: \(tab.title)"
         fileList.load(tab.url, select: tab.pendingSelection)
@@ -259,13 +259,6 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         window?.title = tab.title
         sidebar.highlight(tab.url)
         tabBar.reload()
-    }
-
-    /// What the address bar shows: a path, or the name of a virtual location.
-    private func locationText(_ url: URL) -> String {
-        if Places.isNetwork(url) { return "Сеть" }
-        if let tag = ExplorerTab.tagName(of: url) { return "Теги: \(tag)" }
-        return url.path
     }
 
     @objc func connectToServer(_ sender: Any?) {
@@ -279,7 +272,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     @objc func openAirDrop(_ sender: Any?) { Places.openAirDrop() }
 
     func navigate(to url: URL) {
-        guard url.isBrowsableDirectory || ExplorerTab.tagName(of: url) != nil || Places.isNetwork(url) else {
+        guard Location(url).isBrowsable else {
             NSWorkspace.shared.open(url)
             return
         }
@@ -410,7 +403,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             commitPath()
             return true
         case #selector(NSResponder.cancelOperation(_:)):
-            pathField.stringValue = locationText(selectedTab.url)
+            pathField.stringValue = Location(selectedTab.url).addressText
             window?.makeFirstResponder(fileList.focusView)
             return true
         default:
@@ -420,7 +413,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     func controlTextDidEndEditing(_ obj: Notification) {
         guard (obj.object as? NSTextField) === pathField else { return }
-        pathField.stringValue = locationText(selectedTab.url)
+        pathField.stringValue = Location(selectedTab.url).addressText
     }
 
     /// Accepts "/path", "~/path" and "file:///path". A file path reveals the file in its folder.

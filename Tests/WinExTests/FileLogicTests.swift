@@ -56,13 +56,23 @@ struct TabHistoryTests {
     }
 
     @Test func tagLocationsAreNotFolders() {
-        let url = ExplorerTab.tagURL("Лиловый")
-        #expect(ExplorerTab.tagName(of: url) == "Лиловый")
+        let url = Location.tagURL("Лиловый")
+        #expect(Location(url) == .tag("Лиловый"))
         let tab = ExplorerTab(url: url)
         #expect(tab.title == "Лиловый" && !tab.canGoUp)
         // A folder whose path looks like the tag is still a different place
         tab.navigate(to: URL(fileURLWithPath: "/Лиловый"))
         #expect(tab.canGoBack)
+    }
+
+    @Test func locationsDecodeFromURLs() {
+        #expect(Location(Places.networkURL) == .network)
+        #expect(Location(Places.trashURL) == .trash)
+        #expect(Location(Places.trashURL.appendingPathComponent("x")) != .trash)
+        #expect(Location(URL(fileURLWithPath: "/Users/")) == Location(URL(fileURLWithPath: "/Users")))
+        #expect(Location(Location.tagURL("Проект")).addressText == "Теги: Проект")
+        #expect(Location(URL(fileURLWithPath: "/Users")).directory?.path == "/Users")
+        #expect(Location(Places.networkURL).directory == nil)
     }
 }
 

@@ -251,18 +251,18 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         stopTagQuery()
         loader.cancel()
         reloadCompletions = []
-        if Places.isNetwork(url) {
+        let location = Location(url)
+        self.location = location
+        switch location {
+        case .network:
             // "Сеть": servers found by Bonjour; double-click mounts one
             directory = nil
             watcher = nil
-            showingNetwork = true
             NetworkBrowser.shared.start()
             showNetworkServers()
             refilter(keepSelection: false)
             return
-        }
-        showingNetwork = false
-        if let tag = ExplorerTab.tagName(of: url) {
+        case .tag(let tag):
             // A tag location: every file with the tag, found by Spotlight (updates live)
             directory = nil
             watcher = nil
@@ -271,6 +271,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             startTagQuery(tag)
             refilter(keepSelection: false)
             return
+        case .folder, .trash:
+            break
         }
         directory = url
         watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
@@ -399,7 +401,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         watcher = nil
     }
 
-    private var showingNetwork = false
+    /// What is shown: a folder, the Trash, a tag or the network.
+    private(set) var location: Location?
+    private var showingNetwork: Bool { location == .network }
 
     private func showNetworkServers() {
         let icon = NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
@@ -416,7 +420,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         allItems = listing.items
         allItemsOrder = listing.order
         errorMessage = listing.error.map { error in
-            directory.map(Places.isTrash) == true
+            location == .trash
                 ? "WinEx нужен «Полный доступ к диску», чтобы показать Корзину (правый клик → открыть настройки)"
                 : error.localizedDescription
         }
@@ -800,7 +804,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             add("Подключиться", #selector(openSelected(_:)))
             return
         }
-        if clickedIndex >= 0 && Places.isTrash(directory) {
+        if clickedIndex >= 0 && location == .trash {
             add("Вернуть", #selector(putBackFromTrash(_:)))
             add("Удалить навсегда", #selector(deleteForever(_:)))
             menu.addItem(.separator())
@@ -808,7 +812,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             add("Свойства", #selector(showProperties(_:)))
             return
         }
-        if clickedIndex < 0 && Places.isTrash(directory) {
+        if clickedIndex < 0 && location == .trash {
             add("Очистить Корзину", #selector(emptyTrash(_:)))
             if errorMessage != nil { add("Открыть настройки «Полный доступ к диску»…", #selector(openFullDiskAccess(_:))) }
             return

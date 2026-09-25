@@ -47,15 +47,7 @@ final class TabBarView: NSView {
         for (i, tab) in controller.tabs.enumerated() {
             let view = existing[tab.id] ?? makeItemView(for: tab)
             view.title = tab.title
-            if Places.isNetwork(tab.url) {
-                view.icon = NSImage(systemSymbolName: "network", accessibilityDescription: nil)
-            } else if Places.isTrash(tab.url) {
-                view.icon = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
-            } else if let tag = ExplorerTab.tagName(of: tab.url) {
-                view.icon = FileTags.dotImage(color: FileTags.tag(named: tag, knownTags: []).color, size: 14)
-            } else {
-                view.icon = FileItem(url: tab.url).icon
-            }
+            view.icon = tab.location.icon
             view.isSelected = i == controller.selectedIndex
             views.append(view)
         }

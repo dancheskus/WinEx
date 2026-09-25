@@ -123,7 +123,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             Section(title: "Места", items: places),
             // Finder's favorite tags; clicking one lists every file with it
             Section(title: "Теги", items: FileTags.favorites.map {
-                Item(title: $0.name, url: ExplorerTab.tagURL($0.name), symbol: "tag", tagColor: $0.color)
+                Item(title: $0.name, url: Location.tagURL($0.name), symbol: "tag", tagColor: $0.color)
             }),
         ]
         outlineView.reloadData()
