@@ -25,7 +25,13 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # A stable signature keeps privacy permissions (Full Disk Access, Desktop, Documents, network
 # volumes) across rebuilds; ad-hoc signatures change every build. See scripts/setup-signing.sh.
 IDENTITY="WinEx Signing"
-if security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
+SIGNING_KEYCHAIN="$HOME/.winex-signing/signing.keychain-db"
+if [ -f "$SIGNING_KEYCHAIN" ]; then
+  # Its own keychain with a known password: no login-password prompts (scripts/setup-signing.sh)
+  security unlock-keychain -p "$(cat "$HOME/.winex-signing/keychain-password")" "$SIGNING_KEYCHAIN"
+  codesign --force --sign "$IDENTITY" --keychain "$SIGNING_KEYCHAIN" "$APP" >/dev/null
+elif security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
+  # CI: the workflow's temporary keychain
   codesign --force --sign "$IDENTITY" "$APP" >/dev/null
 else
   echo "(ad-hoc signature: run scripts/setup-signing.sh once to keep permissions across builds)"
