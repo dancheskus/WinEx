@@ -126,26 +126,45 @@ enum MenuStyle {
     }
 
     /// Every icon in the same 22×28 frame (the height makes the rows roomy), centred and scaled
-    /// down to fit, so the texts line up.
+    /// down to fit, so the texts line up. Symbols are drawn as a one-colour mask in the menu's
+    /// text colour: any layered rendering (hierarchical, palette) left the fill layers of some
+    /// symbols ("tag", "plus.square.on.square") black. App icons keep their colours.
     private static func framed(_ icon: NSImage?) -> NSImage {
-        NSImage(size: NSSize(width: 22, height: 28), flipped: false) { rect in
+        let color = menuTextColor
+        return NSImage(size: NSSize(width: 22, height: 28), flipped: false) { rect in
             guard let icon, icon.size.width > 0, icon.size.height > 0 else { return true }
             let scale = min(1, 20 / icon.size.width, 20 / icon.size.height)
             let size = NSSize(width: icon.size.width * scale, height: icon.size.height * scale)
-            icon.draw(in: NSRect(x: (rect.width - size.width) / 2, y: (rect.height - size.height) / 2, width: size.width, height: size.height))
+            let target = NSRect(x: (rect.width - size.width) / 2, y: (rect.height - size.height) / 2, width: size.width, height: size.height)
+            guard icon.isTemplate else {
+                icon.draw(in: target)
+                return true
+            }
+            // Mask → colour: draw the symbol, then paint over only where it is
+            let tinted = NSImage(size: size, flipped: false) { area in
+                icon.draw(in: area)
+                color.set()
+                area.fill(using: .sourceAtop)
+                return true
+            }
+            tinted.draw(in: target)
             return true
         }
     }
 
-    /// A symbol in the menu's text colour, resolved for the current appearance (a dynamic colour
-    /// drawn inside an image can come out black in the dark menu).
+    /// The menu's text colour for the current appearance (resolved: a dynamic colour inside an
+    /// image may be resolved for the wrong appearance).
+    private static var menuTextColor: NSColor {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.12, alpha: 1)
+    }
+
+    /// A plain (template) symbol; `framed` gives it the menu's colour.
     static func symbol(_ name: String) -> NSImage? {
-        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let color = dark ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.15, alpha: 1)
-        // One fixed colour at different opacities for the layers (a palette left fill layers black)
-        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-                .applying(.init(hierarchicalColor: color)))
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+        image?.isTemplate = true
+        return image
     }
 
     /// The row of icon buttons on top of a file menu.
