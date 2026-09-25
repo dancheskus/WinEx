@@ -524,6 +524,23 @@ final class AddressField: NSTextField {
 final class ExplorerWindow: NSWindow {
     var titleBarViews: [NSView] = []
 
+    /// When a window is shown, AppKit may constrain it to the "current" monitor (the one with the
+    /// Dock click or the active desktop) and pull a window restored on another monitor over to it.
+    /// Constrain to the monitor the window is actually on instead.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        super.constrainFrameRect(frameRect, to: Self.screen(containing: frameRect) ?? screen)
+    }
+
+    /// The monitor showing the largest part of `rect`, if any part is visible.
+    static func screen(containing rect: NSRect) -> NSScreen? {
+        func area(_ screen: NSScreen) -> CGFloat {
+            let overlap = screen.frame.intersection(rect)
+            return overlap.isNull ? 0 : overlap.width * overlap.height
+        }
+        guard let best = NSScreen.screens.max(by: { area($0) < area($1) }), area(best) > 0 else { return nil }
+        return best
+    }
+
     /// One file-operation history for all windows and the desktop. NSWindow's own undo:/redo:
     /// use its internal manager, so they are answered here explicitly (text fields handle their own first).
     override var undoManager: UndoManager? { FileUndo.manager(for: self) }

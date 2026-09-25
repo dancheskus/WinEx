@@ -87,6 +87,9 @@ enum Scenarios {
         }
         let main = CGRect(x: 300, y: 300, width: 640, height: 700)
         var onSecond: ExplorerWindowController?
+        // Like with "WinEx instead of Finder": the WinEx desktop is on the main monitor
+        let desktop = DesktopController()
+        if ProcessInfo.processInfo.environment["WINEX_WITH_DESKTOP"] != nil { desktop.show() }
         s.run([
             (0.5, "window A on the main monitor, window B on the second", {
                 s.window?.window?.setFrame(main, display: true)
@@ -107,8 +110,18 @@ enum Scenarios {
                 last?.performClose(nil)
             }),
             (0.5, "open after all closed", {
+                // A click on the desktop makes it the key window (it's on the main monitor)
+                NSApp.windows.first { $0 is DesktopWindow }?.makeKeyAndOrderFront(nil)
+                // Opened while another app is active, like a click on the Dock icon
+                if ProcessInfo.processInfo.environment["WINEX_INACTIVE"] != nil { NSApp.deactivate() }
+                s.note("  key: \(NSApp.keyWindow.map { "\(type(of: $0))" } ?? "none"), NSScreen.main: \(NSScreen.main?.localizedName ?? "?")")
                 let w = app.openWindow(at: s.sandbox).window
                 s.note("  new: \(w?.frame ?? .zero) on \(w?.screen?.localizedName ?? "?")  expect \(target) on \(second.localizedName)")
+            }),
+            (0.5, "a moment later", {
+                let w = s.window?.window
+                s.note("  new: \(w?.frame ?? .zero) on \(w?.screen?.localizedName ?? "?")")
+                desktop.hide()
             }),
         ])
     }

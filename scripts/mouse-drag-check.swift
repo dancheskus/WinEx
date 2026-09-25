@@ -41,5 +41,7 @@ let close = CGPoint(x: c[0], y: c[1])
 post(.mouseMoved, close); usleep(250_000)
 post(.leftMouseDown, close); usleep(80_000)
 post(.leftMouseUp, close); usleep(300_000)
+// Back to the main monitor, like reaching for the Dock or the desktop to open a new window
+post(.mouseMoved, from); usleep(300_000)
 touch("closed")
 print("mouse: dragged \(from) → \(to), clicked close at \(close)")

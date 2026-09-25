@@ -25,7 +25,7 @@ enum WindowPlacement {
         set { AppDefaults.store.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: defaultsKey) }
     }
 
-    /// Remembers `window` as the last used one (called when it's moved, resized or activated).
+    /// Remembers `window` as the last used one (called when it's moved, resized or closed).
     @MainActor
     static func remember(_ window: NSWindow) {
         guard !window.styleMask.contains(.fullScreen), window.isVisible,

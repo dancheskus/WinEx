@@ -229,3 +229,16 @@ struct FinderDesktopOptionsTests {
         #expect(FinderDesktopLayout.viewOptions(nil) == .init())
     }
 }
+
+@MainActor
+struct WindowConstrainTests {
+    /// Shown while another monitor is "current", a window must stay on its own monitor.
+    @Test func staysOnItsOwnMonitor() {
+        let screens = NSScreen.screens
+        guard screens.count > 1 else { return }  // needs two monitors
+        let second = screens[1].visibleFrame
+        let frame = NSRect(x: second.minX + 100, y: second.minY + 100, width: 800, height: 500)
+        let window = ExplorerWindow(contentRect: .zero, styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: true)
+        #expect(window.constrainFrameRect(frame, to: screens[0]) == frame)
+    }
+}
