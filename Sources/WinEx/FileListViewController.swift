@@ -969,6 +969,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        // Like Explorer: right-clicking an item selects it (the menu acts on the selection)
+        let clicked = clickedIndex
+        if clicked >= 0 && !selectedIndexes.contains(clicked) { setSelection(IndexSet(integer: clicked)) }
+        defer { MenuStyle.decorate(menu) }
         func add(_ title: String, _ action: Selector) {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 NAME="${1:?scenario}"; SHOTS="${2:-1}"
 ./build.sh debug >/dev/null 2>&1 || { echo "build failed"; exit 1; }
 OUT=$(mktemp -d /tmp/winex-scenario.XXXXXX)
-WINEX_SCENARIO="$NAME" WINEX_SCENARIO_OUT="$OUT" build/WinEx.app/Contents/MacOS/WinEx >/dev/null 2>&1 &
+WINEX_SCENARIO="$NAME" WINEX_SCENARIO_OUT="$OUT" WINEX_MENU_TEST="${WINEX_MENU_TEST:-}" build/WinEx.app/Contents/MacOS/WinEx >/dev/null 2>&1 &
 PID=$!
 rm -rf "build/scenario-$NAME"; mkdir -p "build/scenario-$NAME"
 for i in $(seq 0 $((SHOTS - 1))); do

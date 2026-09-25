@@ -34,11 +34,21 @@ enum FileContextMenu {
         func add(_ title: String, _ action: Selector) {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = target
         }
-        // Finder's row of tag colors on top
-        menu.addItem(TagRowMenuView.menuItem(for: urls))
+        // Windows 11: the everyday actions as a row of icon buttons on top
+        menu.addItem(MenuStyle.actionRow(target: target, actions: [
+            ("Вырезать", "scissors", #selector(FileMenuActions.cut(_:))),
+            ("Копировать", "doc.on.doc", #selector(FileMenuActions.copy(_:))),
+            ("Переим.", "pencil", #selector(FileMenuActions.renameSelected(_:))),
+            ("Поделиться", "square.and.arrow.up", #selector(FileMenuActions.share(_:))),
+            ("Удалить", "trash", #selector(FileMenuActions.moveToTrash(_:))),
+        ]))
         menu.addItem(.separator())
         add("Открыть", #selector(FileMenuActions.openSelected(_:)))
         let single = urls.count == 1 ? urls.first : nil
+        // Like Explorer: "Открыть" shows the app the file opens in
+        if let single, !single.hasDirectoryPath, let app = NSWorkspace.shared.urlForApplication(toOpen: single) {
+            menu.items.last?.image = NSWorkspace.shared.icon(forFile: app.path)
+        }
         if let single, FileCommands.isPackage(single) {
             add("Показать содержимое пакета", #selector(FileMenuActions.showPackageContents(_:)))
         }
@@ -52,10 +62,7 @@ enum FileContextMenu {
             add("Открыть в новом окне", #selector(FileMenuActions.openInNewWindow(_:)))
         }
         menu.addItem(.separator())
-        add("Вырезать", #selector(FileMenuActions.cut(_:)))
-        add("Копировать", #selector(FileMenuActions.copy(_:)))
         add("Копировать путь", #selector(FileMenuActions.copyPath(_:)))
-        menu.addItem(.separator())
         add("Дублировать", #selector(FileMenuActions.duplicate(_:)))
         add("Создать псевдоним", #selector(FileMenuActions.makeAlias(_:)))
         add(single.map { "Сжать «\($0.lastPathComponent)»" } ?? "Сжать \(urls.count) \(plural(urls.count, "объект", "объекта", "объектов"))",
@@ -64,14 +71,13 @@ enum FileContextMenu {
             add("Распаковать", #selector(FileMenuActions.extractArchive(_:)))
         }
         menu.addItem(.separator())
-        add("Переименовать", #selector(FileMenuActions.renameSelected(_:)))
-        add("Переместить в корзину", #selector(FileMenuActions.moveToTrash(_:)))
-        add("Поделиться…", #selector(FileMenuActions.share(_:)))
-        menu.addItem(.separator())
+        // Finder's row of tag colours, then the tags submenu
+        menu.addItem(TagRowMenuView.menuItem(for: urls))
         menu.addItem(FileTags.menuItem(for: urls, target: target, action: #selector(FileMenuActions.toggleTag(_:))))
         if customizableFolder { add("Настроить папку…", #selector(FileMenuActions.customizeFolder(_:))) }
         menu.addItem(.separator())
         add("Свойства", #selector(FileMenuActions.showProperties(_:)))
+        MenuStyle.decorate(menu)
     }
 
     /// Body of every `toggleTag(_:)`: applies the tag change a "Теги ▸" item stands for.

@@ -820,6 +820,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // MARK: - Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = buildMenu(for: event)
+        menu.map(MenuStyle.decorate)
+        return menu
+    }
+
+    private func buildMenu(for event: NSEvent) -> NSMenu? {
         endRename()
         let point = convert(event.locationInWindow, from: nil)
         menuPoint = point

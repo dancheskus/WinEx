@@ -27,6 +27,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let statusLabel = NSTextField(labelWithString: "")
     /// The address bar's capsule (outlined in the accent colour while editing).
     private var addressCapsule = ToolbarCapsule(height: 32, views: [])
+    private let breadcrumbs = BreadcrumbBar()
     /// What the status bar says (item count, selection and its size).
     var statusText: String { statusLabel.stringValue }
 
@@ -138,7 +139,26 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         // One style for the whole row, sized like the search field: capsules with a light fill
         let height = max(searchField.intrinsicContentSize.height, 32)
         let navGroup = ToolbarCapsule(height: height, views: [backButton, forwardButton, upButton], separators: true)
-        addressCapsule = ToolbarCapsule(height: height, views: [pathField], padding: 14)
+        // Breadcrumbs normally; the text field while typing a path (same place, one at a time)
+        let addressArea = NSView()
+        for view in [breadcrumbs, pathField] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addressArea.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            breadcrumbs.leadingAnchor.constraint(equalTo: addressArea.leadingAnchor, constant: -8),
+            breadcrumbs.trailingAnchor.constraint(equalTo: addressArea.trailingAnchor, constant: 8),
+            breadcrumbs.topAnchor.constraint(equalTo: addressArea.topAnchor),
+            breadcrumbs.bottomAnchor.constraint(equalTo: addressArea.bottomAnchor),
+            pathField.leadingAnchor.constraint(equalTo: addressArea.leadingAnchor),
+            pathField.trailingAnchor.constraint(equalTo: addressArea.trailingAnchor),
+            pathField.centerYAnchor.constraint(equalTo: addressArea.centerYAnchor),
+            addressArea.heightAnchor.constraint(equalToConstant: height),
+        ])
+        pathField.isHidden = true
+        breadcrumbs.onNavigate = { [weak self] url in self?.navigate(to: url) }
+        breadcrumbs.onEdit = { [weak self] in self?.focusPathField(nil) }
+        addressCapsule = ToolbarCapsule(height: height, views: [addressArea], padding: 14)
         let refreshCapsule = ToolbarCapsule(height: height, views: [refreshButton], round: true)
         let viewCapsule = ToolbarCapsule(height: height, views: [viewModeButton], padding: 6)
         let settingsCapsule = ToolbarCapsule(height: height, views: [settingsButton], round: true)
@@ -308,6 +328,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         // Leaving the address bar mid-edit (tab switch, sidebar click…) drops the edit and its selection
         if pathField.currentEditor() != nil { window?.makeFirstResponder(fileList.focusView) }
         pathField.stringValue = Location(tab.url).addressText
+        breadcrumbs.show(Location(tab.url))
         // The field shows the query of a results tab; typing in it refines the search in place
         if case .search(let request) = Location(tab.url) {
             if searchField.stringValue != request.text { searchField.stringValue = request.text }
@@ -437,9 +458,18 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         fileList.reload()
     }
 
+    /// ⌘L, F4, a click beside the breadcrumbs: type a path (the whole current one selected).
     @objc func focusPathField(_ sender: Any?) {
+        breadcrumbs.isHidden = true
+        pathField.isHidden = false
         window?.makeFirstResponder(pathField)
         pathField.currentEditor()?.selectAll(nil)
+    }
+
+    /// Back to the breadcrumbs once the field lets go.
+    private func endAddressEditing() {
+        pathField.isHidden = true
+        breadcrumbs.isHidden = false
     }
 
     // MARK: - Search
@@ -583,6 +613,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     func controlTextDidEndEditing(_ obj: Notification) {
         guard (obj.object as? NSTextField) === pathField else { return }
         addressCapsule.isFocused = false
+        endAddressEditing()
         pathField.stringValue = Location(selectedTab.url).addressText
     }
 

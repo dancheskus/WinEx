@@ -25,57 +25,159 @@ enum Scenarios {
         "settings": settingsTabs,
         "look": look,
         "addressclick": addressClick,
+        "breadcrumbs": breadcrumbs,
+        "contextmenu": contextMenu,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
 
-    /// A click on the address bar with the button held a moment (like a real click): the whole
-    /// path must end up selected. Repeated, and once with a drag that selects part of it.
+    /// A real-timed click (button held 0.15 s) beside the breadcrumbs switches to typing with the
+    /// whole path selected — five times in a row; Esc brings the breadcrumbs back each time.
     static func addressClick(_ s: Scenario) {
         let base = s.makeFiles(["a.txt"])
         s.window?.navigate(to: base)
-        func field() -> AddressField? { s.find(AddressField.self, in: s.window?.window?.contentView) }
-        func press(at x: CGFloat, dragTo: CGFloat? = nil, then check: @escaping () -> Void) {
-            guard let field = field(), let window = field.window else { s.note("  (no address field)"); return }
-            window.makeFirstResponder(s.table)   // not editing before the click
-            let down = field.convert(NSPoint(x: x, y: field.bounds.midY), to: nil)
-            let up = field.convert(NSPoint(x: dragTo ?? x, y: field.bounds.midY), to: nil)
-            func event(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {
-                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
-            }
-            // The button comes up 0.15 s later, while the field editor is tracking the click. A timer
-            // in the common modes fires inside that tracking loop (a main-queue block couldn't).
-            let release = Timer(timeInterval: 0.15, repeats: false) { _ in
-                if dragTo != nil, let drag = event(.leftMouseDragged, up) { NSApp.postEvent(drag, atStart: false) }
-                if let upEvent = event(.leftMouseUp, up) { NSApp.postEvent(upEvent, atStart: false) }
-            }
-            RunLoop.main.add(release, forMode: .common)
-            // Through the application, like a real click (it sets NSApp.currentEvent)
-            if let downEvent = event(.leftMouseDown, down) { NSApp.sendEvent(downEvent) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { check() }
-        }
+        func bar() -> BreadcrumbBar? { s.find(BreadcrumbBar.self, in: s.window?.window?.contentView) }
         func selection() -> String {
-            guard let editor = field()?.currentEditor() else { return "not editing" }
+            guard let editor = s.window?.window?.firstResponder as? NSTextView else { return "not editing" }
             let range = editor.selectedRange, length = (editor.string as NSString).length
-            return range.length == length ? "all" : "\(range.length) of \(length)"
+            return range.length == length && length > 0 ? "all" : "\(range.length) of \(length)"
         }
         var results: [String] = []
         func round(_ n: Int) {
             guard n < 5 else {
                 s.note("  5 clicks: \(results)  expect all")
-                press(at: 40, dragTo: 120) {
-                    s.note("  drag: \(selection())  expect part")
-                    s.run([])
-                }
+                s.run([])
                 return
             }
-            press(at: CGFloat(30 + n * 25)) {
+            guard let bar = bar(), let window = bar.window else { s.note("  (no breadcrumbs)"); s.run([]); return }
+            window.makeFirstResponder(s.table)
+            let point = bar.convert(NSPoint(x: bar.bounds.maxX - 12, y: bar.bounds.midY), to: nil)
+            func event(_ type: NSEvent.EventType) -> NSEvent? {
+                NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                   windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            }
+            let release = Timer(timeInterval: 0.15, repeats: false) { _ in
+                if let up = event(.leftMouseUp) { NSApp.postEvent(up, atStart: false) }
+            }
+            RunLoop.main.add(release, forMode: .common)
+            if let down = event(.leftMouseDown) { NSApp.sendEvent(down) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 results.append(selection())
-                round(n + 1)
+                s.key("\u{1b}", code: 53)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { round(n + 1) }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { round(0) }
+    }
+
+    /// The breadcrumb bar: steps for a few places, a click on a step, a click beside them (typing),
+    /// Esc back; photographed wide (scripts/capture-window.sh breadcrumbs).
+    static func breadcrumbs(_ s: Scenario) {
+        let deep = s.makeFiles(["x.txt"], in: "Проекты/2026/Отчёты")
+        let fm = FileManager.default
+        for place in [fm.homeDirectoryForCurrentUser.appendingPathComponent("Desktop"), Places.trashURL, Places.computerURL] {
+            let crumbs = BreadcrumbBar.path(for: Location(place)).crumbs.map(\.title)
+            s.note("  \(place.lastPathComponent): \(crumbs.joined(separator: " › "))")
+        }
+        s.window?.navigate(to: deep)
+        s.window?.window?.setFrame(NSRect(x: 150, y: 200, width: 1400, height: 600), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        func bar() -> BreadcrumbBar? { s.find(BreadcrumbBar.self, in: s.window?.window?.contentView) }
+        func buttons() -> [CrumbButton] { bar().map { s.findAll(CrumbButton.self, in: $0) } ?? [] }
+        s.run([
+            (1.0, "photograph", {
+                s.note("  steps: \(buttons().compactMap(\.toolTip).suffix(4))")
+                if let window = s.window?.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (2.0, "click the step «Проекты»", {
+                guard let step = buttons().first(where: { $0.toolTip?.hasSuffix("/Проекты") == true }), let event = NSApp.currentEvent else { s.note("  (no step)"); return }
+                step.mouseDown(with: event)
+            }),
+            (0.6, "where", { s.note("  now in: \(s.window?.selectedTab.title ?? "?")  expect Проекты") }),
+            (0.2, "click beside the steps", {
+                guard let bar = bar(), let window = bar.window,
+                      let event = NSEvent.mouseEvent(with: .leftMouseDown, location: bar.convert(NSPoint(x: bar.bounds.maxX - 10, y: bar.bounds.midY), to: nil),
+                                                     modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                     context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+                bar.mouseDown(with: event)
+            }),
+            (0.4, "typing?", {
+                let editor = s.window?.window?.firstResponder as? NSTextView
+                let all = editor.map { $0.selectedRange.length == ($0.string as NSString).length } ?? false
+                s.note("  typing: \(editor != nil), all selected: \(all), breadcrumbs hidden: \(bar()?.isHidden == true)  expect true, true, true")
+                s.key("\u{1b}", code: 53)
+            }),
+            (0.4, "after Esc", { s.note("  breadcrumbs back: \(bar()?.isHidden == false)  expect true") }),
+        ])
+    }
+
+    /// Opens a file's context menu and hands its window to scripts/capture-window.sh contextmenu.
+    static func contextMenu(_ s: Scenario) {
+        let base = s.makeFiles(["отчёт.docx", "заметки.txt"])
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard let table = s.table, let menu = table.menu, let window = table.window else { s.note("  (no table)"); s.run([]); return }
+            s.select("отчёт.docx")
+            let row = table.selectedRow
+            let point = table.convert(NSPoint(x: 80, y: table.rect(ofRow: max(row, 0)).midY), to: nil)
+            guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+            // While the menu tracks, timers in the common modes still fire: find the menu's window,
+            // let the script photograph it, then close the menu
+            let find = Timer(timeInterval: 0.6, repeats: false) { _ in
+                let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+                let mine = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid() && ($0[kCGWindowLayer as String] as? Int ?? 0) >= 101 }
+                if let number = mine.first?[kCGWindowNumber as String] as? Int {
+                    try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+                s.note("  menu items: \(menu.items.filter { !$0.isSeparatorItem }.map { $0.view != nil ? "[row]" : $0.title + ($0.image == nil ? "" : "🖼") }.prefix(9))")
+                let close = Timer(timeInterval: 0.2, repeats: true) { timer in
+                    if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-0").path) {
+                        timer.invalidate()
+                        menu.cancelTracking()
+                    }
+                }
+                RunLoop.main.add(close, forMode: .common)
+            }
+            RunLoop.main.add(find, forMode: .common)
+            if ProcessInfo.processInfo.environment["WINEX_MENU_TEST"]?.isEmpty == false {
+                // Experiment: does macOS draw item images in a plain context menu?
+                let plain = NSMenu()
+                for (title, symbol) in [("Копировать", "doc.on.doc"), ("Свойства", "info.circle")] {
+                    let item = plain.addItem(withTitle: title, action: #selector(NSText.copy(_:)), keyEquivalent: "")
+                    // The icon as part of the title (a text attachment)
+                    let attachment = NSTextAttachment()
+                    attachment.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                        .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 14, weight: .regular).applying(.init(hierarchicalColor: .labelColor)))
+                    let text = NSMutableAttributedString(attachment: attachment)
+                    text.append(NSAttributedString(string: "   " + title, attributes: [.font: NSFont.menuFont(ofSize: 0)]))
+                    item.attributedTitle = text
+                }
+                let closePlain = Timer(timeInterval: 0.6, repeats: false) { _ in
+                    let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+                    if let number = list.first(where: { ($0[kCGWindowOwnerPID as String] as? Int32) == getpid() && ($0[kCGWindowLayer as String] as? Int ?? 0) >= 101 })?[kCGWindowNumber as String] as? Int {
+                        try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                    }
+                    let close = Timer(timeInterval: 0.2, repeats: true) { timer in
+                        if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-0").path) { timer.invalidate(); plain.cancelTracking() }
+                    }
+                    RunLoop.main.add(close, forMode: .common)
+                }
+                RunLoop.main.add(closePlain, forMode: .common)
+                NSMenu.popUpContextMenu(plain, with: event, for: table)
+                s.run([])
+                return
+            }
+            // A real right-click on the row (the table records it as the clicked row)
+            table.rightMouseDown(with: event)
+            s.run([])
+        }
     }
 
     /// A window to photograph (scripts/capture-window.sh look): two tabs, some files, the icon view.
