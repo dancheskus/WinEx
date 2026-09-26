@@ -769,7 +769,7 @@ final class FenceSettingsView: NSView {
         blur.title = L("Размытие обоев под зоной")
         blur.state = FenceStyle.blur ? .on : .off
         let snapping = ClosureCheckbox { FenceStyle.snapping = $0 }
-        snapping.title = L("Прилипание к краям экрана, другим зонам и сетке значков")
+        snapping.title = L("Прилипание к краям, зонам и сетке значков")
         snapping.state = FenceStyle.snapping ? .on : .off
         let quickHide = ClosureCheckbox { FenceStyle.quickHide = $0 }
         quickHide.title = L("Двойной щелчок по рабочему столу скрывает значки и зоны")
@@ -824,8 +824,8 @@ final class FenceSettingsView: NSView {
             snapshots.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
             snapshots.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             snapshots.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
-            preview.widthAnchor.constraint(equalToConstant: 200),
-            preview.heightAnchor.constraint(equalToConstant: 140),
+            preview.widthAnchor.constraint(equalToConstant: 150),
+            preview.heightAnchor.constraint(equalToConstant: 100),
         ])
         sync()
     }
@@ -851,7 +851,7 @@ private final class FencePreview: NSView {
         let backdrop = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
         NSGradient(colors: [NSColor(srgbRed: 0.10, green: 0.18, blue: 0.35, alpha: 1), NSColor(srgbRed: 0.42, green: 0.36, blue: 0.30, alpha: 1)])?
             .draw(in: backdrop, angle: 60)
-        let fence = bounds.insetBy(dx: 18, dy: 18)
+        let fence = bounds.insetBy(dx: 12, dy: 10)
         let radius = min(FenceStyle.cornerRadius, fence.height / 2)
         let shape = NSBezierPath(roundedRect: fence, xRadius: radius, yRadius: radius)
         if FenceStyle.blur {
@@ -873,10 +873,10 @@ private final class FencePreview: NSView {
             .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white, .paragraphStyle: paragraph,
         ]).draw(in: NSRect(x: fence.minX, y: fence.minY + 6, width: fence.width, height: 20))
         let icon = NSWorkspace.shared.icon(for: .folder)
-        let fits = max(1, Int((fence.width - 12) / 54))
-        let side = (fence.width - CGFloat(fits) * 54) / 2
+        let fits = max(1, Int((fence.width - 8) / 46))
+        let side = (fence.width - CGFloat(fits) * 46) / 2
         for n in 0..<fits {
-            icon.draw(in: NSRect(x: fence.minX + side + 7 + CGFloat(n) * 54, y: fence.minY + 42, width: 40, height: 40))
+            icon.draw(in: NSRect(x: fence.minX + side + 6, y: fence.minY + 36, width: 34, height: 34).offsetBy(dx: CGFloat(n) * 46, dy: 0))
         }
     }
 }

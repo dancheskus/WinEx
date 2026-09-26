@@ -1519,16 +1519,23 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             items.append(.separator())
         }
         if !fence.isPortal { items.append(item(L("Переименовать зону"), #selector(renameFence(_:)), "pencil")) }
-        items += [
-            item(fence.collapsed ? L("Развернуть зону") : L("Свернуть зону"), #selector(toggleFenceMenu(_:)),
-                 fence.collapsed ? "chevron.down" : "chevron.up"),
-        ]
         // Its own colour, or the one from Settings
         let colors = NSMenu()
         let standard = colors.addItem(withTitle: L("Как в настройках"), action: #selector(setFenceColor(_:)), keyEquivalent: "")
         standard.target = self
         standard.representedObject = [id, ""]
         standard.state = fence.color == nil ? .on : .off
+        // The colour from Settings, in a dashed ring (lines up with the swatches below)
+        standard.image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            (FenceStyle.nsColor(FenceStyle.color) ?? .black).setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 3.5, dy: 3.5)).fill()
+            let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
+            ring.lineWidth = 1
+            ring.setLineDash([2, 1.5], count: 2, phase: 0)
+            NSColor.labelColor.withAlphaComponent(0.6).setStroke()
+            ring.stroke()
+            return true
+        }
         colors.addItem(.separator())
         for hex in FenceStyle.presets {
             let swatch = colors.addItem(withTitle: hex, action: #selector(setFenceColor(_:)), keyEquivalent: "")
@@ -1785,11 +1792,6 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     @objc private func renameFence(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         fenceViews[id]?.beginRename()
-    }
-
-    @objc private func toggleFenceMenu(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        toggleCollapsed(id)
     }
 
     /// The fence goes; its icons stay where they are, as desktop icons.

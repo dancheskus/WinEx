@@ -26,7 +26,8 @@ final class SettingsWindowController: NSWindowController {
     private let shellCheckbox = NSButton(checkboxWithTitle: L("Команда open в Терминале открывает папки в WinEx"), target: nil, action: nil)
     private let resetDesktopButton = NSButton(title: L("Сбросить рабочий стол как в Finder…"), target: nil, action: nil)
     // Клавиатура
-    private let windowsKeysCheckbox = NSButton(checkboxWithTitle: L("Клавиши как в Windows"), target: nil, action: nil)
+    private let keysMode = NSSegmentedControl(labels: [L("Как в Finder"), L("Как в Windows")], trackingMode: .selectOne, target: nil, action: nil)
+    private lazy var keysTable = KeyboardModesView(rows: KeyboardModesView.allRows, windowsKeys: Settings.windowsKeys)
     // Доступ
     private let accessIcon = NSImageView()
     private let accessTitle = NSTextField(labelWithString: "")
@@ -113,7 +114,11 @@ final class SettingsWindowController: NSWindowController {
         }
         viewModePopup.target = self
         viewModePopup.action = #selector(changeViewMode(_:))
+        let wizard = NSButton(title: L("Открыть мастер настройки…"), target: AppDelegate.shared, action: #selector(AppDelegate.showSetupWizard(_:)))
         return SettingsForm.build([
+            .row(L("Первая настройка:"), wizard),
+            .row(nil, SettingsForm.hint(L("Язык, доступ к файлам, замена Finder, клавиши и вид окон — по шагам, с картинками."))),
+            .gap,
             .row(L("Язык:"), languagePopup),
             .row(nil, languageHint),
             .gap,
@@ -161,19 +166,17 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func keyboardPane() -> NSView {
-        windowsKeysCheckbox.target = self
-        windowsKeysCheckbox.action = #selector(toggleWindowsKeys(_:))
+        keysMode.target = self
+        keysMode.action = #selector(changeKeysMode(_:))
+        keysMode.controlSize = .large
+        keysTable.onChange = { [weak self] windows in self?.setWindowsKeys(windows) }
         return SettingsForm.build([
-            .row(L("Клавиши:"), windowsKeysCheckbox),
-            .row(nil, SettingsForm.hint(L("Выключено — как в Finder: Enter переименовывает, ⌘↓ или ⌘O открывают, ⌘↑ — вверх."))),
+            .row(L("Клавиши:"), keysMode),
+            .row(nil, SettingsForm.hint(L("Сочетания с ⌘ работают всегда. «Как в Windows» добавляет клавиши Windows, и Enter открывает, а не переименовывает."))),
+            .row(nil, keysTable),
             .gap,
-            .row(nil, SettingsForm.keyTable(title: L("С «Клавишами как в Windows»"), [
-                ("Enter", L("открыть")), ("F2", L("переименовать")), ("Backspace, ⌥↑", L("на уровень выше")),
-                ("⌥←  ⌥→", L("назад / вперёд")), ("F3", L("поиск")), ("F4, ⌥D", L("адресная строка")), ("F5", L("обновить")),
-                ("F11", L("полный экран")), ("Delete", L("в Корзину")), ("⇧Delete", L("удалить навсегда")), ("⇧F10", L("контекстное меню")),
-            ])),
-            .gap,
-            .row(nil, SettingsForm.keyTable(title: L("Всегда"), [
+            .row(nil, SettingsForm.keyTable(title: L("В обоих режимах"), [
+                ("⌘I, ⌥Enter", L("свойства")),
                 ("⌃Tab, ⌃⇧Tab", L("следующая / предыдущая вкладка")), ("⌃1 … ⌃9", L("вкладка по номеру")),
                 (L("⌘ + перетащить"), L("переместить")), (L("⌥ + перетащить"), L("копировать")), (L("⌘⌥ + перетащить"), L("создать псевдоним")),
             ])),
@@ -230,14 +233,9 @@ final class SettingsWindowController: NSWindowController {
         let save = NSButton(title: L("Сохранить в файл…"), target: self, action: #selector(saveSettings(_:)))
         let load = NSButton(title: L("Загрузить из файла…"), target: self, action: #selector(loadSettings(_:)))
         let reset = NSButton(title: L("По умолчанию…"), target: self, action: #selector(resetSettings(_:)))
-        let wizard = NSButton(title: L("Мастер настройки…"), target: AppDelegate.shared, action: #selector(AppDelegate.showSetupWizard(_:)))
         let row = NSStackView(views: [save, load, reset])
-        let column = NSStackView(views: [row, wizard])
-        column.orientation = .vertical
-        column.alignment = .leading
-        column.spacing = 8
         row.spacing = 8
-        return column
+        return row
     }
 
     @objc private func saveSettings(_ sender: Any?) { SettingsBackup.save(from: window) }
@@ -275,7 +273,8 @@ final class SettingsWindowController: NSWindowController {
         commandBarCheckbox.state = Settings.showCommandBar ? .on : .off
         terminalCheckbox.state = Settings.terminalInMenu ? .on : .off
         syncTerminal()
-        windowsKeysCheckbox.state = Settings.windowsKeys ? .on : .off
+        keysMode.selectedSegment = Settings.windowsKeys ? 1 : 0
+        keysTable.windowsKeys = Settings.windowsKeys
         updatesCheckbox.state = Updater.automaticChecks ? .on : .off
         syncHotKey()
         syncStartFolder()
@@ -411,8 +410,13 @@ final class SettingsWindowController: NSWindowController {
         syncHotKey()
     }
 
-    @objc private func toggleWindowsKeys(_ sender: NSButton) {
-        Settings.windowsKeys = sender.state == .on
+    @objc private func changeKeysMode(_ sender: NSSegmentedControl) { setWindowsKeys(sender.selectedSegment == 1) }
+
+    private func setWindowsKeys(_ windows: Bool) {
+        keysMode.selectedSegment = windows ? 1 : 0
+        keysTable.windowsKeys = windows
+        guard windows != Settings.windowsKeys else { return }
+        Settings.windowsKeys = windows
         NotificationCenter.default.post(name: .keyboardSettingsChanged, object: nil)
     }
 

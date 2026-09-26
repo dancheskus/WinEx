@@ -69,7 +69,7 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
     private var accessStatus: NSTextField?
     private var accessIcon: NSImageView?
 
-    static let size = NSSize(width: 680, height: 600)
+    static let size = NSSize(width: 680, height: 660)
 
     private init(step: Int) {
         self.step = Step(rawValue: step) ?? .welcome
@@ -298,34 +298,56 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
                               text: L("С «Полным доступом к диску» открывается Корзина, а macOS не спрашивает отдельно про Рабочий стол, Документы, Загрузки и каждый сетевой диск."),
                               content: [centred, open, WizardAppDrag(), steps])
         case .finder:
+            let sketch = WizardDesktopSketch(replaceFinder: replaceFinder)
             let group = WizardChoiceGroup(options: [
                 ("macwindow", L("Только окна"), L("Finder остаётся; WinEx — обычная программа со своими окнами.")),
                 ("menubar.dock.rectangle", L("Окна и рабочий стол"), L("Рабочий стол рисует WinEx, а «Показать в Finder» в других программах открывает WinEx. Значки останутся на своих местах.")),
-            ], selected: replaceFinder ? 1 : 0) { [weak self] in self?.replaceFinder = $0 == 1 }
+            ], selected: replaceFinder ? 1 : 0) { [weak self, weak sketch] in
+                self?.replaceFinder = $0 == 1
+                sketch?.replaceFinder = $0 == 1
+            }
             return WizardPage(symbol: "arrow.triangle.swap", colors: [.systemOrange, .systemPink], title: L("WinEx вместо Finder?"),
-                              text: L("«Выйти» в строке меню всегда возвращает всё Finder."), content: [group])
+                              text: L("«Выйти» в строке меню всегда возвращает всё Finder."), hero: sketch, content: [group])
         case .keys:
+            let table = KeyboardModesView(rows: KeyboardModesView.shortRows, windowsKeys: windowsKeys)
             let keys = WizardChoiceGroup(options: [
                 ("apple.logo", L("Как в Finder"), L("Enter — переименовать, ⌘↓ — открыть, ⌘↑ — наверх")),
                 ("keyboard", L("Как в Windows"), L("Enter — открыть, F2 — переименовать, Backspace — наверх, Delete — в Корзину")),
-            ], selected: windowsKeys ? 1 : 0) { [weak self] in self?.windowsKeys = $0 == 1 }
+            ], selected: windowsKeys ? 1 : 0) { [weak self, weak table] in
+                self?.windowsKeys = $0 == 1
+                table?.windowsKeys = $0 == 1
+            }
+            table.onChange = { [weak self, weak keys] windows in
+                self?.windowsKeys = windows
+                keys?.select(windows ? 1 : 0, notify: false)
+            }
             let presets = GlobalHotKey.Preset.allCases
             let hotKeyRow = WizardPage.popupRow(L("Окно WinEx из любой программы (как Win+E):"), presets.map(\.title),
                                                 selected: presets.firstIndex(of: hotKey) ?? 0) { [weak self] in self?.hotKey = presets[$0] }
             return WizardPage(symbol: "keyboard.fill", colors: [.systemPurple, .systemIndigo], title: L("Клавиши"),
-                              text: nil, content: [keys, hotKeyRow])
+                              text: nil, hero: NSView(), content: [keys, table, hotKeyRow])
         case .look:
+            let sketch = WizardWindowSketch(viewMode: viewMode, commandBar: commandBar, showHidden: showHidden)
             let modes: [ViewMode] = [.mediumIcons, .list, .details]
             let group = WizardChoiceGroup(options: [
                 (ViewMode.mediumIcons.symbol, ViewMode.mediumIcons.title, nil),
                 (ViewMode.list.symbol, ViewMode.list.title, nil),
                 (ViewMode.details.symbol, ViewMode.details.title, nil),
-            ], selected: modes.firstIndex(of: viewMode) ?? 0, horizontal: true) { [weak self] in self?.viewMode = modes[$0] }
+            ], selected: modes.firstIndex(of: viewMode) ?? 0, horizontal: true) { [weak self, weak sketch] in
+                self?.viewMode = modes[$0]
+                sketch?.viewMode = modes[$0]
+            }
             return WizardPage(symbol: "square.grid.2x2.fill", colors: [.systemIndigo, .systemBlue], title: L("Вид папок"),
-                              text: L("Для папок, которым вы ещё не выбрали свой вид."), content: [
+                              text: L("Для папок, которым вы ещё не выбрали свой вид."), hero: sketch, content: [
                 group,
-                WizardToggle(L("Панель команд под адресной строкой"), L("Создать, вырезать, копировать, сортировать, вид…"), on: commandBar) { [weak self] in self?.commandBar = $0 },
-                WizardToggle(L("Показывать скрытые файлы"), nil, on: showHidden) { [weak self] in self?.showHidden = $0 },
+                WizardToggle(L("Панель команд под адресной строкой"), L("Создать, вырезать, копировать, сортировать, вид…"), on: commandBar) { [weak self, weak sketch] in
+                    self?.commandBar = $0
+                    sketch?.commandBar = $0
+                },
+                WizardToggle(L("Показывать скрытые файлы"), nil, on: showHidden) { [weak self, weak sketch] in
+                    self?.showHidden = $0
+                    sketch?.showHidden = $0
+                },
             ])
         case .startup:
             let folders = [("home", L("Домашняя папка")), ("desktop", L("Рабочий стол")), ("downloads", L("Загрузки")), ("documents", L("Документы"))]
@@ -372,9 +394,10 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
 
 /// A page: a coloured tile with a symbol, a title, a line of text, then its controls.
 private final class WizardPage: NSView {
-    init(symbol: String, colors: [NSColor], title: String, text: String?, content: [NSView]) {
+    /// `hero`: a picture of what the page sets up, in place of the symbol tile.
+    init(symbol: String, colors: [NSColor], title: String, text: String?, hero: NSView? = nil, content: [NSView]) {
         super.init(frame: .zero)
-        let tile = WizardTile(symbol: symbol, colors: colors)
+        let tile = hero ?? WizardTile(symbol: symbol, colors: colors)
         let heading = NSTextField(labelWithString: title)
         heading.font = .systemFont(ofSize: 26, weight: .bold)
         heading.alignment = .center
@@ -526,9 +549,9 @@ private final class WizardChoiceGroup: NSStackView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    private func select(_ index: Int) {
+    func select(_ index: Int, notify: Bool = true) {
         for (i, card) in cards.enumerated() { card.isChosen = i == index }
-        onSelect(index)
+        if notify { onSelect(index) }
     }
 }
 

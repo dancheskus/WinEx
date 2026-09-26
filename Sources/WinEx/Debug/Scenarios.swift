@@ -635,7 +635,26 @@ enum Scenarios {
         func window() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.windowController is SetupWizard } }
         @MainActor func step(_ index: Int) {
             guard let window = window() else { s.note("  (no wizard)"); return s.run([]) }
-            try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+            // The other choice on the pages with pictures, so the pictures show it
+            func click(_ title: String) {
+                guard let content = window.contentView,
+                      let label = s.findAll(NSTextField.self, in: content).first(where: { $0.stringValue == title }),
+                      let event = NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                else { s.note("  (no «\(title)»)"); return }
+                content.hitTest(content.convert(NSPoint(x: label.bounds.midX, y: label.bounds.midY), from: label))?.mouseDown(with: event)
+            }
+            switch index {
+            case 3: click(L("Окна и рабочий стол"))
+            case 4: click(L("Как в Windows"))
+            case 5:
+                click(ViewMode.details.title)
+                click(L("Показывать скрытые файлы"))
+            default: break
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+            }
             if index == 3, let content = window.contentView,
                let label = s.findAll(NSTextField.self, in: content).first(where: { $0.stringValue.hasPrefix(L("Finder остаётся")) }) {
                 // A click on a card's text lands on the card, not on a selectable label
