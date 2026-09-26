@@ -258,7 +258,9 @@ final class FenceView: NSView, NSTextFieldDelegate {
     /// Settings changed: redraw with the new look.
     func styleChanged() {
         updateBlur()
-        needsDisplay = true
+        // Right away: the desktop window doesn't redraw the overlay by itself
+        overlay.needsDisplay = true
+        overlay.displayIfNeeded()
     }
 
     private var titleRect: NSRect { NSRect(x: 0, y: 0, width: bounds.width, height: DesktopFence.titleHeight) }

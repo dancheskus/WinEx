@@ -739,10 +739,19 @@ enum Scenarios {
                 view.debugToggle(fence.id)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     s.note("  unrolled shows icons: \(!view.debugIsHidden(name))  expect true")
-                    controller.hide()
                 }
             }),
-            (1.0, "done", {}),
+            (1.5, "style: square red corners", {
+                FenceStyle.cornerRadius = 0
+                FenceStyle.color = "#8B2E2E"
+                FenceStyle.opacity = 0.8
+                if let window = mainView()?.window {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
+                    }
+                }
+            }),
+            (2.5, "done", { controller.hide() }),
         ])
     }
 
