@@ -268,30 +268,35 @@ final class WizardDesktopSketch: WizardSketch {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        replaceFinder ? drawDesktop() : drawWindowWithMenu()
+        if replaceFinder { drawDesktop() } else {
+            let size = WizardWindowSketch.windowSize
+            drawExplorer(at: NSPoint(x: (bounds.width - size.width) / 2, y: 0), scale: 1)
+        }
     }
 
-    /// The window, a right click on «Отчёт.pdf»: WinEx's menu, in the style of Windows 11.
-    private func drawWindowWithMenu() {
-        drawExplorer(at: .zero, scale: 1)
-        let menu = NSRect(x: 262, y: 70, width: 162, height: 106)
-        NSGraphicsContext.saveGraphicsState()
+    /// WinEx's context menu (Windows 11 style) with «Открыть с помощью ▸» open, its top-left at `origin`.
+    private func drawContextMenu(at origin: NSPoint) {
+        let menu = NSRect(x: origin.x, y: origin.y, width: 138, height: 94)
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
         shadow.shadowBlurRadius = 10
         shadow.shadowOffset = NSSize(width: 0, height: -3)
-        shadow.set()
-        NSColor.controlBackgroundColor.setFill()
-        NSBezierPath(roundedRect: menu, xRadius: 8, yRadius: 8).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        NSColor.separatorColor.setStroke()
-        NSBezierPath(roundedRect: menu.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+        func panel(_ rect: NSRect) {
+            NSGraphicsContext.saveGraphicsState()
+            shadow.set()
+            NSColor.controlBackgroundColor.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.separatorColor.setStroke()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7).stroke()
+        }
+        panel(menu)
         // The row of buttons on top
         for (n, name) in ["scissors", "doc.on.doc", "pencil", "square.and.arrow.up", "trash"].enumerated() {
-            symbol(name, in: NSRect(x: menu.minX + 12 + CGFloat(n) * 28, y: menu.minY + 7, width: 14, height: 11))
+            symbol(name, in: NSRect(x: menu.minX + 10 + CGFloat(n) * 25, y: menu.minY + 6, width: 12, height: 10))
         }
         NSColor.separatorColor.setFill()
-        NSRect(x: menu.minX + 8, y: menu.minY + 24, width: menu.width - 16, height: 1).fill()
+        NSRect(x: menu.minX + 7, y: menu.minY + 21, width: menu.width - 14, height: 1).fill()
         let rows: [(String, String, Bool)] = [
             ("arrow.up.forward.app", L("Открыть с помощью"), true),
             ("plus.square", L("Создать"), true),
@@ -299,34 +304,27 @@ final class WizardDesktopSketch: WizardSketch {
             ("info.circle", L("Свойства"), false),
         ]
         for (n, row) in rows.enumerated() {
-            let y = menu.minY + 29 + CGFloat(n) * 19
+            let y = menu.minY + 25 + CGFloat(n) * 17
             if n == 0 {
                 NSColor.controlAccentColor.setFill()
-                NSBezierPath(roundedRect: NSRect(x: menu.minX + 5, y: y - 1, width: menu.width - 10, height: 18), xRadius: 5, yRadius: 5).fill()
+                NSBezierPath(roundedRect: NSRect(x: menu.minX + 4, y: y - 1, width: menu.width - 8, height: 16), xRadius: 4, yRadius: 4).fill()
             }
-            let color: NSColor = n == 0 ? .white : .labelColor
-            symbol(row.0, in: NSRect(x: menu.minX + 11, y: y + 3, width: 13, height: 10), color: n == 0 ? .white : .secondaryLabelColor)
-            text(row.1, at: NSPoint(x: menu.minX + 30, y: y + 2), size: 9.5, color: color, width: menu.width - 50)
-            if row.2 { symbol("chevron.right", in: NSRect(x: menu.maxX - 18, y: y + 4, width: 8, height: 8), color: n == 0 ? .white : .tertiaryLabelColor) }
+            symbol(row.0, in: NSRect(x: menu.minX + 9, y: y + 3, width: 11, height: 9), color: n == 0 ? .white : .secondaryLabelColor)
+            text(row.1, at: NSPoint(x: menu.minX + 25, y: y + 1.5), size: 8.5, color: n == 0 ? .white : .labelColor, width: menu.width - 42)
+            if row.2 { symbol("chevron.right", in: NSRect(x: menu.maxX - 15, y: y + 4, width: 7, height: 7), color: n == 0 ? .white : .tertiaryLabelColor) }
         }
-        // «Открыть с помощью ▸»: its programs, set up in Settings ▸ Программы
-        let sub = NSRect(x: menu.maxX - 4, y: menu.minY + 24, width: 112, height: 66)
-        NSGraphicsContext.saveGraphicsState()
-        shadow.set()
-        NSColor.controlBackgroundColor.setFill()
-        NSBezierPath(roundedRect: sub, xRadius: 8, yRadius: 8).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        NSColor.separatorColor.setStroke()
-        NSBezierPath(roundedRect: sub.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8).stroke()
+        // «Открыть с помощью ▸»: its programs, chosen in Settings ▸ Программы
         let apps = ["/System/Applications/Preview.app", "/System/Applications/TextEdit.app", "/Applications/Visual Studio Code.app"]
             .filter { FileManager.default.fileExists(atPath: $0) }.prefix(3)
+        let sub = NSRect(x: menu.maxX - 3, y: menu.minY + 20, width: 100, height: CGFloat(apps.count) * 17 + 8)
+        panel(sub)
         for (n, path) in apps.enumerated() {
-            let y = sub.minY + 6 + CGFloat(n) * 19
-            NSWorkspace.shared.icon(forFile: path).draw(in: NSRect(x: sub.minX + 9, y: y, width: 15, height: 15))
+            let y = sub.minY + 5 + CGFloat(n) * 17
+            NSWorkspace.shared.icon(forFile: path).draw(in: NSRect(x: sub.minX + 8, y: y, width: 13, height: 13))
             text(FileManager.default.displayName(atPath: path).replacingOccurrences(of: ".app", with: ""),
-                 at: NSPoint(x: sub.minX + 29, y: y + 2), size: 9.5, width: sub.width - 34)
+                 at: NSPoint(x: sub.minX + 25, y: y + 1.5), size: 8.5, width: sub.width - 30)
         }
-        callout(L("Меню настраивается"), from: NSPoint(x: 452, y: 34), to: NSPoint(x: sub.midX + 10, y: sub.minY))
+        callout(L("Меню настраивается"), from: NSPoint(x: sub.minX + 6, y: menu.minY - 16), to: NSPoint(x: sub.minX + 30, y: sub.minY))
     }
 
     private func drawDesktop() {
@@ -342,14 +340,8 @@ final class WizardDesktopSketch: WizardSketch {
         NSRect(x: screen.minX, y: screen.minY, width: screen.width, height: 14).fill()
         symbol("apple.logo", in: NSRect(x: 8, y: 3, width: 10, height: 8), color: .white)
         text("WinEx", at: NSPoint(x: 24, y: 1.5), size: 8, weight: .bold, color: .white)
-        // Icons on the right, as they were
-        for (n, (name, icon)) in [(L("Проекты"), Self.folder), (L("Отчёт.pdf"), Self.icon(.pdf)), (L("Фото"), Self.folder)].enumerated() {
-            let y = 22 + CGFloat(n) * 40
-            icon.draw(in: NSRect(x: screen.maxX - 44, y: y, width: 26, height: 26))
-            text(name, at: NSPoint(x: screen.maxX - 31, y: y + 27), size: 7.5, weight: .medium, color: .white, width: 60, centred: true)
-        }
         // A zone: only WinEx's desktop has them
-        let zone = NSRect(x: 22, y: 26, width: 150, height: 74)
+        let zone = NSRect(x: 18, y: 24, width: 140, height: 72)
         let path = NSBezierPath(roundedRect: zone, xRadius: 8, yRadius: 8)
         NSColor.black.withAlphaComponent(0.3).setFill()
         path.fill()
@@ -357,11 +349,17 @@ final class WizardDesktopSketch: WizardSketch {
         path.stroke()
         text(L("Работа"), at: NSPoint(x: zone.midX, y: zone.minY + 4), size: 8.5, weight: .semibold, color: .white, width: zone.width, centred: true)
         for n in 0..<3 {
-            Self.icon(n == 1 ? .pdf : .plainText).draw(in: NSRect(x: zone.minX + 14 + CGFloat(n) * 46, y: zone.minY + 24, width: 26, height: 26))
+            Self.icon(n == 1 ? .pdf : .plainText).draw(in: NSRect(x: zone.minX + 12 + CGFloat(n) * 44, y: zone.minY + 24, width: 26, height: 26))
         }
-        // The window over the desktop
-        let scale: CGFloat = 0.62
-        let origin = NSPoint(x: 190, y: 50)
+        // Icons outside it, under it
+        for (n, (name, icon)) in [(L("Проекты"), Self.folder), (L("Фото"), Self.folder)].enumerated() {
+            let x = zone.minX + 6 + CGFloat(n) * 52
+            icon.draw(in: NSRect(x: x + 7, y: 112, width: 26, height: 26))
+            text(name, at: NSPoint(x: x + 20, y: 139), size: 7.5, weight: .medium, color: .white, width: 60, centred: true)
+        }
+        // The window over the desktop, a right click in it
+        let scale: CGFloat = 0.56
+        let origin = NSPoint(x: 176, y: 42)
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.4)
@@ -375,6 +373,7 @@ final class WizardDesktopSketch: WizardSketch {
         NSGraphicsContext.restoreGraphicsState()
         NSColor.separatorColor.setStroke()
         shape.stroke()
-        callout(L("Зоны WinEx"), from: NSPoint(x: 34, y: 132), to: NSPoint(x: 50, y: 100))
+        drawContextMenu(at: NSPoint(x: 322, y: 70))
+        callout(L("Зоны WinEx"), from: NSPoint(x: 110, y: 164), to: NSPoint(x: 120, y: 96))
     }
 }

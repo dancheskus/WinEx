@@ -599,7 +599,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         fileList.reload()
     }
 
-    /// Вид ▸ Полноэкранный режим (⌃⌘F), F11 with Windows keys.
+    /// Вид ▸ Полноэкранный режим (⌃⌘F).
     @objc func toggleFullScreenMode(_ sender: Any?) {
         #if DEBUG
         // Scenarios count it instead: a real full screen would switch the user's Spaces
@@ -854,7 +854,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     /// Keys handled before the focused view sees them. Always: ⌃Tab / ⌃⇧Tab switch tabs, ⌃1…9
     /// picks a tab. With "Клавиши как в Windows": F3 search, F4 / ⌥D address bar, F5 refresh,
-    /// F11 full screen, Delete → Trash, ⇧Delete → delete for good, ⌥← ⌥→ ⌥↑ back / forward / up,
+    /// Delete → Trash, ⇧Delete → delete for good, ⌥← ⌥→ ⌥↑ back / forward / up,
     /// ⇧F10 context menu. Keys that edit text (arrows, Delete, ⌥D) are left to text fields.
     func handleShortcut(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
@@ -877,7 +877,6 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         case (99, []): focusSearchField(nil)                                          // F3
         case (118, []): focusPathField(nil)                                           // F4
         case (96, []): refresh(nil)                                                   // F5
-        case (103, []): toggleFullScreenMode(nil)                                     // F11
         case (109, [.shift]): fileList.showContextMenuForSelection()                  // ⇧F10
         case (2, [.option]) where !typing: focusPathField(nil)                        // ⌥D
         case (123, [.option]) where !typing: goBack(nil)                              // ⌥←

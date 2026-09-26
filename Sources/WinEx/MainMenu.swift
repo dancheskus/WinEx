@@ -73,8 +73,15 @@ enum MainMenu {
             item(L("Распаковать"), #selector(FileListViewController.extractArchive(_:)), ""),
             item(L("Найти"), #selector(ExplorerWindowController.focusSearchField(_:)), "f"),
             renameItem,
-            // The ⌫ key sends DEL (0x7F): a menu with Backspace (0x08) never matches it
-            item(L("Переместить в корзину"), #selector(FileListViewController.moveToTrash(_:)), "\u{7f}"),
+            item(L("Переместить в корзину"), #selector(FileListViewController.moveToTrash(_:)), key(NSBackspaceCharacter)),
+            {
+                // ⌘⌫ arrives as Backspace (0x08) from the keyboard, but as DEL (0x7F) in some paths:
+                // both go to the Trash
+                let alternate = item(L("Переместить в корзину"), #selector(FileListViewController.moveToTrash(_:)), "\u{7f}")
+                alternate.isHidden = true
+                alternate.allowsKeyEquivalentWhenHidden = true
+                return alternate
+            }(),
             .separator(),
             item(L("Свойства"), #selector(FileListViewController.showProperties(_:)), "i"),
             {

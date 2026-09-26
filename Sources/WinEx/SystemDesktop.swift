@@ -24,17 +24,6 @@ enum SystemDesktop {
             : (pref("StandardHideDesktopIcons", in: "com.apple.WindowManager") ?? false)
     }
 
-    /// Keyboard ▸ Shortcuts ▸ Mission Control ▸ "Show Desktop" is F11 (as out of the box): macOS
-    /// takes the key before any program sees it.
-    static var f11ShowsDesktop: Bool {
-        CFPreferencesAppSynchronize("com.apple.symbolichotkeys" as CFString)
-        guard let all = CFPreferencesCopyAppValue("AppleSymbolicHotKeys" as CFString, "com.apple.symbolichotkeys" as CFString) as? [String: Any],
-              let entry = all["36"] as? [String: Any] else { return true }
-        guard (entry["enabled"] as? Bool) ?? (entry["enabled"] as? Int == 1) else { return false }
-        let parameters = ((entry["value"] as? [String: Any])?["parameters"] as? [Int]) ?? []
-        return parameters.count == 3 && parameters[1] == 103 && parameters[2] == 0
-    }
-
     /// Finder ▸ Settings ▸ General ▸ "Show these items on the desktop".
     static func showsVolume(isInternal: Bool, local: Bool, removable: Bool) -> Bool {
         let finder = "com.apple.finder"

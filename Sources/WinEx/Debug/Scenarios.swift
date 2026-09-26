@@ -70,7 +70,7 @@ enum Scenarios {
         func fn(_ key: Int) -> String { String(Character(UnicodeScalar(key) ?? " ")) }
         let down = fn(NSDownArrowFunctionKey), up = fn(NSUpArrowFunctionKey), left = fn(NSLeftArrowFunctionKey), right = fn(NSRightArrowFunctionKey)
         let f2 = fn(NSF2FunctionKey), f3 = fn(NSF3FunctionKey), f4 = fn(NSF4FunctionKey), f5 = fn(NSF5FunctionKey)
-        let f10 = fn(NSF10FunctionKey), f11 = fn(NSF11FunctionKey), forwardDelete = fn(NSDeleteFunctionKey)
+        let f10 = fn(NSF10FunctionKey), forwardDelete = fn(NSDeleteFunctionKey)
         var here: String { s.window?.selectedTab.url.lastPathComponent ?? "?" }
         var focus: String {
             let responder = s.window?.window?.firstResponder
@@ -149,7 +149,8 @@ enum Scenarios {
         steps += test("⌘L address bar", { press("l", 37, .command) }, { focus }, "address")
         steps += counted("⌘R refresh", refreshes) { press("r", 15, .command) }
         steps += counted("⌃⌘F full screen", fullScreens) { press("f", 3, [.command, .control]) }
-        steps += trash("⌘⌫ to the Trash") { press("\u{7f}", 51, .command) }
+        steps += trash("⌘⌫ to the Trash (Backspace)") { press("\u{8}", 51, .command) }
+        steps += trash("⌘⌫ to the Trash (DEL)") { press("\u{7f}", 51, .command) }
         steps += properties("⌘I properties") { press("i", 34, .command) }
         steps += properties("⌥Enter properties") { press("\r", 36, .option) }
         // Windows
@@ -166,7 +167,6 @@ enum Scenarios {
         steps += test("F4 address bar", { press(f4, 118) }, { focus }, "address")
         steps += test("⌥D address bar", { press("∂", 2, .option, ignoring: "d") }, { focus }, "address")
         steps += counted("F5 refresh", refreshes) { press(f5, 96) }
-        steps += counted("F11 full screen", fullScreens) { press(f11, 103) }
         steps += trash("⌦ Delete to the Trash") { press(forwardDelete, 117) }
         steps += [(0.7, "", { reset() }),
                   (0.8, "⇧⌦ deletes for good (after the question)", {

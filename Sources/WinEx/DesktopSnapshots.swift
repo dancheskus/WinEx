@@ -386,10 +386,10 @@ private final class SnapshotTile: NSView {
     /// Asks first: keep the current arrangement as a snapshot, or just restore.
     @objc private func restore(_ sender: Any?) {
         let alert = NSAlert()
-        alert.messageText = L("Восстановить расстановку от %@?", DesktopSnapshots.describe(snapshot))
-        alert.informativeText = L("Значки, зоны и порталы встанут так, как в этом снимке. Текущую расстановку можно сперва сохранить снимком, чтобы к ней вернуться.")
-        alert.addButton(withTitle: L("Сохранить и восстановить"))
-        alert.addButton(withTitle: L("Восстановить без сохранения"))
+        alert.messageText = L("Сохранить текущую расстановку перед восстановлением?")
+        alert.informativeText = L("Значки, зоны и порталы встанут так, как было %@. Если сперва сохранить текущую расстановку снимком, к ней можно будет вернуться.", DesktopSnapshots.describe(snapshot))
+        alert.addButton(withTitle: L("Да, сохранить и восстановить"))
+        alert.addButton(withTitle: L("Нет, просто восстановить"))
         alert.addButton(withTitle: L("Отменить"))
         let snapshot = snapshot
         let answer: (NSApplication.ModalResponse) -> Void = { response in

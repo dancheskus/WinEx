@@ -22,7 +22,7 @@ enum MenuStyle {
         "compress:": ("archivebox", "", []),
         "extractArchive:": ("shippingbox.and.arrow.backward", "", []),
         "renameSelected:": ("pencil", "", []),
-        "moveToTrash:": ("trash", "\u{7f}", .command),
+        "moveToTrash:": ("trash", String(Character(UnicodeScalar(NSBackspaceCharacter)!)), .command),
         "share:": ("square.and.arrow.up", "", []),
         "customizeFolder:": ("paintbrush", "", []),
         "showProperties:": ("info.circle", "i", .command),
