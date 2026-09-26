@@ -48,9 +48,17 @@ enum Localization {
         systemIsRussian = Locale.preferredLanguages.first?.hasPrefix("ru") == true
         let resolved = resolved(language)
         isEnglish = resolved == "en"
+        #if DEBUG
+        // Test runs never stop at "reopen windows?" after an earlier crash
+        if ProcessInfo.processInfo.environment["WINEX_SCENARIO"] != nil {
+            UserDefaults.standard.setVolatileDomain(["ApplePersistenceIgnoreState": true], forName: UserDefaults.argumentDomain)
+        }
+        #endif
         if language != .system {
             // AppKit's own texts (standard buttons, panels) and the size units follow it too
-            UserDefaults.standard.setVolatileDomain(["AppleLanguages": [resolved]], forName: UserDefaults.argumentDomain)
+            var domain = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            domain["AppleLanguages"] = [resolved]
+            UserDefaults.standard.setVolatileDomain(domain, forName: UserDefaults.argumentDomain)
         }
     }
 

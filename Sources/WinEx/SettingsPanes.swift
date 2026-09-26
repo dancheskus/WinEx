@@ -723,3 +723,160 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         reload()
     }
 }
+
+/// Settings ▸ Ограды: the look of every fence (radius, colour, opacity, frosted glass) and how they
+/// behave (snapping, quick-hide), with a live preview.
+final class FenceSettingsView: NSView {
+    private let preview = FencePreview()
+    private let radiusSlider = NSSlider(value: Double(FenceStyle.cornerRadius), minValue: 0, maxValue: 24, target: nil, action: nil)
+    private let opacitySlider = NSSlider(value: Double(FenceStyle.opacity), minValue: 0.05, maxValue: 0.9, target: nil, action: nil)
+    private let colorWell = NSColorWell(style: .minimal)
+    private let radiusValue = NSTextField(labelWithString: "")
+    private let opacityValue = NSTextField(labelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        radiusSlider.target = self
+        radiusSlider.action = #selector(radiusChanged(_:))
+        opacitySlider.target = self
+        opacitySlider.action = #selector(opacityChanged(_:))
+        for slider in [radiusSlider, opacitySlider] { slider.widthAnchor.constraint(equalToConstant: 220).isActive = true }
+        for label in [radiusValue, opacityValue] {
+            label.textColor = .secondaryLabelColor
+            label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        }
+        colorWell.color = FenceStyle.nsColor(FenceStyle.color) ?? .black
+        colorWell.target = self
+        colorWell.action = #selector(colorChanged(_:))
+
+        // Ready-made tints next to the colour well
+        let swatches = NSStackView(views: FenceStyle.presets.map { hex in
+            let button = SwatchButton(hex: hex) { [weak self] in
+                FenceStyle.color = hex
+                self?.colorWell.color = FenceStyle.nsColor(hex) ?? .black
+                self?.sync()
+            }
+            return button
+        })
+        swatches.spacing = 6
+        let colorRow = NSStackView(views: [colorWell, swatches])
+        colorRow.spacing = 12
+
+        let blur = ClosureCheckbox { FenceStyle.blur = $0 }
+        blur.title = L("Размытие обоев под оградой")
+        blur.state = FenceStyle.blur ? .on : .off
+        let snapping = ClosureCheckbox { FenceStyle.snapping = $0 }
+        snapping.title = L("Прилипание к краям экрана, другим оградам и сетке значков")
+        snapping.state = FenceStyle.snapping ? .on : .off
+        let quickHide = ClosureCheckbox { FenceStyle.quickHide = $0 }
+        quickHide.title = L("Двойной щелчок по рабочему столу скрывает значки и ограды")
+        quickHide.state = FenceStyle.quickHide ? .on : .off
+
+        let form = SettingsForm.build([
+            .row(nil, preview),
+            .gap,
+            .row(L("Скругление углов:"), NSStackView(views: [radiusSlider, radiusValue])),
+            .row(L("Цвет:"), colorRow),
+            .row(L("Непрозрачность:"), NSStackView(views: [opacitySlider, opacityValue])),
+            .row(nil, blur),
+            .gap,
+            .row(L("Поведение:"), snapping),
+            .row(nil, SettingsForm.hint(L("⌘ при перетаскивании временно отключает прилипание."))),
+            .row(nil, quickHide),
+            .gap,
+            .row(nil, SettingsForm.hint(L("Ограды работают на рабочем столе WinEx (Настройки ▸ Finder). Создать — правый щелчок по рабочему столу; у каждой ограды можно выбрать свой цвет в её меню."))),
+        ])
+        form.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(form)
+        NSLayoutConstraint.activate([
+            form.topAnchor.constraint(equalTo: topAnchor),
+            form.leadingAnchor.constraint(equalTo: leadingAnchor),
+            form.trailingAnchor.constraint(equalTo: trailingAnchor),
+            form.bottomAnchor.constraint(equalTo: bottomAnchor),
+            preview.widthAnchor.constraint(equalToConstant: SettingsForm.controlWidth + 60),
+            preview.heightAnchor.constraint(equalToConstant: 150),
+        ])
+        sync()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func sync() {
+        radiusValue.stringValue = "\(Int(FenceStyle.cornerRadius)) pt"
+        opacityValue.stringValue = "\(Int((FenceStyle.opacity * 100).rounded())) %"
+        preview.needsDisplay = true
+    }
+
+    @objc private func radiusChanged(_ sender: NSSlider) { FenceStyle.cornerRadius = CGFloat(sender.doubleValue.rounded()); sync() }
+    @objc private func opacityChanged(_ sender: NSSlider) { FenceStyle.opacity = CGFloat(sender.doubleValue); sync() }
+    @objc private func colorChanged(_ sender: NSColorWell) { FenceStyle.color = FenceStyle.hex(sender.color); sync() }
+}
+
+/// A fence drawn on a sample of wallpaper, with the current settings.
+private final class FencePreview: NSView {
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let backdrop = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
+        NSGradient(colors: [NSColor(srgbRed: 0.10, green: 0.18, blue: 0.35, alpha: 1), NSColor(srgbRed: 0.42, green: 0.36, blue: 0.30, alpha: 1)])?
+            .draw(in: backdrop, angle: 60)
+        let fence = NSRect(x: 40, y: 22, width: bounds.width - 80, height: bounds.height - 44)
+        let radius = min(FenceStyle.cornerRadius, fence.height / 2)
+        let shape = NSBezierPath(roundedRect: fence, xRadius: radius, yRadius: radius)
+        if FenceStyle.blur {
+            NSColor.white.withAlphaComponent(0.08).setFill()
+            shape.fill()
+        }
+        (FenceStyle.nsColor(FenceStyle.color) ?? .black).withAlphaComponent(FenceStyle.opacity).setFill()
+        shape.fill()
+        NSColor.white.withAlphaComponent(0.22).setStroke()
+        shape.stroke()
+        NSGraphicsContext.saveGraphicsState()
+        shape.addClip()
+        NSColor.black.withAlphaComponent(0.18).setFill()
+        NSRect(x: fence.minX, y: fence.minY, width: fence.width, height: 30).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        NSAttributedString(string: L("Документы"), attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white, .paragraphStyle: paragraph,
+        ]).draw(in: NSRect(x: fence.minX, y: fence.minY + 6, width: fence.width, height: 20))
+        let icon = NSWorkspace.shared.icon(for: .folder)
+        let fits = max(1, Int((fence.width - 24) / 90))
+        for n in 0..<fits {
+            icon.draw(in: NSRect(x: fence.minX + 24 + CGFloat(n) * 90, y: fence.minY + 42, width: 48, height: 48))
+        }
+    }
+}
+
+/// A round colour swatch.
+private final class SwatchButton: NSView {
+    private let hex: String
+    private let action: () -> Void
+
+    init(hex: String, action: @escaping () -> Void) {
+        self.hex = hex
+        self.action = action
+        super.init(frame: .zero)
+        widthAnchor.constraint(equalToConstant: 20).isActive = true
+        heightAnchor.constraint(equalToConstant: 20).isActive = true
+        toolTip = hex
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 1.5, dy: 1.5))
+        (FenceStyle.nsColor(hex) ?? .black).setFill()
+        circle.fill()
+        (FenceStyle.color == hex ? NSColor.controlAccentColor : NSColor.labelColor.withAlphaComponent(0.25)).setStroke()
+        circle.lineWidth = FenceStyle.color == hex ? 2 : 1
+        circle.stroke()
+    }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func mouseDown(with event: NSEvent) {
+        action()
+        superview?.subviews.forEach { $0.needsDisplay = true }
+    }
+}

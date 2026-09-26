@@ -12,6 +12,12 @@ struct DesktopFence: Codable, Equatable {
     /// Desktop names of its icons, in order.
     var members: [String] = []
     var collapsed = false
+    /// A folder portal: shows this folder's contents instead of desktop icons.
+    var portalPath: String?
+    /// Its own tint (hex "#RRGGBB"); nil — the one from Settings ▸ Ограды.
+    var color: String?
+
+    var isPortal: Bool { portalPath != nil }
 
     var frame: NSRect {
         get { NSRect(x: x, y: y, width: width, height: height) }
@@ -20,6 +26,61 @@ struct DesktopFence: Codable, Equatable {
 
     static let titleHeight: CGFloat = 30
     static let padding: CGFloat = 8
+}
+
+/// Settings ▸ Ограды: how every fence looks and behaves.
+enum FenceStyle {
+    static let didChange = Notification.Name("WinExFenceStyleChanged")
+    private static var defaults: UserDefaults { AppDefaults.store }
+
+    static var cornerRadius: CGFloat {
+        get { CGFloat(defaults.object(forKey: "fenceRadius") as? Double ?? 12) }
+        set { defaults.set(Double(newValue), forKey: "fenceRadius"); changed() }
+    }
+
+    /// The tint (hex); the panel is this colour at `opacity`.
+    static var color: String {
+        get { defaults.string(forKey: "fenceColor") ?? "#000000" }
+        set { defaults.set(newValue, forKey: "fenceColor"); changed() }
+    }
+
+    static var opacity: CGFloat {
+        get { CGFloat(defaults.object(forKey: "fenceOpacity") as? Double ?? 0.22) }
+        set { defaults.set(Double(newValue), forKey: "fenceOpacity"); changed() }
+    }
+
+    /// Frosted glass behind the panel (the wallpaper blurred).
+    static var blur: Bool {
+        get { defaults.object(forKey: "fenceBlur") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "fenceBlur"); changed() }
+    }
+
+    static var snapping: Bool {
+        get { defaults.object(forKey: "fenceSnapping") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "fenceSnapping"); changed() }
+    }
+
+    /// A double-click on the desktop hides (and shows again) every icon and fence.
+    static var quickHide: Bool {
+        get { defaults.object(forKey: "fenceQuickHide") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "fenceQuickHide"); changed() }
+    }
+
+    private static func changed() { NotificationCenter.default.post(name: didChange, object: nil) }
+
+    static let presets = ["#000000", "#1C3D6E", "#27496D", "#2E5E4E", "#5B3A70", "#7A2E3A", "#6B4E16", "#4A4A4A", "#FFFFFF"]
+
+    static func nsColor(_ hex: String?) -> NSColor? {
+        guard var text = hex?.trimmingCharacters(in: .whitespaces), text.hasPrefix("#"), text.count == 7 else { return nil }
+        text.removeFirst()
+        guard let value = UInt32(text, radix: 16) else { return nil }
+        return NSColor(srgbRed: CGFloat(value >> 16 & 0xFF) / 255, green: CGFloat(value >> 8 & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    static func hex(_ color: NSColor) -> String {
+        let c = color.usingColorSpace(.sRGB) ?? color
+        return String(format: "#%02X%02X%02X", Int(c.redComponent * 255), Int(c.greenComponent * 255), Int(c.blueComponent * 255))
+    }
 }
 
 /// Magnetic edges: a moved or resized rectangle clings to the lines near it.
@@ -171,7 +232,15 @@ final class FenceView: NSView, NSTextFieldDelegate {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private func updateBlur() {
+        blur.isHidden = !FenceStyle.blur
         blur.alphaValue = 0.55
+        blur.layer?.cornerRadius = FenceStyle.cornerRadius
+    }
+
+    /// Settings changed: redraw with the new look.
+    func styleChanged() {
+        updateBlur()
+        needsDisplay = true
     }
 
     private var titleRect: NSRect { NSRect(x: 0, y: 0, width: bounds.width, height: DesktopFence.titleHeight) }
@@ -196,13 +265,44 @@ final class FenceView: NSView, NSTextFieldDelegate {
     /// The roll-up chevron at the title's left.
     private var chevronRect: NSRect { NSRect(x: 4, y: 0, width: 26, height: DesktopFence.titleHeight) }
 
-    /// The title bar and the edges; the inside belongs to the desktop (icons, rubber band, drops).
+    /// The title bar and the edges; the inside belongs to the desktop (icons, rubber band, drops)
+    /// — or, for a portal, to the portal.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let superview else { return nil }
+        guard let superview, alphaValue > 0.01 else { return nil }  // quick-hidden: not there
         let local = convert(point, from: superview)
         guard bounds.contains(local) else { return nil }
         if renameField.map({ $0.frame.contains(local) }) == true { return renameField }
-        return titleRect.contains(local) || !edges(at: local).isEmpty ? self : nil
+        if titleRect.contains(local) || !edges(at: local).isEmpty { return self }
+        if let portalView, !portalView.isHidden, portalView.frame.contains(local) { return portalView.hitTest(local) ?? portalView }
+        return nil
+    }
+
+    // MARK: Portal
+
+    private(set) var portalView: PortalView?
+
+    /// A portal fence shows its folder inside; an ordinary one — the desktop's icons (drawn by it).
+    func configurePortal(cell: NSSize, iconSide: CGFloat) {
+        guard let path = fence.portalPath else {
+            portalView?.removeFromSuperview()
+            portalView = nil
+            return
+        }
+        if portalView?.folder.path != path {
+            portalView?.removeFromSuperview()
+            let portal = PortalView(folder: URL(fileURLWithPath: path), cell: cell, iconSide: iconSide)
+            addSubview(portal)
+            portalView = portal
+        }
+        portalView?.update(cell: cell, iconSide: iconSide)
+        portalView?.isHidden = fence.collapsed
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        portalView?.frame = NSRect(x: DesktopFence.padding / 2, y: DesktopFence.titleHeight,
+                                   width: bounds.width - DesktopFence.padding, height: max(0, bounds.height - DesktopFence.titleHeight - DesktopFence.padding / 2))
     }
 
     override func resetCursorRects() {
@@ -266,7 +366,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
                 if edges.contains(.maxY) { rect.size.height = max(startFrame.height + dy, minimumSize.height) }
             }
             // ⌘ held: no snapping (fine positioning)
-            if !next.modifierFlags.contains(.command), let snap {
+            if FenceStyle.snapping, !next.modifierFlags.contains(.command), let snap {
                 let (snapped, guides) = snap(rect, edges)
                 if snapped.width >= minimumSize.width - 0.5, snapped.height >= (fence.collapsed ? 0 : minimumSize.height - 0.5) { rect = snapped }
                 onGuides?(guides)
@@ -344,8 +444,10 @@ final class FenceView: NSView, NSTextFieldDelegate {
     // MARK: Drawing
 
     override func draw(_ dirtyRect: NSRect) {
-        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
-        NSColor.black.withAlphaComponent(isDropTarget ? 0.32 : 0.22).setFill()
+        let radius = min(FenceStyle.cornerRadius, bounds.height / 2)
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
+        let tint = FenceStyle.nsColor(fence.color ?? FenceStyle.color) ?? .black
+        tint.withAlphaComponent(min(1, FenceStyle.opacity + (isDropTarget ? 0.1 : 0))).setFill()
         shape.fill()
         (isDropTarget ? NSColor.controlAccentColor : NSColor.white.withAlphaComponent(0.22)).setStroke()
         shape.lineWidth = isDropTarget ? 2 : 1

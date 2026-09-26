@@ -91,6 +91,10 @@ final class DesktopController {
         view.sharedChange = { [weak self] sender in
             self?.desktops.filter { $0.view !== sender }.forEach { $0.view.reloadShared() }
         }
+        // Quick-hide is for the whole desktop, every monitor
+        view.quickHideChange = { [weak self] sender, hidden in
+            self?.desktops.filter { $0.view !== sender }.forEach { $0.view.setQuickHidden(hidden, fromOtherMonitor: true) }
+        }
         // Selecting on one monitor deselects the others, like one desktop
         view.selectionStarted = { [weak self] sender in
             self?.desktops.filter { $0.view !== sender }.forEach { $0.view.clearSelection() }
@@ -236,6 +240,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
         observers.add(FileClipboard.didChange) { [weak self] in self?.needsDisplay = true }
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
+        observers.add(FenceStyle.didChange) { [weak self] in
+            self?.fenceViews.values.forEach { $0.styleChanged() }
+        }
     }
 
     private let observers = Observers()
@@ -398,6 +405,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func index(at point: NSPoint) -> Int? {
         guard iconsVisible else { return nil }
         // Topmost (last drawn) first
+        guard !quickHidden else { return nil }
         return items.indices.reversed().first { !hiddenIcons.contains($0) && hitRect($0).contains(point) }
     }
 
@@ -568,6 +576,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         while tiles.count > count { tiles.removeLast().removeFromSuperview() }
         while tiles.count < count {
             let tile = DesktopIconTile(owner: self, index: tiles.count)
+            if quickHidden { tile.alphaValue = 0 }  // quick-hidden: new icons stay hidden too
             // Later items on top (as `index(at:)` assumes), above the fences, under the rename field
             if let other = subviews.first(where: { !($0 is DesktopIconTile) && !($0 is FenceView) }) {
                 addSubview(tile, positioned: .below, relativeTo: other)
@@ -711,6 +720,13 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             }
             if event.clickCount == 2 && !toggles { openSelection() }
         } else {
+            // Double-click on the wallpaper: every icon and fence hides (again: they come back)
+            if event.clickCount == 2, !toggles, FenceStyle.quickHide, fence(at: point) == nil {
+                pendingReveal?.cancel()
+                pendingReveal = nil
+                setQuickHidden(!quickHidden)
+                return
+            }
             rubberBandBase = toggles ? selection : []
             selection = rubberBandBase
             rubberBand = NSRect(origin: point, size: .zero)
@@ -759,7 +775,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         slowClickIndex = nil
         // Clicking the wallpaper moves windows aside (and back), as System Settings asks
         if emptyClickCandidate && rubberBand != nil && SystemDesktop.clickRevealsDesktop {
-            SystemDesktop.toggleShowDesktop()
+            if FenceStyle.quickHide {
+                // Wait: a second click makes it a double-click (hide icons), not "show desktop"
+                let reveal = DispatchWorkItem { SystemDesktop.toggleShowDesktop() }
+                pendingReveal = reveal
+                DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: reveal)
+            } else {
+                SystemDesktop.toggleShowDesktop()
+            }
         }
         emptyClickCandidate = false
         rubberBand = nil
@@ -801,7 +824,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let point = convert(sender.draggingLocation, from: nil)
         let own = isOwnDrag(sender)
         let target = folderIndex(at: point, excluding: own ? draggedNames : [])
-        highlightFence(target == nil ? fence(at: point)?.id : nil)
+        highlightFence(target == nil ? fence(at: point).flatMap { $0.isPortal ? nil : $0.id } : nil)
         if target != dropTarget {
             dropTarget = target
             needsDisplay = true
@@ -830,7 +853,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         needsDisplay = true
 
         if let target, FileDrop.perform(sender, into: items[target].url) { return true }
-        let fenceHere = fence(at: point)
+        let fenceHere = fence(at: point).flatMap { $0.isPortal ? nil : $0 }
         if isOwnDrag(sender) {
             if let fenceHere {
                 addToFence(fenceHere.id, names: draggedNames, at: point)
@@ -989,7 +1012,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             menu.addItem(.separator())
         }
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
-        if fence(at: point) == nil { add(L("Создать ограду"), #selector(createFence(_:))) }
+        if fence(at: point) == nil {
+            add(L("Создать ограду"), #selector(createFence(_:)))
+            add(L("Создать портал папки…"), #selector(createPortal(_:)))
+        }
         menu.addItem(.separator())
         if let terminal = TerminalLauncher.menuItem(for: [desktopURL]) { menu.addItem(terminal) }
         OpenWithMenu.mainMenuItems(for: [desktopURL]).forEach(menu.addItem)
@@ -1282,7 +1308,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func layoutFences() {
         hiddenIcons = []
         fenceOf = [:]
-        for fence in myFences {
+        for fence in myFences where !fence.isPortal {
             let grid = fenceGrid(fence)
             let members = fence.members.compactMap(index(named:))
             let total = Int(ceil(Double(members.count) / Double(grid.columns)))
@@ -1300,7 +1326,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     /// The fence whose area (or, rolled up, title) is at `point`.
     private func fence(at point: NSPoint) -> DesktopFence? {
-        myFences.last { visibleFrame(of: $0).contains(point) }
+        guard !quickHidden else { return nil }
+        return myFences.last { visibleFrame(of: $0).contains(point) }
     }
 
     private func syncFenceViews() {
@@ -1310,12 +1337,15 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             fenceViews[id] = nil
         }
         for fence in fences {
+            let isNew = fenceViews[fence.id] == nil
             let view = fenceViews[fence.id] ?? makeFenceView(fence)
+            if isNew && quickHidden { view.alphaValue = 0 }
             view.fence = fence
             if view.window == nil || (!isDraggingFence(fence.id) && animatingFence != fence.id) { view.frame = visibleFrame(of: fence) }
             let grid = fenceGrid(fence)
             let count = fence.members.filter { index(named: $0) != nil }.count
             view.overflow = fence.collapsed ? 0 : max(0, count - (fenceScroll[fence.id] ?? 0) * grid.columns - grid.rows * grid.columns)
+            view.configurePortal(cell: fenceCell, iconSide: iconSide)
             view.minimumSize = NSSize(width: fenceCell.width + 2 * DesktopFence.padding,
                                       height: DesktopFence.titleHeight + fenceTopExtra + fenceCell.height + DesktopFence.padding)
         }
@@ -1392,12 +1422,43 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
             return item
         }
-        return [
+        var items: [NSMenuItem] = []
+        if fence.isPortal {
+            items.append(item(L("Открыть папку в WinEx"), #selector(openPortalFolder(_:)), "folder"))
+            items.append(item(L("Другая папка…"), #selector(changePortalFolder(_:)), "folder.badge.gearshape"))
+            items.append(.separator())
+        }
+        items += [
             item(L("Переименовать ограду"), #selector(renameFence(_:)), "pencil"),
             item(fence.collapsed ? L("Развернуть ограду") : L("Свернуть ограду"), #selector(toggleFenceMenu(_:)),
                  fence.collapsed ? "chevron.down" : "chevron.up"),
-            item(L("Удалить ограду"), #selector(deleteFence(_:)), "rectangle.badge.xmark"),
         ]
+        // Its own colour, or the one from Settings
+        let colors = NSMenu()
+        let standard = colors.addItem(withTitle: L("Как в настройках"), action: #selector(setFenceColor(_:)), keyEquivalent: "")
+        standard.target = self
+        standard.representedObject = [id, ""]
+        standard.state = fence.color == nil ? .on : .off
+        colors.addItem(.separator())
+        for hex in FenceStyle.presets {
+            let swatch = colors.addItem(withTitle: hex, action: #selector(setFenceColor(_:)), keyEquivalent: "")
+            swatch.target = self
+            swatch.representedObject = [id, hex]
+            swatch.image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+                (FenceStyle.nsColor(hex) ?? .black).setFill()
+                NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+                NSColor.labelColor.withAlphaComponent(0.3).setStroke()
+                NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).stroke()
+                return true
+            }
+            swatch.state = fence.color == hex ? .on : .off
+        }
+        let colorItem = item(L("Цвет ограды"), #selector(noop(_:)), "paintpalette")
+        colorItem.action = nil
+        colorItem.submenu = colors
+        items.append(colorItem)
+        items.append(item(L("Удалить ограду"), #selector(deleteFence(_:)), "rectangle.badge.xmark"))
+        return items
     }
 
     /// Several icons selected (not all of one fence already): the hint to fence them, under them.
@@ -1426,6 +1487,27 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         } else if fenceHint.superview != nil {
             fenceHint.removeFromSuperview()
             fenceHint.alphaValue = 0
+        }
+    }
+
+    // MARK: Quick-hide
+
+    private var pendingReveal: DispatchWorkItem?
+    private(set) var quickHidden = false
+
+    /// Hides every icon and fence of this monitor with a fade (or brings them back).
+    var quickHideChange: ((DesktopView, Bool) -> Void)?
+
+    func setQuickHidden(_ hidden: Bool, fromOtherMonitor: Bool = false) {
+        guard hidden != quickHidden else { return }
+        if !fromOtherMonitor { quickHideChange?(self, hidden) }
+        quickHidden = hidden
+        selection = []
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            (tiles + Array(fenceViews.values) as [NSView]).forEach { $0.animator().alphaValue = hidden ? 0 : 1 }
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.needsDisplay = true }
         }
     }
 
@@ -1534,6 +1616,63 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         DispatchQueue.main.async { [weak self] in self?.fenceViews[fence.id]?.beginRename() }
     }
 
+    @objc private func noop(_ sender: Any?) {}
+
+    @objc private func setFenceColor(_ sender: NSMenuItem) {
+        guard let pair = sender.representedObject as? [String], pair.count == 2,
+              var fence = layout.fences.first(where: { $0.id == pair[0] }) else { return }
+        fence.color = pair[1].isEmpty ? nil : pair[1]
+        layout.setFence(fence)
+        needsDisplay = true
+    }
+
+    /// A portal: a fence showing a folder (chosen now) on the desktop.
+    @objc private func createPortal(_ sender: Any?) {
+        let point = menuPoint ?? NSPoint(x: bounds.midX, y: bounds.midY)
+        chooseFolder { [weak self] folder in
+            guard let self, let screen = self.screens.first else { return }
+            let size = NSSize(width: 4 * self.fenceCell.width + 2 * DesktopFence.padding,
+                              height: DesktopFence.titleHeight + self.fenceTopExtra + 2 * self.fenceCell.height + DesktopFence.padding)
+            var rect = NSRect(origin: NSPoint(x: point.x - 20, y: point.y - 10), size: size)
+            rect.origin.x = min(max(rect.minX, screen.iconArea.minX + FenceSnap.gap), screen.iconArea.maxX - rect.width - FenceSnap.gap)
+            rect.origin.y = min(max(rect.minY, screen.iconArea.minY + FenceSnap.gap), screen.iconArea.maxY - rect.height - FenceSnap.gap)
+            rect = FenceSnap.snap(rect, edges: [.minX, .maxX, .minY, .maxY], area: screen.iconArea, others: self.myFences.map { self.visibleFrame(of: $0) }).0
+            var fence = DesktopFence(title: folder.displayName, screenID: screen.id, x: 0, y: 0, width: 0, height: 0)
+            fence.frame = rect.integral
+            fence.portalPath = folder.path
+            self.layout.setFence(fence)
+            self.relayout()
+        }
+    }
+
+    private func chooseFolder(_ done: @escaping (URL) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = L("Выбрать")
+        panel.message = L("Папка, содержимое которой будет видно на рабочем столе")
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        NSApp.activate()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        done(url)
+    }
+
+    @objc private func openPortalFolder(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let path = layout.fences.first(where: { $0.id == id })?.portalPath else { return }
+        AppDelegate.shared.openWindow(at: URL(fileURLWithPath: path))
+    }
+
+    @objc private func changePortalFolder(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        chooseFolder { [weak self] folder in
+            guard let self, var fence = self.layout.fences.first(where: { $0.id == id }) else { return }
+            if fence.title == URL(fileURLWithPath: fence.portalPath ?? "").displayName { fence.title = folder.displayName }
+            fence.portalPath = folder.path
+            self.layout.setFence(fence)
+            self.relayout()
+        }
+    }
+
     @objc private func createFence(_ sender: Any?) {
         makeFence(at: menuPoint ?? NSPoint(x: bounds.midX, y: bounds.midY), members: [])
     }
@@ -1582,6 +1721,16 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    func debugMakePortal(_ folder: URL, at point: NSPoint) -> String? {
+        guard let screen = screens.first else { return nil }
+        var fence = DesktopFence(title: folder.displayName, screenID: screen.id, x: 0, y: 0, width: 0, height: 0)
+        fence.frame = NSRect(x: point.x, y: point.y, width: 4 * fenceCell.width + 2 * DesktopFence.padding,
+                             height: DesktopFence.titleHeight + fenceTopExtra + 2 * fenceCell.height + DesktopFence.padding)
+        fence.portalPath = folder.path
+        layout.setFence(fence)
+        relayout()
+        return fence.id
+    }
     func debugSelect(_ names: [String]) { selection = Set(names.compactMap(index(named:))); needsDisplay = true }
     #endif
 

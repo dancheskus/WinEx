@@ -35,6 +35,7 @@ enum Scenarios {
         "wizard": wizard,
         "shell": shell,
         "fences": fences,
+        "portal": portal,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -745,6 +746,48 @@ enum Scenarios {
         ])
     }
 
+    /// A folder portal on the desktop (a sandbox folder), then quick-hide by double-click and back.
+    static func portal(_ s: Scenario) {
+        let folder = s.makeFiles(["Отчёт.txt", "План.md", "Бюджет.csv"], in: "Портал")
+        try? FileManager.default.createDirectory(at: folder.appendingPathComponent("Вложенная"), withIntermediateDirectories: true)
+        let controller = DesktopController()
+        controller.show()
+        func mainView() -> DesktopView? {
+            NSApp.windows.lazy.compactMap { $0.contentView as? DesktopView }.first { $0.window?.screen == NSScreen.screens.first }
+        }
+        s.run([
+            (2.0, "portal", {
+                guard let view = mainView(), let id = view.debugMakePortal(folder, at: NSPoint(x: 420, y: 160)) else { s.note("  (no desktop)"); return }
+                view.needsDisplay = true
+                view.displayIfNeeded()
+                let portal = view.debugFenceView(id)?.portalView
+                s.note("  portal view: \(portal != nil)  expect true")
+                if let window = view.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.5, "items read", {
+                guard let view = mainView(), let fence = view.layout.fences.last else { return }
+                s.note("  items in the portal: \(view.debugFenceView(fence.id)?.portalView?.itemCount ?? -1)  expect 4")
+            }),
+            (1.0, "quick-hide", {
+                guard let view = mainView() else { return }
+                view.setQuickHidden(true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    let fence = view.layout.fences.last.flatMap { view.debugFenceView($0.id) }
+                    s.note("  hidden: \(view.quickHidden), fence alpha \(fence?.alphaValue ?? -1)  expect true, 0")
+                    view.setQuickHidden(false)
+                }
+            }),
+            (1.2, "back", {
+                guard let view = mainView() else { return }
+                let fence = view.layout.fences.last.flatMap { view.debugFenceView($0.id) }
+                s.note("  shown: \(!view.quickHidden), fence alpha \(fence?.alphaValue ?? -1)  expect true, 1")
+                controller.hide()
+            }),
+        ])
+    }
+
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.
     final class FakeDrag: NSObject, NSDraggingInfo {
         let draggingPasteboard = NSPasteboard.withUniqueName()
@@ -962,6 +1005,8 @@ enum Scenarios {
     /// window (writes <out>/tab-N with the window number, waits for <out>/shot-N).
     static func settingsTabs(_ s: Scenario) {
         AppDelegate.shared.showSettings(nil)
+        if let only = ProcessInfo.processInfo.environment["WINEX_SETTINGS_TAB"].flatMap(Int.init),
+           let tab = SettingsWindowController.Tab(rawValue: only) { AppDelegate.shared.showSettings(tab: tab) }
         func tabs() -> NSTabViewController? { NSApp.windows.first { $0.title.hasPrefix("Настройки") || $0.contentViewController is NSTabViewController }?.contentViewController as? NSTabViewController }
         @MainActor func step(_ index: Int) {
             guard let tabs = tabs(), let window = tabs.view.window else { s.note("  (no settings window)"); s.run([]); return }

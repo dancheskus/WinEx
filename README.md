@@ -238,6 +238,12 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
   snapping off); click the title's text to rename it; double-click the title bar or click the chevron to roll it up; scroll when it holds more than fits;
   rename or remove it from its menu (its icons stay where they are). Nothing runs in the
   background for them.
+- Folder portals: “New Folder Portal…” shows any folder on the desktop in a fence — icons with
+  thumbnails, scrolling, selection, open, Quick Look, drag out, drop in, the file context menu;
+  it follows the folder's changes (read in the background, no polling). Each fence can have its
+  own colour. Double-click the wallpaper to hide every icon and fence (and again to bring them
+  back), on all monitors. Settings ▸ Fences: corner radius, colour, opacity, frosted glass,
+  snapping, quick-hide.
 - Menu: View ▸ large / medium / small icons, Auto Arrange Icons, Align Icons to Grid, Show Desktop
   Icons; Sort By ▸ name / size / type / date; New ▸ — the new file appears where the menu was opened.
 

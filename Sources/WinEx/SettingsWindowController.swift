@@ -3,7 +3,7 @@ import AppKit
 /// Settings, the way Mac apps lay them out: tabs in the toolbar, each a short form
 /// ("label: control", labels right-aligned in one column); explanations in "?" popovers.
 final class SettingsWindowController: NSWindowController {
-    enum Tab: Int { case general, sidebar, tags, apps, finder, keyboard, access, updates }
+    enum Tab: Int { case general, sidebar, tags, apps, fences, finder, keyboard, access, updates }
 
     private let tabs = NSTabViewController()
     private let tagsView = TagSettingsView()
@@ -56,6 +56,7 @@ final class SettingsWindowController: NSWindowController {
             (L("Боковое меню"), "sidebar.left", SidebarSettingsView()),
             (L("Теги"), "tag", tagsView),
             (L("Программы"), "square.grid.2x2", AppsSettingsView()),
+            (L("Ограды"), "rectangle.dashed", FenceSettingsView()),
             ("Finder", "macwindow.on.rectangle", finderPane()),
             (L("Клавиатура"), "keyboard", keyboardPane()),
             (L("Доступ"), "lock.shield", accessPane()),
