@@ -71,6 +71,7 @@ final class GlobalHotKey {
 
     /// A new window in front, like Win+E.
     private func pressed() {
+        if SetupWizard.isActive { return SetupWizard.show() }
         AppDelegate.shared.openWindow(at: Settings.startURL)
         NSApp.activate(ignoringOtherApps: true)
     }

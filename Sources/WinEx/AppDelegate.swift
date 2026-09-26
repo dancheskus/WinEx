@@ -115,6 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Clicking the Dock icon: bring folder windows back, un-minimize one, or open a new window.
     /// (The desktop window always counts as "visible", so the system flag can't be used.)
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if SetupWizard.isActive {
+            SetupWizard.show()
+            return false
+        }
         let windows = windowControllers.compactMap(\.window)
         if windows.contains(where: { $0.isVisible && !$0.isMiniaturized }) {
             windows.filter { $0.isVisible && !$0.isMiniaturized }.forEach { $0.orderFront(nil) }

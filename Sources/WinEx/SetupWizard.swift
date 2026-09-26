@@ -26,6 +26,10 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
         return AppDefaults.store.object(forKey: resumeKey) != nil || !AppDefaults.store.bool(forKey: doneKey)
     }
 
+    /// While the assistant is open, the Dock icon and the global shortcut bring it forward
+    /// instead of opening a folder window.
+    static var isActive: Bool { current?.window?.isVisible == true }
+
     static func show() {
         if let current { current.window?.makeKeyAndOrderFront(nil); NSApp.activate(); return }
         let step = AppDefaults.store.object(forKey: resumeKey) as? Int ?? 0
