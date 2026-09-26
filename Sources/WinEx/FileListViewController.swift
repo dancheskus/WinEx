@@ -1048,8 +1048,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
             add(L("Обновить"), #selector(refresh(_:)))
             menu.addItem(.separator())
-            add(L("Вставить"), #selector(paste(_:)))
-            menu.addItem(.separator())
+            // Like Finder: only when there's something to paste (context menus hide what can't be done)
+            if FileClipboard.shared.canPaste {
+                add(L("Вставить"), #selector(paste(_:)))
+                menu.addItem(.separator())
+            }
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
             menu.addItem(.separator())
             add(L("Копировать путь к папке"), #selector(copyPath(_:)))

@@ -899,8 +899,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
         add(L("Обновить"), #selector(refreshAction(_:)))
         menu.addItem(.separator())
-        add(L("Вставить"), #selector(paste(_:)))
-        menu.addItem(.separator())
+        // Like Finder: only when there's something to paste (context menus hide what can't be done)
+        if FileClipboard.shared.canPaste {
+            add(L("Вставить"), #selector(paste(_:)))
+            menu.addItem(.separator())
+        }
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
         menu.addItem(.separator())
         if let terminal = TerminalLauncher.menuItem(for: [desktopURL]) { menu.addItem(terminal) }
