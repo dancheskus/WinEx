@@ -448,7 +448,6 @@ enum English {
         "Обновления": "Updates",
         "Новые окна открываются в:": "New windows open in:",
         "Окно WinEx из любой программы:": "WinEx window from any app:",
-        "Показ:": "Show:",
         "Терминал:": "Terminal:",
         "Для папки — она сама, для файла — его папка; на пустом месте — открытая папка или рабочий стол.": "A folder opens as is, a file — its folder; on an empty spot — the open folder or the desktop.",
         "Запуск:": "Startup:",
@@ -621,5 +620,7 @@ enum English {
         "Запустить в %@": "Run in %@",
         "Включите WinEx в списке. Если его там нет — перетащите значок ниже прямо в список (или нажмите «+» и выберите WinEx). Если macOS предложит «Закрыть и открыть снова» — согласитесь: мастер продолжит с этого шага.": "Turn WinEx on in the list. If it isn’t there, drag the icon below into the list (or click “+” and choose WinEx). If macOS offers “Quit & Reopen”, accept — the assistant goes on from this step.",
         "перетащите в список": "drag into the list",
+        "Окно:": "Window:",
+        "Файлы:": "Files:",
     ]
 }
