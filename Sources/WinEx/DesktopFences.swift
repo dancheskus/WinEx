@@ -34,8 +34,8 @@ enum FenceSnap {
     static let threshold: CGFloat = 12
     static let gap: CGFloat = 8
 
-    /// The default gap plus the gaps between neighbouring rects (side by side: horizontal gaps;
-    /// one above the other: vertical ones), up to 120 pt.
+    /// The default gap plus the gaps between neighbouring rects (side by side or one above the
+    /// other), up to 120 pt — offered along both axes.
     static func gaps(between rects: [NSRect]) -> (horizontal: [CGFloat], vertical: [CGFloat]) {
         var horizontal: Set<CGFloat> = [gap], vertical: Set<CGFloat> = [gap]
         for (i, a) in rects.enumerated() {
@@ -48,7 +48,9 @@ enum FenceSnap {
                 if overlapX > 0, dy > 0, dy <= 120 { vertical.insert(dy.rounded()) }
             }
         }
-        return (horizontal.sorted(), vertical.sorted())
+        // One rhythm for the whole desktop: a spacing used side by side works one above the other too
+        let all = horizontal.union(vertical).sorted()
+        return (all, all)
     }
 
     /// `rect` with its moving edges pulled onto the nearest target lines (within the threshold).
