@@ -1022,21 +1022,24 @@ enum Scenarios {
                 // Wide enough for two icons a row, tall enough for one and a half rows
                 let frame = NSRect(x: fence.x, y: fence.y, width: 240, height: DesktopFence.titleHeight + view.debugCellHeight * 1.5)
                 view.debugSetFenceFrame(fence.id, frame)
-                // A trackpad scroll of 40 pt over the zone, as the system sends it
-                let point = view.convert(NSPoint(x: frame.midX, y: frame.midY), to: nil)
-                let onScreen = window.convertPoint(toScreen: point)
-                let height = NSScreen.screens.first?.frame.height ?? 0
-                if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -40, wheel2: 0, wheel3: 0) {
-                    cg.location = CGPoint(x: onScreen.x, y: height - onScreen.y)
-                    if let event = NSEvent(cgEvent: cg) { view.scrollWheel(with: event) }
-                }
+                view.displayIfNeeded()
+                // The zone's scroll view moves (as a trackpad moves it): the icons follow
+                let fenceView = view.debugFenceView(fence.id)
+                fenceView?.debugScroll(to: 40)
                 s.note("  scrolled: \(Int(view.debugScroll(fence.id))) pt  expect 40")
+                s.note("    \(fenceView?.debugScrollState ?? "no fence view")")
+                // Pulled past the top, as the rubber band does: the icons go along
+                fenceView?.debugScroll(to: -30)
+                s.note("  pulled past the top: \(Int(view.debugScroll(fence.id))) pt  expect -30")
                 // Exactly as tall as its rows (what the snapping gives): nothing to scroll
                 let rows = Int(ceil(Double(fence.members.count) / 2))
                 let whole = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: view.debugRowsHeight(rows))
                 view.debugSetFenceFrame(fence.id, whole)
-                s.note("  sized to its \(rows) rows: can scroll \(Int(view.debugMaxScroll(fence.id))) pt  expect 0")
+                view.displayIfNeeded()
+                s.note("  sized to its \(rows) rows: can scroll \(Int(view.debugMaxScroll(fence.id))) pt, scroll view: \(fenceView?.debugScrollState.hasPrefix("no scroll view") == true ? "none" : "there")  expect 0, none")
                 view.debugSetFenceFrame(fence.id, frame)
+                view.displayIfNeeded()
+                view.debugFenceView(fence.id)?.debugScroll(to: 40)
                 view.displayIfNeeded()
                 try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
             }),
@@ -1048,22 +1051,21 @@ enum Scenarios {
                 view.layout.alignToGrid = true
                 s.note("  align to grid: \(view.layout.alignToGrid)")
                 let drop = NSPoint(x: spot.midX + 17, y: spot.midY + 13)
-                s.note("  \(name) from \(view.debugCenter(of: name).map { "\(Int($0.x)),\(Int($0.y))" } ?? "?") dropped at \(Int(drop.x)),\(Int(drop.y))")
+                let origin = view.debugCenter(of: name)
                 view.debugDrop(name, at: drop)
-                s.note("  placed at \(view.debugCenter(of: name).map { "\(Int($0.x)),\(Int($0.y))" } ?? "?")")
-                view.displayIfNeeded()
-                CATransaction.flush()
-                if let frames = view.debugTileFrames(name) {
-                    s.note("  right after: \(Int(hypot(frames.shown.minX - frames.place.minX, frames.shown.minY - frames.place.minY))) pt from its place  expect > 0 (at the drop point)")
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if let frames = view.debugTileFrames(name) {
-                        s.note("  after 0.1 s: \(Int(hypot(frames.shown.minX - frames.place.minX, frames.shown.minY - frames.place.minY))) pt  expect less, not 0")
-                    }
+                guard let place = view.debugCenter(of: name), let origin else { return }
+                func distance(_ a: CGPoint, _ b: CGPoint) -> Int { Int(hypot(a.x - b.x, a.y - b.y)) }
+                // A moment later, on screen: near the drop point (not on its way from where it was)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                    guard let frames = view.debugTileFrames(name) else { return }
+                    let shown = CGPoint(x: frames.shown.midX, y: frames.shown.midY)
+                    let offset = CGPoint(x: frames.place.midX - place.x, y: frames.place.midY - place.y)
+                    let shownCenter = CGPoint(x: shown.x - offset.x, y: shown.y - offset.y)
+                    s.note("  after 0.03 s: \(distance(shownCenter, drop)) pt from the drop point, \(distance(shownCenter, origin)) from where it was (drop → place: \(distance(drop, place)))  expect small, large")
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     if let frames = view.debugTileFrames(name) {
-                        s.note("  after 0.5 s: \(Int(hypot(frames.shown.minX - frames.place.minX, frames.shown.minY - frames.place.minY))) pt  expect 0")
+                        s.note("  after 0.5 s: \(Int(hypot(frames.shown.minX - frames.place.minX, frames.shown.minY - frames.place.minY))) pt from its place  expect 0")
                     }
                 }
             }),

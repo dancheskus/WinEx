@@ -977,27 +977,32 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return hypot(start.minX - final.minX, start.minY - final.minY) > 1 ? (i, start, final) : nil
         }
         guard !moves.isEmpty else { return }
-        // At the drop point first (committed, without animating), then off to their places
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for (i, start, _) in moves {
+        // An explicit animation of each icon's layer from the drop point: it starts there whatever
+        // the screen showed a moment ago (the frame itself goes straight to the icon's place)
+        for (i, start, final) in moves {
+            let tile = tiles[i]
+            tile.wantsLayer = true
+            tile.clip(to: nil)
             landing.insert(i)
-            tiles[i].clip(to: nil)
-            tiles[i].frame = start
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            tile.frame = start
+            tile.layoutSubtreeIfNeeded()
+            let from = tile.layer?.position
+            tile.frame = final
+            let to = tile.layer?.position
+            CATransaction.commit()
+            guard let layer = tile.layer, let from, let to else { continue }
+            let glide = CABasicAnimation(keyPath: "position")
+            glide.fromValue = NSValue(point: from)
+            glide.toValue = NSValue(point: to)
+            glide.duration = 0.25
+            glide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(glide, forKey: "glide")
         }
-        CATransaction.commit()
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.25
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                for (i, _, final) in moves where self.tiles.indices.contains(i) { self.tiles[i].animator().frame = final }
-            } completionHandler: { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.landing = []
-                    self?.needsDisplay = true
-                }
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.27) { [weak self] in
+            self?.landing = []
+            self?.needsDisplay = true
         }
     }
 
@@ -1005,14 +1010,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     override func scrollWheel(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        guard let fence = fence(at: point), !fence.collapsed else { return super.scrollWheel(with: event) }
-        // Smoothly, point by point, like the portals' scroll views (a mouse wheel: a line at a time)
-        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 16
-        let offset = min(max((fenceScroll[fence.id] ?? 0) - delta, 0), maxScroll(fence))
-        guard offset != fenceScroll[fence.id] ?? 0 else { return }
-        fenceScroll[fence.id] = offset
-        scrollFences()
-        fenceViews[fence.id]?.flashScroller()
+        guard let fence = fence(at: point), !fence.collapsed, fenceViews[fence.id]?.scroll(with: event) == true else {
+            return super.scrollWheel(with: event)
+        }
     }
 
     /// Only the fences' icons move: no need to place everything again.
@@ -1489,7 +1489,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for fence in myFences where !fence.isPortal {
             let grid = fenceGrid(fence)
             let members = fence.members.compactMap(index(named:))
-            let offset = min(fenceScroll[fence.id] ?? 0, maxScroll(fence))
+            // Past the ends only while the scroll view bounces back
+            let raw = fenceScroll[fence.id] ?? 0
+            let offset = fenceViews[fence.id]?.isBouncing == true ? raw : min(max(raw, 0), maxScroll(fence))
             fenceScroll[fence.id] = offset
             // Icons show under the title bar, down to the fence's bottom edge
             let frame = visibleFrame(of: fence)
@@ -1527,7 +1529,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             let count = fence.members.filter { index(named: $0) != nil }.count
             let most = maxScroll(fence)
             view.scroller = fence.collapsed || most <= 0 ? nil
-                : (offset: fenceScroll[fence.id] ?? 0, content: grid.content.height + most, visible: grid.content.height)
+                : (offset: min(max(fenceScroll[fence.id] ?? 0, 0), most), content: grid.content.height + most, visible: grid.content.height)
             view.configurePortal(cell: fenceCell, iconSide: iconSide)
             view.minimumSize = NSSize(width: fenceCell.width + 2 * DesktopFence.padding,
                                       height: DesktopFence.titleHeight + fenceTopExtra + fenceCell.height + DesktopFence.padding)
@@ -1566,9 +1568,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return (snapped, guides)
         }
         view.onGuides = { [weak self] guides in self?.guidesView.guides = guides }
-        view.onScroll = { [weak self] fraction in
-            guard let self, let fence = self.layout.fences.first(where: { $0.id == id }) else { return }
-            self.fenceScroll[id] = fraction * self.maxScroll(fence)
+        view.onScroll = { [weak self] offset in
+            guard let self else { return }
+            self.fenceScroll[id] = offset
             self.scrollFences()
         }
         view.onFrame = { [weak self] frame, final in

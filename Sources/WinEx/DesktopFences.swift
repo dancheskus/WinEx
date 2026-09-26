@@ -202,42 +202,96 @@ enum FenceSnap {
 final class FenceView: NSView, NSTextFieldDelegate {
     var fence: DesktopFence { didSet { if fence != oldValue { redraw(); updateBlur(); window?.invalidateCursorRects(for: self) } } }
     var isDropTarget = false { didSet { if isDropTarget != oldValue { redraw() } } }
-    /// Its icons scroll: where they are. Shown with the system's overlay scroller (as in portals),
-    /// which appears while scrolling and fades away.
+    /// Its icons scroll: how far, how much there is and how much shows. Driven by a real (empty)
+    /// scroll view over the fence's inside, so it scrolls exactly like a portal — the overlay
+    /// scroller, momentum, the rubber band at the ends; the icons follow it.
     var scroller: (offset: CGFloat, content: CGFloat, visible: CGFloat)? {
-        didSet {
-            guard let scroller, scroller.content > scroller.visible else {
-                scrollerView.isHidden = true
-                return
-            }
-            scrollerView.isHidden = false
-            scrollerView.knobProportion = scroller.visible / scroller.content
-            scrollerView.doubleValue = Double(scroller.offset / (scroller.content - scroller.visible))
-        }
+        didSet { syncScrollView() }
     }
-    /// The scroller's knob dragged: the new position (0…1).
+    /// The fence was scrolled (the offset can go below 0 or past the end while it bounces).
     var onScroll: ((CGFloat) -> Void)?
-    private let scrollerView = NSScroller()
-    private var scrollerFade: DispatchWorkItem?
+    private var scrollView: NSScrollView?
+    private var settingScroll = false
+    private var lastScrolled = Date.distantPast
+    private var extraScroll: CGFloat { max(0, (scroller?.content ?? 0) - (scroller?.visible ?? 0)) }
 
-    /// Shows the scroller for a moment (while scrolling), then lets it fade out.
-    func flashScroller() {
-        guard !scrollerView.isHidden else { return }
-        scrollerFade?.cancel()
-        scrollerView.animator().alphaValue = 1
-        let fade = DispatchWorkItem { [weak self] in
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.4
-                self?.scrollerView.animator().alphaValue = 0
-            }
+    private func syncScrollView() {
+        guard let scroller, scroller.content > scroller.visible + 0.5, !fence.collapsed else {
+            scrollView?.removeFromSuperview()
+            scrollView = nil
+            return
         }
-        scrollerFade = fade
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: fade)
+        let view = scrollView ?? makeScrollView()
+        let frame = NSRect(x: 0, y: DesktopFence.titleHeight, width: bounds.width, height: max(0, bounds.height - DesktopFence.titleHeight))
+        settingScroll = true
+        if view.frame != frame { view.frame = frame }
+        let height = frame.height + extraScroll
+        if view.documentView?.frame.height != height { view.documentView?.setFrameSize(NSSize(width: frame.width, height: height)) }
+        // Moved from outside (resized, icons added): the scroll view follows, unless it's bouncing
+        let current = view.contentView.bounds.origin.y
+        if current >= 0, current <= extraScroll, abs(current - scroller.offset) > 0.5 {
+            view.contentView.scroll(to: NSPoint(x: 0, y: scroller.offset))
+            view.reflectScrolledClipView(view.contentView)
+        }
+        settingScroll = false
     }
 
-    @objc private func scrollerMoved(_ sender: NSScroller) {
-        onScroll?(CGFloat(sender.doubleValue))
-        flashScroller()
+    private func makeScrollView() -> NSScrollView {
+        let view = NSScrollView()
+        view.drawsBackground = false
+        view.hasVerticalScroller = true
+        view.autohidesScrollers = true
+        view.scrollerStyle = .overlay
+        view.scrollerKnobStyle = .light
+        view.verticalScrollElasticity = .allowed
+        view.horizontalScrollElasticity = .none
+        let document = FlippedView()
+        view.documentView = document
+        view.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(scrolled(_:)), name: NSView.boundsDidChangeNotification, object: view.contentView)
+        addSubview(view, positioned: .above, relativeTo: overlay)
+        scrollView = view
+        return view
+    }
+
+    @objc private func scrolled(_ note: Notification) {
+        guard !settingScroll, let view = scrollView else { return }
+        lastScrolled = Date()
+        onScroll?(view.contentView.bounds.origin.y)
+    }
+
+    /// The desktop passes on scrolling over the fence's inside.
+    func scroll(with event: NSEvent) -> Bool {
+        guard let scrollView else { return false }
+        scrollView.scrollWheel(with: event)
+        return true
+    }
+
+    /// Moves the scroll view as a trackpad would (past the top: as while it bounces).
+    func debugScroll(to y: CGFloat) {
+        guard let scrollView else { return }
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        scrollView.flashScrollers()
+    }
+
+    var debugScrollState: String {
+        guard let scrollView else { return "no scroll view (scroller: \(scroller.map { "\($0)" } ?? "nil"))" }
+        return "clip \(scrollView.contentView.bounds), document \(scrollView.documentView?.frame ?? .zero)"
+    }
+
+    /// Whether the scroll view is past an end right now (bouncing back).
+    var isBouncing: Bool {
+        guard let y = scrollView?.contentView.bounds.origin.y else { return false }
+        return y < 0 || y > extraScroll
+    }
+
+    /// The scroller takes the mouse only just after scrolling, while it shows (the right edge
+    /// resizes the fence otherwise).
+    fileprivate func scrollerHit(_ local: NSPoint) -> NSView? {
+        guard let scrollView, let scroller = scrollView.verticalScroller, Date().timeIntervalSince(lastScrolled) < 1.2 else { return nil }
+        let frame = scroller.convert(scroller.bounds, to: self)
+        return frame.contains(local) ? scroller : nil
     }
 
     /// Live frame while moving / resizing (with the snapping guides), then the final one.
@@ -272,18 +326,6 @@ final class FenceView: NSView, NSTextFieldDelegate {
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
         addSubview(overlay, positioned: .above, relativeTo: blur)
-        // The scroller, at the right edge under the title (hidden until the icons don't fit)
-        let width = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
-        scrollerView.scrollerStyle = .overlay
-        scrollerView.knobStyle = .light
-        scrollerView.frame = NSRect(x: bounds.width - width, y: DesktopFence.titleHeight, width: width,
-                                    height: max(0, bounds.height - DesktopFence.titleHeight - 4))
-        scrollerView.autoresizingMask = [.minXMargin, .height]
-        scrollerView.target = self
-        scrollerView.action = #selector(scrollerMoved(_:))
-        scrollerView.isHidden = true
-        scrollerView.alphaValue = 0
-        addSubview(scrollerView, positioned: .above, relativeTo: overlay)
         updateBlur()
     }
 
@@ -355,7 +397,12 @@ final class FenceView: NSView, NSTextFieldDelegate {
         guard bounds.contains(local) else { return nil }
         if renameField.map({ $0.frame.contains(local) }) == true { return renameField }
         // The scroller, while it's showing, can be dragged (over the right edge's resizing)
-        if !scrollerView.isHidden, scrollerView.alphaValue > 0.5, scrollerView.frame.contains(local) { return scrollerView }
+        if let scroller = scrollerHit(local) { return scroller }
+        // Scrolling over the inside goes to the fence's scroll view, as in a portal (clicks don't:
+        // they're for the icons)
+        if NSApp.currentEvent?.type == .scrollWheel, let scrollView, scrollView.frame.contains(local) {
+            return scrollView.documentView ?? scrollView
+        }
         if titleRect.contains(local) || !edges(at: local).isEmpty { return self }
         if let portalView, !portalView.isHidden, portalView.frame.contains(local) { return portalView.hitTest(local) ?? portalView }
         return nil
