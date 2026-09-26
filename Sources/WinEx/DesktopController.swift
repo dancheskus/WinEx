@@ -348,7 +348,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         widgetRects = Self.widgetFrames(in: window)
         centers = Array(repeating: .zero, count: items.count)
         layoutFences()
-        blockedRects = widgetRects + myFences.map { visibleFrame(of: $0).insetBy(dx: -4, dy: -4) }
+        // A rolled-up fence keeps its whole place: rolling it up or down moves nothing else
+        blockedRects = widgetRects + myFences.map { visibleFrame(of: $0, whole: true).insetBy(dx: -4, dy: -4) }
         if layout.autoArrange {
             arrange(by: layout.sortKey)
             return
@@ -1324,9 +1325,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard let area = screens.first?.iconArea else { return }
         let here = screens.first?.id
         let fences = myFences
-        var taken = fences.filter { $0.screenID == here }.map { visibleFrame(of: $0).insetBy(dx: -FenceSnap.gap, dy: -FenceSnap.gap) }
+        var taken = fences.filter { $0.screenID == here }.map { visibleFrame(of: $0, whole: true).insetBy(dx: -FenceSnap.gap, dy: -FenceSnap.gap) }
         for fence in fences where fence.screenID != here {
-            var frame = visibleFrame(of: fence)
+            var frame = visibleFrame(of: fence, whole: true)
             if taken.contains(where: { $0.intersects(frame) }) {
                 // The nearest free spot, scanning the monitor in steps
                 var best: NSRect?
@@ -1353,11 +1354,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
     }
 
-    /// A fence's frame as shown: kept inside the monitor; just the title bar when rolled up.
-    private func visibleFrame(of fence: DesktopFence) -> NSRect {
+    /// A fence's frame as shown: kept inside the monitor; just the title bar when rolled up
+    /// (unless `whole`: the place it takes either way).
+    private func visibleFrame(of fence: DesktopFence, whole: Bool = false) -> NSRect {
         guard let area = screens.first?.iconArea else { return fence.frame }
         if var moved = displacedFrames[fence.id] {
-            if fence.collapsed { moved.size.height = DesktopFence.titleHeight }
+            if fence.collapsed && !whole { moved.size.height = DesktopFence.titleHeight }
             return moved
         }
         var frame = fence.frame
@@ -1365,7 +1367,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         frame.size.height = min(frame.height, area.height)
         frame.origin.x = min(max(frame.minX, area.minX), area.maxX - frame.width)
         frame.origin.y = min(max(frame.minY, area.minY), area.maxY - frame.height)
-        if fence.collapsed { frame.size.height = DesktopFence.titleHeight }
+        if fence.collapsed && !whole { frame.size.height = DesktopFence.titleHeight }
         return frame
     }
 
@@ -1808,6 +1810,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    /// Stores `name` at `point` (as if dragged there before the fence existed) and lays out again.
+    func debugPlace(_ name: String, at point: CGPoint) { setPlacement(point, forName: name); relayout() }
     func debugMakePortal(_ folder: URL, at point: NSPoint) -> String? {
         guard let screen = screens.first else { return nil }
         var fence = DesktopFence(title: folder.displayName, screenID: screen.id, x: 0, y: 0, width: 0, height: 0)

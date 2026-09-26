@@ -726,9 +726,17 @@ enum Scenarios {
             (2.0, "roll up", {
                 guard let view = mainView(), let fence = view.layout.fences.last, let name = fence.members.first else { return }
                 view.debugSelect([])
+                let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { !$0.hasPrefix(".") && !fence.members.contains($0) }
+                // One outside icon stored under the fence: shown beside it, and it must stay there
+                if let under = names.first, let box = view.debugFenceView(fence.id)?.frame {
+                    view.debugPlace(under, at: CGPoint(x: box.midX, y: box.midY))
+                }
+                let before = names.map { view.debugCenter(of: $0) }
                 view.debugToggle(fence.id)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     s.note("  rolled up hides icons: \(view.debugIsHidden(name))  expect true")
+                    s.note("  other icons stayed put: \(names.map { view.debugCenter(of: $0) } == before)  expect true")
                     if let window = view.window {
                         try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-2"), atomically: true, encoding: .utf8)
                     }
