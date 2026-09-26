@@ -283,7 +283,9 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         dragging = true
         let dragged = selection.sorted().map { i -> NSDraggingItem in
             let item = NSDraggingItem(pasteboardWriter: items[i].url as NSURL)
-            item.setDraggingFrame(iconRect(i), contents: items[i].icon)
+            // The picture shown (a preview, not the file type's icon), same proportions
+            let image = image(for: i)
+            item.setDraggingFrame(DesktopView.aspectFit(image.size, in: iconRect(i)), contents: image)
             return item
         }
         beginDraggingSession(with: dragged, event: event, source: self)

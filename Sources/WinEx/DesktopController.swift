@@ -360,6 +360,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         var placed: [CGPoint] = []
         var unplaced: [Int] = []
         var displaced: [Int] = []
+        var overlapped: Set<Int> = []
         // Icons stored with their monitor claim their spots first; then those stored as "on the
         // main monitor" (older positions, Finder's) — after a monitor change the main one may be
         // another monitor, and such an icon must not land on top of one that really lives there
@@ -373,8 +374,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             let away = place.screenID != nil && screen.id != place.screenID
             centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * screen.frame.width,
                                        y: screen.frame.minY + place.point.y * screen.frame.height))
-            if away || isUnderWidget(centers[i]) || overlapsAnother(centers[i], placed) {
+            if away || isUnderWidget(centers[i]) {
                 displaced.append(i)
+            } else if overlapsAnother(centers[i], placed) {
+                displaced.append(i)
+                overlapped.insert(i)
             } else {
                 placed.append(centers[i])
             }
@@ -384,13 +388,16 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for i in displaced {
             centers[i] = nearestFreeCell(to: centers[i], occupied: placed)
             placed.append(centers[i])
+            // On top of another icon: where it went is its place from now on — otherwise it would
+            // jump into the first spot that frees up (a file deleted nearby)
+            if overlapped.contains(i) { storePosition(of: i) }
         }
         for i in unplaced {
             centers[i] = firstFreeCell(occupied: placed)
             placed.append(centers[i])
             storePosition(of: i)
         }
-        if !unplaced.isEmpty { layout.save() }
+        if !unplaced.isEmpty || !overlapped.isEmpty { layout.save() }
         needsDisplay = true
     }
 
@@ -810,7 +817,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         dragOrigin = mouseDownPoint
         let draggingItems = dragged.map { i -> NSDraggingItem in
             let item = NSDraggingItem(pasteboardWriter: items[i].url as NSURL)
-            item.setDraggingFrame(iconRect(at: centers[i]), contents: items[i].icon)
+            // The picture the desktop shows (a preview, not the file type's icon), same proportions
+            let image = image(for: i)
+            item.setDraggingFrame(Self.aspectFit(image.size, in: iconRect(at: centers[i])), contents: image)
             return item
         }
         beginDraggingSession(with: draggingItems, event: event, source: self)

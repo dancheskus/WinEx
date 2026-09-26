@@ -1017,6 +1017,30 @@ enum Scenarios {
                     s.note("  unrolled shows icons: \(!view.debugIsHidden(name))  expect true")
                 }
             }),
+            (1.0, "an icon put on another's place stays where it went", {
+                guard let view = mainView() else { return }
+                // Two loose icons (not in a zone): the later one alphabetically gives way
+                let loose = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { name in !name.hasPrefix(".") && !view.layout.fences.contains { $0.members.contains(name) } && view.debugCenter(of: name) != nil }
+                    .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+                guard loose.count >= 2, let spot = view.debugCenter(of: loose[0]), let free = view.debugEmptySpot(NSSize(width: 120, height: 120)) else {
+                    s.note("  (not enough icons: \(loose.count), first at \(loose.first.flatMap { view.debugCenter(of: $0) }.map { "\($0)" } ?? "nil"), free spot: \(view.debugEmptySpot(NSSize(width: 120, height: 120)) != nil))")
+                    return
+                }
+                let other = loose[loose.count - 1]
+                view.debugPlace(other, at: spot)
+                func distance(_ a: CGPoint?, _ b: CGPoint?) -> Int {
+                    guard let a, let b else { return -1 }
+                    return Int(hypot(a.x - b.x, a.y - b.y))
+                }
+                // One of the two stays on the spot, the other gives way
+                let (stayer, mover) = distance(view.debugCenter(of: other), spot) < 5 ? (other, loose[0]) : (loose[0], other)
+                let shown = view.debugCenter(of: mover)
+                // The one on the spot leaves (as if deleted): the spot frees up
+                view.debugPlace(stayer, at: NSPoint(x: free.midX, y: free.midY))
+                let after = view.debugCenter(of: mover)
+                s.note("  gave way: \(distance(shown, spot)) pt from the taken spot; after the spot freed: moved \(distance(shown, after)) pt  expect > 0, 0")
+            }),
             (1.0, "select an empty area: «Создать зону здесь»", {
                 guard let view = mainView(), let window = view.window, let spot = view.debugEmptySpot(NSSize(width: 260, height: 170)) else { s.note("  (no empty spot)"); return }
                 // A real drag: down, dragged, up (in view coordinates → window)
