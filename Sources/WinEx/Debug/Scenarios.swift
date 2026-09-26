@@ -1031,8 +1031,41 @@ enum Scenarios {
                     if let event = NSEvent(cgEvent: cg) { view.scrollWheel(with: event) }
                 }
                 s.note("  scrolled: \(Int(view.debugScroll(fence.id))) pt  expect 40")
+                // Exactly as tall as its rows (what the snapping gives): nothing to scroll
+                let rows = Int(ceil(Double(fence.members.count) / 2))
+                let whole = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: view.debugRowsHeight(rows))
+                view.debugSetFenceFrame(fence.id, whole)
+                s.note("  sized to its \(rows) rows: can scroll \(Int(view.debugMaxScroll(fence.id))) pt  expect 0")
+                view.debugSetFenceFrame(fence.id, frame)
                 view.displayIfNeeded()
                 try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
+            }),
+            (1.0, "let go of a dragged icon: it glides to its place", {
+                guard let view = mainView(), let name = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                        .first(where: { name in !name.hasPrefix(".") && !view.layout.fences.contains { $0.members.contains(name) } && view.debugCenter(of: name) != nil }),
+                      let spot = view.debugEmptySpot(NSSize(width: 200, height: 200)) else { return }
+                // Let go between grid cells, with the grid on: it pulls the icon into a cell
+                view.layout.alignToGrid = true
+                s.note("  align to grid: \(view.layout.alignToGrid)")
+                let drop = NSPoint(x: spot.midX + 17, y: spot.midY + 13)
+                s.note("  \(name) from \(view.debugCenter(of: name).map { "\(Int($0.x)),\(Int($0.y))" } ?? "?") dropped at \(Int(drop.x)),\(Int(drop.y))")
+                view.debugDrop(name, at: drop)
+                s.note("  placed at \(view.debugCenter(of: name).map { "\(Int($0.x)),\(Int($0.y))" } ?? "?")")
+                view.displayIfNeeded()
+                CATransaction.flush()
+                if let frames = view.debugTileFrames(name) {
+                    s.note("  right after: \(Int(hypot(frames.shown.minX - frames.place.minX, frames.shown.minY - frames.place.minY))) pt from its place  expect > 0 (at the drop point)")
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if let frames = view.debugTileFrames(name) {
+                        s.note("  after 0.1 s: \(Int(hypot(frames.shown.minX - frames.place.minX, frames.shown.minY - frames.place.minY))) pt  expect less, not 0")
+                    }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if let frames = view.debugTileFrames(name) {
+                        s.note("  after 0.5 s: \(Int(hypot(frames.shown.minX - frames.place.minX, frames.shown.minY - frames.place.minY))) pt  expect 0")
+                    }
+                }
             }),
             (1.0, "an icon put on another's place stays where it went", {
                 guard let view = mainView() else { return }

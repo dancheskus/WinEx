@@ -261,6 +261,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // Dragging icons
     private var draggedNames: [String] = []
     private var dragOrigin = NSPoint.zero
+    /// Icons gliding from where they were dropped to their place (their frames aren't set meanwhile).
+    private var landing: Set<Int> = []
     private var dropTarget: Int?
 
     // Context menu / rename
@@ -652,9 +654,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             tiles.append(tile)
         }
         for (i, tile) in tiles.enumerated() {
-            tile.frame = hitRect(i).insetBy(dx: -6, dy: -6)
             tile.isHidden = hiddenIcons.contains(i)
-            tile.clip(to: fenceClip[i])
+            if !landing.contains(i) {
+                tile.frame = hitRect(i).insetBy(dx: -6, dy: -6)
+                tile.clip(to: fenceClip[i])
+            }
             tile.needsDisplay = true
         }
         if guidesView.superview == nil { addSubview(guidesView) }
@@ -924,13 +928,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         if let target, FileDrop.perform(sender, into: items[target].url) { return true }
         let fenceHere = fence(at: point).flatMap { $0.isPortal ? nil : $0 }
         if isOwnDrag(sender) {
-            if let fenceHere {
-                addToFence(fenceHere.id, names: draggedNames, at: point)
-            } else {
-                // Out of their fences, onto the desktop where they were dropped
-                removeFromFences(draggedNames)
-                moveIcons(named: draggedNames, by: CGSize(width: point.x - dragOrigin.x, height: point.y - dragOrigin.y))
-            }
+            dropOwnIcons(at: point, into: fenceHere)
             return true
         }
 
@@ -954,6 +952,55 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return true
     }
 
+    /// This desktop's own icons let go at `point`: into the fence there, or onto the desktop.
+    private func dropOwnIcons(at point: NSPoint, into fenceHere: DesktopFence?) {
+        // Where each one was let go: they glide from there to their place, like in Finder
+        let delta = CGSize(width: point.x - dragOrigin.x, height: point.y - dragOrigin.y)
+        let dropped = Dictionary(draggedNames.compactMap { name in index(named: name).map { (name, centers[$0]) } }, uniquingKeysWith: { a, _ in a })
+            .mapValues { CGPoint(x: $0.x + delta.width, y: $0.y + delta.height) }
+        if let fenceHere {
+            addToFence(fenceHere.id, names: draggedNames, at: point)
+        } else {
+            // Out of their fences, onto the desktop where they were dropped
+            removeFromFences(draggedNames)
+            moveIcons(named: draggedNames, by: delta)
+        }
+        glide(from: dropped)
+    }
+
+    /// Icons glide from where they were dropped (`from`, by name) to where they are now.
+    private func glide(from dropped: [String: CGPoint]) {
+        let moves = dropped.compactMap { name, point -> (Int, NSRect, NSRect)? in
+            guard let i = index(named: name), tiles.indices.contains(i), !hiddenIcons.contains(i) else { return nil }
+            let final = hitRect(i).insetBy(dx: -6, dy: -6)
+            let start = final.offsetBy(dx: point.x - centers[i].x, dy: point.y - centers[i].y)
+            return hypot(start.minX - final.minX, start.minY - final.minY) > 1 ? (i, start, final) : nil
+        }
+        guard !moves.isEmpty else { return }
+        // At the drop point first (committed, without animating), then off to their places
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for (i, start, _) in moves {
+            landing.insert(i)
+            tiles[i].clip(to: nil)
+            tiles[i].frame = start
+        }
+        CATransaction.commit()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                for (i, _, final) in moves where self.tiles.indices.contains(i) { self.tiles[i].animator().frame = final }
+            } completionHandler: { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.landing = []
+                    self?.needsDisplay = true
+                }
+            }
+        }
+    }
+
     // MARK: - Scrolling fences
 
     override func scrollWheel(with event: NSEvent) {
@@ -964,7 +1011,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let offset = min(max((fenceScroll[fence.id] ?? 0) - delta, 0), maxScroll(fence))
         guard offset != fenceScroll[fence.id] ?? 0 else { return }
         fenceScroll[fence.id] = offset
-        // Only the fences' icons move: no need to place everything again
+        scrollFences()
+        fenceViews[fence.id]?.flashScroller()
+    }
+
+    /// Only the fences' icons move: no need to place everything again.
+    private func scrollFences() {
         layoutFences()
         syncFenceViews()
         needsDisplay = true
@@ -975,7 +1027,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let grid = fenceGrid(fence)
         let count = fence.members.filter { index(named: $0) != nil }.count
         let rows = CGFloat(Int(ceil(Double(count) / Double(grid.columns))))
-        return max(0, fenceTopExtra + rows * fenceCell.height + 4 - grid.content.height)
+        // (Sized by the snapping to whole rows, it holds them exactly: no scrolling for a rounding hair)
+        let overflow = fenceTopExtra + rows * fenceCell.height - grid.content.height
+        return overflow > 2 ? overflow : 0
     }
 
 
@@ -1512,6 +1566,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return (snapped, guides)
         }
         view.onGuides = { [weak self] guides in self?.guidesView.guides = guides }
+        view.onScroll = { [weak self] fraction in
+            guard let self, let fence = self.layout.fences.first(where: { $0.id == id }) else { return }
+            self.fenceScroll[id] = fraction * self.maxScroll(fence)
+            self.scrollFences()
+        }
         view.onFrame = { [weak self] frame, final in
             guard let self, var fence = self.layout.fences.first(where: { $0.id == id }) else { return }
             self.draggingFence = final ? nil : id
@@ -1887,6 +1946,26 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    /// As if `name` was dragged from its place and let go at `point` (the icon glides to its place).
+    func debugDrop(_ name: String, at point: NSPoint) {
+        guard let i = index(named: name) else { return }
+        dragOrigin = centers[i]
+        draggedNames = [name]
+        dropOwnIcons(at: point, into: fence(at: point).flatMap { $0.isPortal ? nil : $0 })
+        draggedNames = []
+    }
+    /// Where the icon is drawn now, and where it belongs.
+    func debugTileFrames(_ name: String) -> (shown: NSRect, place: NSRect)? {
+        guard let i = index(named: name), tiles.indices.contains(i) else { return nil }
+        // What's on screen: the layer mid-animation (its model frame is already the final one)
+        let tile = tiles[i]
+        var shown = tile.frame
+        if let presented = tile.layer?.presentation() {
+            shown.origin.x = presented.frame.minX
+            shown.origin.y = tile.isFlipped && tile.superview?.isFlipped == true ? presented.frame.minY : presented.frame.minY
+        }
+        return (shown, hitRect(i).insetBy(dx: -6, dy: -6))
+    }
     func debugSetFenceFrame(_ id: String, _ frame: NSRect) {
         guard var fence = layout.fences.first(where: { $0.id == id }) else { return }
         fence.frame = frame
@@ -1894,6 +1973,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         relayout()
     }
     func debugScroll(_ id: String) -> CGFloat { fenceScroll[id] ?? 0 }
+    func debugMaxScroll(_ id: String) -> CGFloat { layout.fences.first { $0.id == id }.map(maxScroll) ?? -1 }
+    /// The height the snapping gives a fence of `rows` whole rows.
+    func debugRowsHeight(_ rows: Int) -> CGFloat { DesktopFence.titleHeight + fenceTopExtra + CGFloat(rows) * fenceCell.height + DesktopFence.padding }
     var debugCellHeight: CGFloat { fenceCell.height }
     /// The hint's title when it's shown ("" when not), and a click on it.
     var debugHintTitle: String { fenceHint.superview != nil ? (fenceHint.toolTip ?? "") : "" }

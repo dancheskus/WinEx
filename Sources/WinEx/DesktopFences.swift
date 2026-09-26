@@ -202,9 +202,42 @@ enum FenceSnap {
 final class FenceView: NSView, NSTextFieldDelegate {
     var fence: DesktopFence { didSet { if fence != oldValue { redraw(); updateBlur(); window?.invalidateCursorRects(for: self) } } }
     var isDropTarget = false { didSet { if isDropTarget != oldValue { redraw() } } }
-    /// Its icons scroll: where they are (a thin bar at the right edge, like an overlay scroller).
+    /// Its icons scroll: where they are. Shown with the system's overlay scroller (as in portals),
+    /// which appears while scrolling and fades away.
     var scroller: (offset: CGFloat, content: CGFloat, visible: CGFloat)? {
-        didSet { if scroller.map({ "\($0)" }) != oldValue.map({ "\($0)" }) { redraw() } }
+        didSet {
+            guard let scroller, scroller.content > scroller.visible else {
+                scrollerView.isHidden = true
+                return
+            }
+            scrollerView.isHidden = false
+            scrollerView.knobProportion = scroller.visible / scroller.content
+            scrollerView.doubleValue = Double(scroller.offset / (scroller.content - scroller.visible))
+        }
+    }
+    /// The scroller's knob dragged: the new position (0…1).
+    var onScroll: ((CGFloat) -> Void)?
+    private let scrollerView = NSScroller()
+    private var scrollerFade: DispatchWorkItem?
+
+    /// Shows the scroller for a moment (while scrolling), then lets it fade out.
+    func flashScroller() {
+        guard !scrollerView.isHidden else { return }
+        scrollerFade?.cancel()
+        scrollerView.animator().alphaValue = 1
+        let fade = DispatchWorkItem { [weak self] in
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.4
+                self?.scrollerView.animator().alphaValue = 0
+            }
+        }
+        scrollerFade = fade
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: fade)
+    }
+
+    @objc private func scrollerMoved(_ sender: NSScroller) {
+        onScroll?(CGFloat(sender.doubleValue))
+        flashScroller()
     }
 
     /// Live frame while moving / resizing (with the snapping guides), then the final one.
@@ -239,6 +272,18 @@ final class FenceView: NSView, NSTextFieldDelegate {
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
         addSubview(overlay, positioned: .above, relativeTo: blur)
+        // The scroller, at the right edge under the title (hidden until the icons don't fit)
+        let width = NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay)
+        scrollerView.scrollerStyle = .overlay
+        scrollerView.knobStyle = .light
+        scrollerView.frame = NSRect(x: bounds.width - width, y: DesktopFence.titleHeight, width: width,
+                                    height: max(0, bounds.height - DesktopFence.titleHeight - 4))
+        scrollerView.autoresizingMask = [.minXMargin, .height]
+        scrollerView.target = self
+        scrollerView.action = #selector(scrollerMoved(_:))
+        scrollerView.isHidden = true
+        scrollerView.alphaValue = 0
+        addSubview(scrollerView, positioned: .above, relativeTo: overlay)
         updateBlur()
     }
 
@@ -309,6 +354,8 @@ final class FenceView: NSView, NSTextFieldDelegate {
         let local = convert(point, from: superview)
         guard bounds.contains(local) else { return nil }
         if renameField.map({ $0.frame.contains(local) }) == true { return renameField }
+        // The scroller, while it's showing, can be dragged (over the right edge's resizing)
+        if !scrollerView.isHidden, scrollerView.alphaValue > 0.5, scrollerView.frame.contains(local) { return scrollerView }
         if titleRect.contains(local) || !edges(at: local).isEmpty { return self }
         if let portalView, !portalView.isHidden, portalView.frame.contains(local) { return portalView.hitTest(local) ?? portalView }
         return nil
@@ -569,13 +616,6 @@ final class FenceView: NSView, NSTextFieldDelegate {
         }
         if let backRect { symbol("chevron.left", in: backRect) }
         if let openRect { symbol("arrow.up.forward.app", in: openRect) }
-        if let scroller, !fence.collapsed, scroller.content > scroller.visible {
-            let track = NSRect(x: bounds.width - 7, y: DesktopFence.titleHeight + 4, width: 4, height: bounds.height - DesktopFence.titleHeight - 8)
-            let length = max(18, track.height * scroller.visible / scroller.content)
-            let position = (track.height - length) * scroller.offset / max(scroller.content - scroller.visible, 1)
-            NSColor.white.withAlphaComponent(0.45).setFill()
-            NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY + position, width: track.width, height: length), xRadius: 2, yRadius: 2).fill()
-        }
     }
 }
 
