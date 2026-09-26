@@ -379,13 +379,20 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         NSRect(x: center.x - iconSide / 2, y: center.y - iconSide / 2, width: iconSide, height: iconSide)
     }
 
-    private func labelRect(at center: CGPoint) -> NSRect {
+    private func labelRect(at center: CGPoint, cellWidth: CGFloat? = nil) -> NSRect {
         // Below the selection square (6 pt around the icon) with a clear gap, like Finder
-        NSRect(x: center.x - cellSize.width / 2 + 2, y: center.y + iconSide / 2 + 9, width: cellSize.width - 4, height: 32)
+        let width = cellWidth ?? cellSize.width
+        return NSRect(x: center.x - width / 2 + 2, y: center.y + iconSide / 2 + 9, width: width - 4, height: 32)
     }
 
+    /// An icon's label: narrower in a fence (its cells are compact).
+    private func labelRect(_ index: Int) -> NSRect {
+        labelRect(at: centers[index], cellWidth: fenceOf[index] != nil ? fenceCell.width : nil)
+    }
+
+
     private func hitRect(_ index: Int) -> NSRect {
-        iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).union(labelRect(at: centers[index]))
+        iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).union(labelRect(index))
     }
 
     private func index(at point: NSPoint) -> Int? {
@@ -591,7 +598,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let item = items[i]
         let attributes = labelAttributes()
         let iconRect = iconRect(at: centers[i])
-        let labelRect = labelRect(at: centers[i])
+        let labelRect = labelRect(i)
         let isRenaming = renamingName == name(of: i)
         let lines = DesktopLabel.lines(labelText(for: item, attributes: attributes), width: labelRect.width)
         let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 12)
@@ -692,7 +699,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
         if let i = mouseDownIndex {
             // Slow click on the label of the only selected icon → rename (files only, not disks)
-            if SlowClickRename.isPlainClick(event), selection == [i], !isVolume(i), labelRect(at: centers[i]).contains(point) {
+            if SlowClickRename.isPlainClick(event), selection == [i], !isVolume(i), labelRect(i).contains(point) {
                 slowClickIndex = i
             }
             if toggles {
@@ -1257,13 +1264,18 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         var content = frame.insetBy(dx: DesktopFence.padding, dy: DesktopFence.padding)
         content.origin.y += DesktopFence.titleHeight - DesktopFence.padding
         content.size.height -= DesktopFence.titleHeight - DesktopFence.padding
-        let columns = max(1, Int(content.width / cellSize.width))
-        let rows = max(0, Int((content.height - fenceTopExtra) / cellSize.height))
+        let columns = max(1, Int(content.width / fenceCell.width))
+        let rows = max(0, Int((content.height - fenceTopExtra) / fenceCell.height))
         return (content, columns, rows)
     }
 
     /// Icons sit as far from the fence's top as from its left side (a cell is wider than its icon).
-    private var fenceTopExtra: CGFloat { max(0, (cellSize.width - iconSide) / 2 + DesktopFence.padding - 8) }
+    private var fenceTopExtra: CGFloat { max(0, (fenceCell.width - iconSide) / 2 + DesktopFence.padding - 8) }
+
+    /// A fence's cells are compact: half the desktop's room beside the icon, a little less below.
+    private var fenceCell: NSSize {
+        NSSize(width: (iconSide + (cellSize.width - iconSide) / 2).rounded(), height: cellSize.height - 6)
+    }
 
     /// Puts the icons of this monitor's fences into their fences (in their order, row by row).
     private func layoutFences() {
@@ -1278,8 +1290,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             for (k, i) in members.enumerated() {
                 fenceOf[i] = fence.id
                 let row = k / grid.columns - first, column = k % grid.columns
-                centers[i] = CGPoint(x: grid.content.minX + cellSize.width * (CGFloat(column) + 0.5),
-                                     y: grid.content.minY + fenceTopExtra + iconSide / 2 + 8 + cellSize.height * CGFloat(row))
+                centers[i] = CGPoint(x: grid.content.minX + fenceCell.width * (CGFloat(column) + 0.5),
+                                     y: grid.content.minY + fenceTopExtra + iconSide / 2 + 8 + fenceCell.height * CGFloat(row))
                 if fence.collapsed || row < 0 || row >= grid.rows { hiddenIcons.insert(i) }
             }
         }
@@ -1303,8 +1315,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             let grid = fenceGrid(fence)
             let count = fence.members.filter { index(named: $0) != nil }.count
             view.overflow = fence.collapsed ? 0 : max(0, count - (fenceScroll[fence.id] ?? 0) * grid.columns - grid.rows * grid.columns)
-            view.minimumSize = NSSize(width: cellSize.width + 2 * DesktopFence.padding,
-                                      height: DesktopFence.titleHeight + fenceTopExtra + cellSize.height + DesktopFence.padding)
+            view.minimumSize = NSSize(width: fenceCell.width + 2 * DesktopFence.padding,
+                                      height: DesktopFence.titleHeight + fenceTopExtra + fenceCell.height + DesktopFence.padding)
         }
     }
 
@@ -1323,10 +1335,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             // (unless an edge already clings to something)
             if edges.count < 4 {
                 let pull: CGFloat = 10
-                let columnsWidth = { (n: CGFloat) in n * self.cellSize.width + 2 * DesktopFence.padding }
-                let rowsHeight = { (n: CGFloat) in DesktopFence.titleHeight + self.fenceTopExtra + n * self.cellSize.height + DesktopFence.padding }
-                let widthTarget = columnsWidth(max(1, ((snapped.width - 2 * DesktopFence.padding) / self.cellSize.width).rounded()))
-                let heightTarget = rowsHeight(max(1, ((snapped.height - DesktopFence.titleHeight - self.fenceTopExtra - DesktopFence.padding) / self.cellSize.height).rounded()))
+                let columnsWidth = { (n: CGFloat) in n * self.fenceCell.width + 2 * DesktopFence.padding }
+                let rowsHeight = { (n: CGFloat) in DesktopFence.titleHeight + self.fenceTopExtra + n * self.fenceCell.height + DesktopFence.padding }
+                let widthTarget = columnsWidth(max(1, ((snapped.width - 2 * DesktopFence.padding) / self.fenceCell.width).rounded()))
+                let heightTarget = rowsHeight(max(1, ((snapped.height - DesktopFence.titleHeight - self.fenceTopExtra - DesktopFence.padding) / self.fenceCell.height).rounded()))
                 let horizontal = guides.contains { $0.vertical }, vertical = guides.contains { !$0.vertical }
                 if !horizontal, abs(snapped.width - widthTarget) <= pull, edges.contains(.minX) || edges.contains(.maxX) {
                     if edges.contains(.minX) { snapped.origin.x = snapped.maxX - widthTarget }
@@ -1428,8 +1440,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         var position = fences[target].members.count
         if let point, !fences[target].collapsed {
             let grid = fenceGrid(fences[target])
-            let column = min(max(Int((point.x - grid.content.minX) / cellSize.width), 0), grid.columns - 1)
-            let row = max(Int((point.y - grid.content.minY - fenceTopExtra) / cellSize.height), 0) + (fenceScroll[id] ?? 0)
+            let column = min(max(Int((point.x - grid.content.minX) / fenceCell.width), 0), grid.columns - 1)
+            let row = max(Int((point.y - grid.content.minY - fenceTopExtra) / fenceCell.height), 0) + (fenceScroll[id] ?? 0)
             position = min(row * grid.columns + column, fences[target].members.count)
         }
         fences[target].members.insert(contentsOf: names, at: position)
@@ -1506,8 +1518,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard let screen = screens.first else { return }
         let columns = max(3, min(4, members.count))
         let rows = max(2, Int(ceil(Double(members.count) / Double(columns))))
-        let size = NSSize(width: CGFloat(columns) * cellSize.width + 2 * DesktopFence.padding,
-                          height: DesktopFence.titleHeight + fenceTopExtra + CGFloat(rows) * cellSize.height + DesktopFence.padding)
+        let size = NSSize(width: CGFloat(columns) * fenceCell.width + 2 * DesktopFence.padding,
+                          height: DesktopFence.titleHeight + fenceTopExtra + CGFloat(rows) * fenceCell.height + DesktopFence.padding)
         var rect = NSRect(origin: NSPoint(x: point.x - 20, y: point.y - 10), size: size)
         let others = myFences.map { visibleFrame(of: $0) }
         rect.origin.x = min(max(rect.minX, screen.iconArea.minX + FenceSnap.gap), screen.iconArea.maxX - rect.width - FenceSnap.gap)
@@ -1577,7 +1589,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func beginRename(_ index: Int) {
         endRename()
         let item = items[index]
-        let field = NSTextField(frame: labelRect(at: centers[index]).insetBy(dx: -8, dy: -2))
+        let field = NSTextField(frame: labelRect(index).insetBy(dx: -8, dy: -2))
         field.stringValue = item.name
         field.alignment = .center
         field.font = .systemFont(ofSize: 12)
