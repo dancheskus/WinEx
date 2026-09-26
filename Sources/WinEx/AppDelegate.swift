@@ -316,7 +316,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func showSettings(tab: SettingsWindowController.Tab?, snapshots: Bool) {
         showSettings(tab: tab)
-        if snapshots { settingsController?.showSnapshots() }
+        if snapshots { settingsController?.select(.snapshots) }
     }
 
     func showSettings(tab: SettingsWindowController.Tab?) {
@@ -351,6 +351,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             FinderReplacement.restore()
         }
     }
+
+    /// The desktop as a picture, for a snapshot (nil when WinEx doesn't draw the desktop).
+    func desktopPreview() -> NSImage? { desktop?.previewImage() }
 
     /// A desktop snapshot was restored: the desktop takes the stored arrangement again.
     func reloadDesktopLayout() {

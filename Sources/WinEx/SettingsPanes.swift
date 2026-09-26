@@ -762,17 +762,23 @@ final class FenceSettingsView: NSView {
         let colorRow = NSStackView(views: [colorWell, swatches])
         colorRow.spacing = 12
 
+        let enabled = ClosureCheckbox { FenceStyle.enabled = $0 }
+        enabled.title = L("Зоны на рабочем столе")
+        enabled.state = FenceStyle.enabled ? .on : .off
         let blur = ClosureCheckbox { FenceStyle.blur = $0 }
-        blur.title = L("Размытие обоев под оградой")
+        blur.title = L("Размытие обоев под зоной")
         blur.state = FenceStyle.blur ? .on : .off
         let snapping = ClosureCheckbox { FenceStyle.snapping = $0 }
-        snapping.title = L("Прилипание к краям экрана, другим оградам и сетке значков")
+        snapping.title = L("Прилипание к краям экрана, другим зонам и сетке значков")
         snapping.state = FenceStyle.snapping ? .on : .off
         let quickHide = ClosureCheckbox { FenceStyle.quickHide = $0 }
-        quickHide.title = L("Двойной щелчок по рабочему столу скрывает значки и ограды")
+        quickHide.title = L("Двойной щелчок по рабочему столу скрывает значки и зоны")
         quickHide.state = FenceStyle.quickHide ? .on : .off
 
         let form = SettingsForm.build([
+            .row(L("Зоны:"), enabled),
+            .row(nil, SettingsForm.hint(L("Выключено — все значки снова обычные, зоны и порталы скрыты; включите, и они вернутся."))),
+            .gap,
             .row(nil, preview),
             .gap,
             .row(L("Скругление углов:"), NSStackView(views: [radiusSlider, radiusValue])),
@@ -784,10 +790,8 @@ final class FenceSettingsView: NSView {
             .row(nil, SettingsForm.hint(L("⌘ при перетаскивании временно отключает прилипание."))),
             .row(nil, quickHide),
             .gap,
-            .row(L("Снимки рабочего стола:"), snapshotRow()),
-            .row(nil, SettingsForm.hint(L("Где стоят значки (в оградах и вне их), ограды и порталы — чтобы вернуть рабочий стол, если что-то сбилось."))),
-            .gap,
-            .row(nil, SettingsForm.hint(L("Ограды работают на рабочем столе WinEx (Настройки ▸ Finder). Создать — правый щелчок по рабочему столу; у каждой ограды можно выбрать свой цвет в её меню."))),
+
+            .row(nil, SettingsForm.hint(L("Зоны работают на рабочем столе WinEx (Настройки ▸ Finder). Создать — правый щелчок по рабочему столу; у каждой зоны можно выбрать свой цвет в её меню."))),
         ])
         form.translatesAutoresizingMaskIntoConstraints = false
         addSubview(form)
@@ -803,28 +807,6 @@ final class FenceSettingsView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
-
-    private func snapshotRow() -> NSView {
-        let popup = NSPopUpButton()
-        for interval in DesktopSnapshots.intervals {
-            popup.addItem(withTitle: interval.title)
-            popup.lastItem?.tag = interval.hours
-        }
-        popup.selectItem(withTag: DesktopSnapshots.intervalHours)
-        popup.target = self
-        popup.action = #selector(intervalChanged(_:))
-        let list = NSButton(title: L("Снимки…"), target: self, action: #selector(showSnapshots(_:)))
-        let row = NSStackView(views: [popup, list])
-        row.spacing = 8
-        return row
-    }
-
-    @objc private func intervalChanged(_ sender: NSPopUpButton) { DesktopSnapshots.intervalHours = sender.selectedTag() }
-
-    @objc private func showSnapshots(_ sender: Any?) {
-        guard let window else { return }
-        window.beginSheet(NSWindow(contentViewController: DesktopSnapshotsSheet()))
-    }
 
     private func sync() {
         radiusValue.stringValue = "\(Int(FenceStyle.cornerRadius)) pt"

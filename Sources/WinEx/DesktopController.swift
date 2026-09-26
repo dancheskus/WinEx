@@ -23,6 +23,47 @@ final class DesktopController {
         observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.updateScreens() }
     }
 
+    /// A picture of the whole desktop (every monitor as arranged, wallpaper, icons, zones) for a
+    /// snapshot, `width` points wide.
+    func previewImage(width: CGFloat = 960) -> NSImage? {
+        guard shown, !desktops.isEmpty else { return nil }
+        let frames = desktops.compactMap { $0.window.screen?.frame ?? $0.window.frame }
+        let union = frames.reduce(NSRect.null) { $0.union($1) }
+        guard union.width > 0, union.height > 0 else { return nil }
+        let scale = width / union.width
+        let size = NSSize(width: width, height: (union.height * scale).rounded())
+        return NSImage(size: size, flipped: false) { _ in
+            NSColor(white: 0.1, alpha: 1).setFill()
+            NSRect(origin: .zero, size: size).fill()
+            for desktop in self.desktops {
+                guard let screen = desktop.window.screen else { continue }
+                let frame = screen.frame
+                let target = NSRect(x: (frame.minX - union.minX) * scale, y: (frame.minY - union.minY) * scale,
+                                    width: frame.width * scale, height: frame.height * scale)
+                if let url = NSWorkspace.shared.desktopImageURL(for: screen), let wallpaper = NSImage(contentsOf: url) {
+                    // Aspect fill, like the wallpaper itself
+                    let ratio = max(target.width / max(wallpaper.size.width, 1), target.height / max(wallpaper.size.height, 1))
+                    let drawn = NSSize(width: wallpaper.size.width * ratio, height: wallpaper.size.height * ratio)
+                    NSGraphicsContext.saveGraphicsState()
+                    NSBezierPath(rect: target).addClip()
+                    wallpaper.draw(in: NSRect(x: target.midX - drawn.width / 2, y: target.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
+                    NSGraphicsContext.restoreGraphicsState()
+                }
+                // The icons and zones on a transparent bitmap (the view's own cache is opaque white)
+                let view = desktop.view
+                let pixels = NSSize(width: (target.width * 2).rounded(), height: (target.height * 2).rounded())
+                if let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(pixels.width), pixelsHigh: Int(pixels.height),
+                                              bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                              colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
+                    rep.size = view.bounds.size
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    rep.draw(in: target, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+                }
+            }
+            return true
+        }
+    }
+
     /// The stored arrangement changed underneath (a snapshot restored): every monitor re-reads it.
     func reloadLayout() {
         guard shown else { return }
@@ -250,6 +291,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
         observers.add(FenceStyle.didChange) { [weak self] in
             self?.fenceViews.values.forEach { $0.styleChanged() }
+            self?.relayout()  // switched on / off
         }
     }
 
@@ -922,7 +964,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameSelected(nil) }
         case (51, [.command]): trashSelection()
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
-        case (5, [.command]): if selection.count >= 1 { fenceFromSelection(nil) }                // ⌘G: into a fence
+        case (5, [.command]): if FenceStyle.enabled && selection.count >= 1 { fenceFromSelection(nil) }                // ⌘G: into a fence
         case (120, []) where Settings.windowsKeys: renameSelected(nil)                  // F2
         case (117, []) where Settings.windowsKeys: trashSelection()                     // Delete
         case (117, [.shift]) where Settings.windowsKeys:                                 // ⇧Delete
@@ -975,11 +1017,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             FileContextMenu.addItems(to: menu, for: selectedFileURLs, target: self, folderTabs: false,
                                      customizableFolder: selection.count == 1 && items[i].isFolder)
             // Fences: put the selection into a new one, or take it out of its fence
-            let fenceItems = [
-                NSMenuItem(title: L("Поместить в новую ограду"), action: #selector(fenceFromSelection(_:)), keyEquivalent: ""),
+            let fenceItems = !FenceStyle.enabled ? [] : [
+                NSMenuItem(title: L("Поместить в новую зону"), action: #selector(fenceFromSelection(_:)), keyEquivalent: ""),
             ] + (selection.contains { fenceOf[$0] != nil }
-                ? [NSMenuItem(title: L("Убрать из ограды"), action: #selector(removeSelectionFromFence(_:)), keyEquivalent: "")] : [])
-            if let properties = menu.items.lastIndex(where: { $0.action == #selector(FileMenuActions.showProperties(_:)) }) {
+                ? [NSMenuItem(title: L("Убрать из зоны"), action: #selector(removeSelectionFromFence(_:)), keyEquivalent: "")] : [])
+            if !fenceItems.isEmpty, let properties = menu.items.lastIndex(where: { $0.action == #selector(FileMenuActions.showProperties(_:)) }) {
                 var at = properties
                 for item in fenceItems { item.target = self; menu.insertItem(item, at: at); at += 1 }
                 menu.insertItem(.separator(), at: at)
@@ -1020,11 +1062,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             menu.addItem(.separator())
         }
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
-        if fence(at: point) == nil {
-            add(L("Создать ограду"), #selector(createFence(_:)))
+        if FenceStyle.enabled, fence(at: point) == nil {
+            add(L("Создать зону"), #selector(createFence(_:)))
             add(L("Создать портал папки…"), #selector(createPortal(_:)))
         }
-        menu.addItem(snapshotsMenuItem())
         menu.addItem(.separator())
         if let terminal = TerminalLauncher.menuItem(for: [desktopURL]) { menu.addItem(terminal) }
         OpenWithMenu.mainMenuItems(for: [desktopURL]).forEach(menu.addItem)
@@ -1277,13 +1318,56 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     /// The fences of this monitor (a fence of a monitor that isn't connected shows on the main one).
     private var myFences: [DesktopFence] {
+        guard FenceStyle.enabled else { return [] }
         let here = screens.first?.id
         return layout.fences.filter { connectedScreenIDs.contains($0.screenID) ? $0.screenID == here : isMain }
+    }
+
+    /// Fences of a monitor that isn't connected, shown here for now: where they go so they don't
+    /// cover this monitor's own fences (their stored place is kept for when the monitor returns).
+    private var displacedFrames: [String: NSRect] = [:]
+
+    private func placeDisplacedFences() {
+        displacedFrames = [:]
+        guard let area = screens.first?.iconArea else { return }
+        let here = screens.first?.id
+        let fences = myFences
+        var taken = fences.filter { $0.screenID == here }.map { visibleFrame(of: $0).insetBy(dx: -FenceSnap.gap, dy: -FenceSnap.gap) }
+        for fence in fences where fence.screenID != here {
+            var frame = visibleFrame(of: fence)
+            if taken.contains(where: { $0.intersects(frame) }) {
+                // The nearest free spot, scanning the monitor in steps
+                var best: NSRect?
+                var bestDistance = CGFloat.greatestFiniteMagnitude
+                let step: CGFloat = 24
+                var y = area.minY + FenceSnap.gap
+                while y + frame.height <= area.maxY - FenceSnap.gap {
+                    var x = area.minX + FenceSnap.gap
+                    while x + frame.width <= area.maxX - FenceSnap.gap {
+                        let candidate = NSRect(x: x, y: y, width: frame.width, height: frame.height)
+                        if !taken.contains(where: { $0.intersects(candidate) }) {
+                            let distance = hypot(candidate.minX - frame.minX, candidate.minY - frame.minY)
+                            if distance < bestDistance { bestDistance = distance; best = candidate }
+                        }
+                        x += step
+                    }
+                    y += step
+                }
+                // No room at all: cascaded, at least not exactly on top
+                frame = best ?? frame.offsetBy(dx: CGFloat(displacedFrames.count + 1) * 30, dy: CGFloat(displacedFrames.count + 1) * 30)
+                displacedFrames[fence.id] = frame
+            }
+            taken.append(frame.insetBy(dx: -FenceSnap.gap, dy: -FenceSnap.gap))
+        }
     }
 
     /// A fence's frame as shown: kept inside the monitor; just the title bar when rolled up.
     private func visibleFrame(of fence: DesktopFence) -> NSRect {
         guard let area = screens.first?.iconArea else { return fence.frame }
+        if var moved = displacedFrames[fence.id] {
+            if fence.collapsed { moved.size.height = DesktopFence.titleHeight }
+            return moved
+        }
         var frame = fence.frame
         frame.size.width = min(frame.width, area.width)
         frame.size.height = min(frame.height, area.height)
@@ -1317,6 +1401,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func layoutFences() {
         hiddenIcons = []
         fenceOf = [:]
+        placeDisplacedFences()
         for fence in myFences where !fence.isPortal {
             let grid = fenceGrid(fence)
             let members = fence.members.compactMap(index(named:))
@@ -1395,6 +1480,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         view.onFrame = { [weak self] frame, final in
             guard let self, var fence = self.layout.fences.first(where: { $0.id == id }) else { return }
             self.draggingFence = final ? nil : id
+            // Moved by hand: it belongs to this monitor now, where it was put
+            if self.displacedFrames[id] != nil, let here = self.screens.first?.id { fence.screenID = here; self.displacedFrames[id] = nil }
             if fence.collapsed {
                 fence.frame = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: fence.height)
             } else {
@@ -1437,9 +1524,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             items.append(item(L("Другая папка…"), #selector(changePortalFolder(_:)), "folder.badge.gearshape"))
             items.append(.separator())
         }
-        if !fence.isPortal { items.append(item(L("Переименовать ограду"), #selector(renameFence(_:)), "pencil")) }
+        if !fence.isPortal { items.append(item(L("Переименовать зону"), #selector(renameFence(_:)), "pencil")) }
         items += [
-            item(fence.collapsed ? L("Развернуть ограду") : L("Свернуть ограду"), #selector(toggleFenceMenu(_:)),
+            item(fence.collapsed ? L("Развернуть зону") : L("Свернуть зону"), #selector(toggleFenceMenu(_:)),
                  fence.collapsed ? "chevron.down" : "chevron.up"),
         ]
         // Its own colour, or the one from Settings
@@ -1462,11 +1549,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             }
             swatch.state = fence.color == hex ? .on : .off
         }
-        let colorItem = item(L("Цвет ограды"), #selector(noop(_:)), "paintpalette")
+        let colorItem = item(L("Цвет зоны"), #selector(noop(_:)), "paintpalette")
         colorItem.action = nil
         colorItem.submenu = colors
         items.append(colorItem)
-        items.append(item(L("Удалить ограду"), #selector(deleteFence(_:)), "rectangle.badge.xmark"))
+        items.append(item(L("Удалить зону"), #selector(deleteFence(_:)), "rectangle.badge.xmark"))
         return items
     }
 
@@ -1474,7 +1561,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func updateFenceHint() {
         let chosen = selection.filter { !hiddenIcons.contains($0) && items.indices.contains($0) }
         let sameFence = Set(chosen.map { fenceOf[$0] ?? "" }).count == 1 && chosen.allSatisfy { fenceOf[$0] != nil }
-        let show = chosen.count >= 2 && !sameFence && rubberBand == nil && !dragStarted && iconsVisible && renameField == nil
+        let show = FenceStyle.enabled && chosen.count >= 2 && !sameFence && rubberBand == nil && !dragStarted && iconsVisible && renameField == nil
         if show {
             if fenceHint.superview == nil {
                 fenceHint.onClick = { [weak self] in self?.fenceFromSelection(nil) }
@@ -1617,7 +1704,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         rect.origin.x = min(max(rect.minX, screen.iconArea.minX + FenceSnap.gap), screen.iconArea.maxX - rect.width - FenceSnap.gap)
         rect.origin.y = min(max(rect.minY, screen.iconArea.minY + FenceSnap.gap), screen.iconArea.maxY - rect.height - FenceSnap.gap)
         rect = FenceSnap.snap(rect, edges: [.minX, .maxX, .minY, .maxY], area: screen.iconArea, others: others).0
-        var fence = DesktopFence(title: L("Новая ограда"), screenID: screen.id, x: 0, y: 0, width: 0, height: 0)
+        var fence = DesktopFence(title: L("Новая зона"), screenID: screen.id, x: 0, y: 0, width: 0, height: 0)
         fence.frame = rect.integral
         layout.setFence(fence)
         if !members.isEmpty { addToFence(fence.id, names: members) } else { relayout() }
@@ -1626,41 +1713,6 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     @objc private func noop(_ sender: Any?) {}
-
-    /// «Снимки рабочего стола ▸»: take one, restore one of the latest, see them all.
-    private func snapshotsMenuItem() -> NSMenuItem {
-        let menu = NSMenu()
-        let take = menu.addItem(withTitle: L("Сделать снимок"), action: #selector(takeSnapshot(_:)), keyEquivalent: "")
-        take.target = self
-        take.image = NSImage(systemSymbolName: "camera", accessibilityDescription: nil)
-        let recent = DesktopSnapshots.all.prefix(5)
-        if !recent.isEmpty {
-            menu.addItem(.separator())
-            for snapshot in recent {
-                let item = menu.addItem(withTitle: L("Вернуть: %@", DesktopSnapshots.describe(snapshot)), action: #selector(restoreSnapshot(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = snapshot.url
-                item.image = NSImage(systemSymbolName: snapshot.automatic ? "clock.arrow.circlepath" : "star", accessibilityDescription: nil)
-            }
-        }
-        menu.addItem(.separator())
-        let all = menu.addItem(withTitle: L("Все снимки…"), action: #selector(showSnapshots(_:)), keyEquivalent: "")
-        all.target = self
-        all.image = NSImage(systemSymbolName: "list.bullet", accessibilityDescription: nil)
-        let item = NSMenuItem(title: L("Снимки рабочего стола"), action: nil, keyEquivalent: "")
-        item.image = NSImage(systemSymbolName: "camera.on.rectangle", accessibilityDescription: nil)
-        item.submenu = menu
-        return item
-    }
-
-    @objc private func takeSnapshot(_ sender: Any?) { DesktopSnapshots.take(automatic: false) }
-
-    @objc private func restoreSnapshot(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL, let snapshot = DesktopSnapshots.all.first(where: { $0.url == url }) else { return }
-        DesktopSnapshots.restore(snapshot)
-    }
-
-    @objc private func showSnapshots(_ sender: Any?) { AppDelegate.shared.showSettings(tab: .fences, snapshots: true) }
 
     @objc private func setFenceColor(_ sender: NSMenuItem) {
         guard let pair = sender.representedObject as? [String], pair.count == 2,

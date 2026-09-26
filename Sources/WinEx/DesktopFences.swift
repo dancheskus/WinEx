@@ -55,6 +55,13 @@ enum FenceStyle {
         set { defaults.set(newValue, forKey: "fenceBlur"); changed() }
     }
 
+    /// Zones on the desktop at all (off: every icon is a plain desktop icon again; the zones are
+    /// kept and come back when switched on).
+    static var enabled: Bool {
+        get { defaults.object(forKey: "fencesEnabled") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "fencesEnabled"); changed() }
+    }
+
     static var snapping: Bool {
         get { defaults.object(forKey: "fenceSnapping") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "fenceSnapping"); changed() }
@@ -602,7 +609,7 @@ final class FenceGuidesView: NSView {
 final class FenceHintButton: NSView {
     var onClick: (() -> Void)?
     private var hovering = false { didSet { needsDisplay = true } }
-    private let title = NSAttributedString(string: L("Поместить в ограду"), attributes: [
+    private let title = NSAttributedString(string: L("Поместить в зону"), attributes: [
         .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white,
     ])
     private let shortcut = NSAttributedString(string: "⌘G", attributes: [
@@ -623,7 +630,7 @@ final class FenceHintButton: NSView {
         blur.alphaValue = 0.7
         addSubview(blur)
         setFrameSize(intrinsicContentSize)
-        toolTip = L("Объединить выделенные значки в ограду")
+        toolTip = L("Объединить выделенные значки в зону")
     }
 
     required init?(coder: NSCoder) { fatalError() }

@@ -792,6 +792,11 @@ enum Scenarios {
             (2.0, "back up", {
                 guard let view = mainView(), let fence = view.layout.fences.last, let portal = view.debugFenceView(fence.id)?.portalView else { return }
                 s.note("  back in \(portal.currentFolder.lastPathComponent), can go up: \(portal.canGoUp)  expect Портал, false")
+                if let image = controller.previewImage(), let tiff = image.tiffRepresentation,
+                   let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                    try? png.write(to: s.output.appendingPathComponent("preview.png"))
+                    s.note("  preview \(Int(image.size.width))×\(Int(image.size.height))")
+                }
                 // Snapshots: take, change, restore
                 DesktopSnapshots.take(automatic: false)
                 let before = view.layout.fences.count
@@ -799,7 +804,25 @@ enum Scenarios {
                 if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot) }
                 controller.reloadLayout()  // (the app's own desktop is reloaded by the restore; this one is the scenario's)
                 s.note("  snapshots: \(DesktopSnapshots.all.count), fences after restore: \(mainView()?.layout.fences.count ?? -1)  expect 2, \(before)")
+                // One with a picture, then Settings ▸ Снимки shows them
+                DesktopSnapshots.take(automatic: false, preview: controller.previewImage())
+                controller.reloadLayout()
+                AppDelegate.shared.showSettings(tab: .snapshots)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    if let window = NSApp.windows.first(where: { $0.contentViewController is NSTabViewController }) {
+                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
+                    }
+                }
             }),
+            (2.5, "settings: zones", {
+                AppDelegate.shared.showSettings(tab: .fences)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    if let window = NSApp.windows.first(where: { $0.contentViewController is NSTabViewController }) {
+                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-4"), atomically: true, encoding: .utf8)
+                    }
+                }
+            }),
+            (2.0, "close settings", { NSApp.windows.first(where: { $0.contentViewController is NSTabViewController })?.close() }),
             (1.0, "quick-hide", {
                 guard let view = mainView() else { return }
                 try? FileManager.default.removeItem(at: DesktopSnapshots.folder)

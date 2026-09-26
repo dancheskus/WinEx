@@ -11,6 +11,10 @@ enum DesktopSnapshots {
         let automatic: Bool
         let fences: Int
         let icons: Int
+        /// What the desktop looked like (every monitor, wallpaper, icons, zones).
+        let preview: NSImage?
+
+        static func == (a: Snapshot, b: Snapshot) -> Bool { a.url == b.url }
     }
 
     static let didChange = Notification.Name("WinExDesktopSnapshotsChanged")
@@ -57,7 +61,8 @@ enum DesktopSnapshots {
               let file = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let date = file["date"] as? Date else { return nil }
         return Snapshot(url: url, date: date, automatic: file["automatic"] as? Bool ?? false,
-                        fences: file["fences"] as? Int ?? 0, icons: file["icons"] as? Int ?? 0)
+                        fences: file["fences"] as? Int ?? 0, icons: file["icons"] as? Int ?? 0,
+                        preview: (file["preview"] as? Data).flatMap(NSImage.init(data:)))
     }
 
     /// The desktop's arrangement as stored by WinEx now.
@@ -65,7 +70,7 @@ enum DesktopSnapshots {
 
     /// Saves the current arrangement. Automatic ones are skipped when nothing changed since the last.
     @discardableResult
-    static func take(automatic: Bool) -> Snapshot? {
+    static func take(automatic: Bool, preview: NSImage? = nil) -> Snapshot? {
         guard let layout = currentLayout else { return nil }
         if automatic, let last = all.first, let data = try? Data(contentsOf: last.url),
            let file = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
@@ -74,10 +79,15 @@ enum DesktopSnapshots {
             return nil
         }
         let counts = (try? JSONSerialization.jsonObject(with: layout) as? [String: Any]) ?? [:]
-        let file: [String: Any] = [
+        var file: [String: Any] = [
             "date": Date(), "automatic": automatic, "layout": layout, "version": Updater.shared.currentVersion,
             "fences": (counts["fences"] as? [Any])?.count ?? 0, "icons": (counts["positions"] as? [String: Any])?.count ?? 0,
         ]
+        // The picture: a JPEG of the desktop as it is now
+        if let image = preview ?? AppDelegate.shared.desktopPreview(), let tiff = image.tiffRepresentation,
+           let jpeg = NSBitmapImageRep(data: tiff)?.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) {
+            file["preview"] = jpeg
+        }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             let formatter = DateFormatter()
@@ -149,109 +159,157 @@ enum DesktopSnapshots {
     }
 }
 
-/// Settings ▸ Ограды ▸ «Снимки…»: the list of desktop snapshots — restore, delete, take one now.
-final class DesktopSnapshotsSheet: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
-    private let table = NSTableView()
-    private let restoreButton = NSButton(title: L("Восстановить"), target: nil, action: nil)
-    private let deleteButton = NSButton(title: L("Удалить"), target: nil, action: nil)
-    private var snapshots: [DesktopSnapshots.Snapshot] = []
+/// Settings ▸ Снимки: automatic snapshots (how often), take one now, and every snapshot as a card
+/// with its picture — restore or delete it.
+final class SnapshotsSettingsView: NSView {
+    private let cards = NSStackView()
+    private let empty = SettingsForm.wideHint(L("Снимков пока нет. Они появятся автоматически или по кнопке «Сделать снимок»."))
     private let observers = Observers()
 
-    override func loadView() {
-        for (id, title, width) in [("date", L("Когда"), 220.0), ("kind", L("Как"), 120.0), ("contents", L("Что"), 170.0)] {
-            let column = NSTableColumn(identifier: .init(id))
-            column.title = title
-            column.width = width
-            table.addTableColumn(column)
+    init() {
+        super.init(frame: .zero)
+        let interval = NSPopUpButton()
+        for option in DesktopSnapshots.intervals {
+            interval.addItem(withTitle: option.title)
+            interval.lastItem?.tag = option.hours
         }
-        table.rowHeight = 24
-        table.usesAlternatingRowBackgroundColors = true
-        table.dataSource = self
-        table.delegate = self
-        table.doubleAction = #selector(restore(_:))
-        table.target = self
-        let scroll = NSScrollView()
-        scroll.documentView = table
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        let heading = NSTextField(labelWithString: L("Снимки рабочего стола"))
-        heading.font = .systemFont(ofSize: 15, weight: .semibold)
-        let hint = SettingsForm.wideHint(L("Где стоят значки (в оградах и вне их), ограды и порталы. «Восстановить» возвращает рабочий стол к снимку; текущая расстановка перед этим сохраняется отдельным снимком."))
+        interval.selectItem(withTag: DesktopSnapshots.intervalHours)
+        interval.target = self
+        interval.action = #selector(intervalChanged(_:))
         let take = NSButton(title: L("Сделать снимок"), target: self, action: #selector(takeNow(_:)))
+        take.bezelColor = .controlAccentColor
         let reveal = NSButton(title: L("Показать файлы"), target: self, action: #selector(revealFolder(_:)))
-        let done = NSButton(title: L("Готово"), target: self, action: #selector(close(_:)))
-        done.keyEquivalent = "\r"
-        restoreButton.target = self
-        restoreButton.action = #selector(restore(_:))
-        deleteButton.target = self
-        deleteButton.action = #selector(remove(_:))
+        let label = NSTextField(labelWithString: L("Автоматически:"))
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let buttons = NSStackView(views: [take, reveal, spacer, deleteButton, restoreButton, done])
-        buttons.spacing = 8
-        let stack = NSStackView(views: [heading, hint, scroll, buttons])
+        let header = NSStackView(views: [label, interval, spacer, reveal, take])
+        header.spacing = 8
+        let hint = SettingsForm.wideHint(L("Снимок — вся расстановка рабочего стола: значки в зонах и вне их, зоны и порталы, на всех мониторах. «Восстановить» возвращает её; текущая перед этим сохраняется отдельным снимком. Хранятся 30 последних автоматических снимков, сделанные вручную — пока их не удалить."))
+
+        cards.orientation = .vertical
+        cards.alignment = .leading
+        cards.spacing = 12
+        let document = FlippedView()
+        cards.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(cards)
+        let scroll = NSScrollView()
+        scroll.documentView = document
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        document.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            cards.topAnchor.constraint(equalTo: document.topAnchor),
+            cards.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            cards.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            cards.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+        ])
+
+        let stack = NSStackView(views: [header, hint, empty, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
+        stack.spacing = 12
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            scroll.heightAnchor.constraint(equalToConstant: 260),
-            scroll.widthAnchor.constraint(equalToConstant: 540),
-            buttons.widthAnchor.constraint(equalTo: scroll.widthAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 20),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
+            widthAnchor.constraint(equalToConstant: SettingsForm.width),
+            header.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            scroll.heightAnchor.constraint(equalToConstant: 470),
         ])
-        view = stack
         observers.add(DesktopSnapshots.didChange) { [weak self] in self?.reload() }
         reload()
     }
 
+    required init?(coder: NSCoder) { fatalError() }
+
     private func reload() {
-        snapshots = DesktopSnapshots.all
-        table.reloadData()
-        updateButtons()
-    }
-
-    private func updateButtons() {
-        restoreButton.isEnabled = snapshots.indices.contains(table.selectedRow)
-        deleteButton.isEnabled = restoreButton.isEnabled
-    }
-
-    func numberOfRows(in tableView: NSTableView) -> Int { snapshots.count }
-    func tableViewSelectionDidChange(_ notification: Notification) { updateButtons() }
-
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let snapshot = snapshots[row]
-        let text: String
-        switch tableColumn?.identifier.rawValue {
-        case "date": text = DesktopSnapshots.describe(snapshot)
-        case "kind": text = snapshot.automatic ? L("Автоматически") : L("Вручную")
-        default:
-            text = "\(snapshot.icons) \(plural(snapshot.icons, L("значок"), L("значка"), L("значков"))), \(snapshot.fences) \(plural(snapshot.fences, L("ограда"), L("ограды"), L("оград")))"
+        cards.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        let all = DesktopSnapshots.all
+        empty.isHidden = !all.isEmpty
+        for snapshot in all {
+            let card = SnapshotCard(snapshot)
+            cards.addArrangedSubview(card)
+            card.widthAnchor.constraint(equalTo: cards.widthAnchor).isActive = true
         }
-        let label = NSTextField(labelWithString: text)
-        label.lineBreakMode = .byTruncatingTail
-        if tableColumn?.identifier.rawValue != "date" { label.textColor = .secondaryLabelColor }
-        return label
     }
 
+    @objc private func intervalChanged(_ sender: NSPopUpButton) { DesktopSnapshots.intervalHours = sender.selectedTag() }
     @objc private func takeNow(_ sender: Any?) { DesktopSnapshots.take(automatic: false) }
-
-    @objc private func restore(_ sender: Any?) {
-        guard snapshots.indices.contains(table.selectedRow) else { return }
-        DesktopSnapshots.restore(snapshots[table.selectedRow])
-    }
-
-    @objc private func remove(_ sender: Any?) {
-        guard snapshots.indices.contains(table.selectedRow) else { return }
-        DesktopSnapshots.delete(snapshots[table.selectedRow])
-    }
 
     @objc private func revealFolder(_ sender: Any?) {
         try? FileManager.default.createDirectory(at: DesktopSnapshots.folder, withIntermediateDirectories: true)
         AppDelegate.shared.openWindow(at: DesktopSnapshots.folder)
     }
+}
 
-    @objc private func close(_ sender: Any?) {
-        guard let window = view.window, let parent = window.sheetParent else { return view.window?.close() ?? () }
-        parent.endSheet(window)
+/// One snapshot: its picture, when, how, what — and «Восстановить» / «Удалить».
+private final class SnapshotCard: NSView {
+    private let snapshot: DesktopSnapshots.Snapshot
+
+    init(_ snapshot: DesktopSnapshots.Snapshot) {
+        self.snapshot = snapshot
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        let picture = NSImageView()
+        picture.wantsLayer = true
+        if let preview = snapshot.preview {
+            picture.image = preview
+            picture.imageScaling = .scaleProportionallyUpOrDown
+        } else {
+            // Older snapshots have no picture: a small symbol on a dim plate
+            picture.image = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 36, weight: .light))
+            picture.imageScaling = .scaleNone
+            picture.contentTintColor = .tertiaryLabelColor
+            picture.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.08).cgColor
+        }
+        picture.layer?.cornerRadius = 8
+        picture.layer?.masksToBounds = true
+        let date = NSTextField(labelWithString: DesktopSnapshots.describe(snapshot))
+        date.font = .systemFont(ofSize: 14, weight: .semibold)
+        let kind = NSTextField(labelWithString: snapshot.automatic ? L("Автоматически") : L("Вручную"))
+        kind.textColor = .secondaryLabelColor
+        let contents = NSTextField(labelWithString:
+            "\(snapshot.icons) \(plural(snapshot.icons, L("значок"), L("значка"), L("значков"))), \(snapshot.fences) \(plural(snapshot.fences, L("зона"), L("зоны"), L("зон")))")
+        contents.textColor = .secondaryLabelColor
+        let restore = NSButton(title: L("Восстановить"), target: self, action: #selector(restore(_:)))
+        let delete = NSButton(title: L("Удалить"), target: self, action: #selector(remove(_:)))
+        let buttons = NSStackView(views: [restore, delete])
+        buttons.spacing = 8
+        let info = NSStackView(views: [date, kind, contents, buttons])
+        info.orientation = .vertical
+        info.alignment = .leading
+        info.spacing = 6
+        info.setCustomSpacing(14, after: contents)
+        let row = NSStackView(views: [picture, info])
+        row.spacing = 16
+        row.alignment = .top
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        let ratio = snapshot.preview.map { $0.size.height / max($0.size.width, 1) } ?? 0.56
+        NSLayoutConstraint.activate([
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            picture.widthAnchor.constraint(equalToConstant: 380),
+            picture.heightAnchor.constraint(equalToConstant: min(380 * ratio, 260)),
+        ])
+        toolTip = snapshot.url.lastPathComponent
     }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() { layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor }
+
+    @objc private func restore(_ sender: Any?) { DesktopSnapshots.restore(snapshot) }
+    @objc private func remove(_ sender: Any?) { DesktopSnapshots.delete(snapshot) }
 }
