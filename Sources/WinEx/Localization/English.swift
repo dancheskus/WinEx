@@ -684,5 +684,12 @@ enum English {
         "Значки, зоны и порталы встанут так, как было %@. Если сперва сохранить текущую расстановку снимком, к ней можно будет вернуться.": "Icons, zones and portals will go back to how they were on %@. Save the current arrangement as a snapshot first to be able to come back to it.",
         "Да, сохранить и восстановить": "Yes, Save and Restore",
         "Нет, просто восстановить": "No, Just Restore",
+        "Выключите — значки снова лежат сами по себе": "Turn off and the icons are loose again",
+        "Значки на рабочем столе можно собрать в зоны, а папку — показать прямо на нём порталом. Создать — правый щелчок по рабочему столу.": "Gather desktop icons into zones, or show a folder right on the desktop as a portal. To create one, right-click the desktop.",
+        "Зона": "Zone",
+        "Портал папки": "Folder portal",
+        "Прятать значки двойным щелчком": "Hide icons with a double-click",
+        "Свёрнутая": "Rolled up",
+        "Снимки расстановки рабочего стола:": "Desktop arrangement snapshots:",
     ]
 }

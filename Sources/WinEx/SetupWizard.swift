@@ -44,7 +44,13 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
 
     // MARK: Steps
 
-    private enum Step: Int, CaseIterable { case welcome, language, access, finder, keys, look, startup, done }
+    /// (Raw values are stored to resume after a restart: new steps go at the end.)
+    private enum Step: Int, CaseIterable { case welcome, language, access, finder, keys, look, startup, done, zones }
+
+    /// The steps in order; zones only when WinEx draws the desktop.
+    private var order: [Step] {
+        [.welcome, .language, .access, .finder] + (Settings.replaceFinder ? [.zones] : []) + [.keys, .look, .startup, .done]
+    }
 
     private var step: Step
     private let stage = NSView()
@@ -66,6 +72,9 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
     private var openAtLogin = LoginItem.isEnabled
     private var checkUpdates = Updater.automaticChecks
     private var startFolder = Settings.startFolder
+    private var zonesOn = FenceStyle.enabled
+    private var quickHide = FenceStyle.quickHide
+    private var snapshotHours = DesktopSnapshots.intervalHours
     private var accessStatus: NSTextField?
     private var accessIcon: NSImageView?
 
@@ -145,7 +154,8 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
     /// Slides the new page in from the side it comes from (1: from the right), the old one out.
     private func show(_ newStep: Step, direction: CGFloat) {
         step = newStep
-        dots.current = newStep.rawValue
+        dots.count = order.count
+        dots.current = order.firstIndex(of: newStep) ?? 0
         backButton.isHidden = newStep == .welcome || newStep == .done
         skipButton.isHidden = newStep == .welcome || newStep == .done
         nextButton.title = newStep == .welcome ? L("Начать") : newStep == .done ? L("Открыть WinEx") : L("Далее")
@@ -195,18 +205,25 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
             AppDelegate.shared.restartKeepingWindows(settingsOpen: false)
             return
         }
-        guard let next = Step(rawValue: step.rawValue + 1) else { return finish() }
+        guard let next = neighbour(1) else { return finish() }
         show(next, direction: 1)
     }
 
     @objc private func skip(_ sender: Any?) {
-        guard let next = Step(rawValue: step.rawValue + 1) else { return finish() }
+        guard let next = neighbour(1) else { return finish() }
         show(next, direction: 1)
     }
 
     @objc private func goBack(_ sender: Any?) {
-        guard let previous = Step(rawValue: step.rawValue - 1) else { return }
+        guard let previous = neighbour(-1) else { return }
         show(previous, direction: -1)
+    }
+
+    /// The step after (1) or before (-1) this one.
+    private func neighbour(_ offset: Int) -> Step? {
+        let steps = order
+        guard let index = steps.firstIndex(of: step), steps.indices.contains(index + offset) else { return nil }
+        return steps[index + offset]
     }
 
     private func finish() {
@@ -245,6 +262,10 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
             Updater.automaticChecks = checkUpdates
             Updater.shared.startAutomaticChecks()
             Settings.startFolder = startFolder
+        case .zones:
+            FenceStyle.enabled = zonesOn
+            FenceStyle.quickHide = quickHide
+            DesktopSnapshots.intervalHours = snapshotHours
         case .welcome, .access, .done:
             break
         }
@@ -348,6 +369,23 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
                     self?.showHidden = $0
                     sketch?.showHidden = $0
                 },
+            ])
+        case .zones:
+            let sketch = WizardZonesSketch(zonesOn: zonesOn)
+            let intervals = DesktopSnapshots.intervals
+            let snapshotRow = WizardPage.popupRow(L("Снимки расстановки рабочего стола:"), intervals.map(\.title),
+                                                  selected: intervals.firstIndex { $0.hours == snapshotHours } ?? 0) { [weak self] in
+                self?.snapshotHours = intervals[$0].hours
+            }
+            return WizardPage(symbol: "rectangle.dashed", colors: [.systemTeal, .systemIndigo], title: L("Зоны"),
+                              text: L("Значки на рабочем столе можно собрать в зоны, а папку — показать прямо на нём порталом. Создать — правый щелчок по рабочему столу."),
+                              hero: sketch, content: [
+                WizardToggle(L("Зоны на рабочем столе"), L("Выключите — значки снова лежат сами по себе"), on: zonesOn) { [weak self, weak sketch] in
+                    self?.zonesOn = $0
+                    sketch?.zonesOn = $0
+                },
+                WizardToggle(L("Прятать значки двойным щелчком"), L("Двойной щелчок по рабочему столу скрывает значки и зоны"), on: quickHide) { [weak self] in self?.quickHide = $0 },
+                snapshotRow,
             ])
         case .startup:
             let folders = [("home", L("Домашняя папка")), ("desktop", L("Рабочий стол")), ("downloads", L("Загрузки")), ("documents", L("Документы"))]

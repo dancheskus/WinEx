@@ -804,6 +804,10 @@ enum Scenarios {
     /// Every step of the setup assistant, photographed (scripts/capture-window.sh wizard 8).
     static func wizard(_ s: Scenario) {
         AppDelegate.shared.windowControllers.forEach { $0.window?.close() }
+        // With WinEx's desktop (in the scenario's own settings) the zones step is there too
+        let zones = ProcessInfo.processInfo.environment["WINEX_WIZARD_ZONES"] != nil
+        if zones { Settings.replaceFinder = true }
+        let last = zones ? 8 : 7
         SetupWizard.show()
         func window() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.windowController is SetupWizard } }
         @MainActor func step(_ index: Int) {
@@ -818,6 +822,7 @@ enum Scenarios {
                 content.hitTest(content.convert(NSPoint(x: label.bounds.midX, y: label.bounds.midY), from: label))?.mouseDown(with: event)
             }
             switch index {
+            case 4 where zones && ProcessInfo.processInfo.environment["WINEX_WIZARD_DEFAULTS"] == nil: click(L("Зоны на рабочем столе"))
             case 3 where ProcessInfo.processInfo.environment["WINEX_WIZARD_DEFAULTS"] == nil: click(L("Окна и рабочий стол"))
             case 4: click(L("Как в Windows"))
             case 5:
@@ -836,7 +841,7 @@ enum Scenarios {
             }
             @MainActor func wait(_ tries: Int) {
                 if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-\(index)").path) || tries == 0 {
-                    guard index < 7 else { window.close(); return s.run([]) }
+                    guard index < last else { window.close(); return s.run([]) }
                     // "Пропустить" (so nothing is applied to the scenario's settings… or the Mac)
                     let skip = s.findAll(NSButton.self, in: window.contentView ?? NSView()).first { $0.title == L(index == 0 ? "Начать" : "Пропустить") }
                     if index == 0 { skip?.performClick(nil) } else { skip?.performClick(nil) }

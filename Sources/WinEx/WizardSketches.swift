@@ -377,3 +377,75 @@ final class WizardDesktopSketch: WizardSketch {
         callout(L("Зоны WinEx"), from: NSPoint(x: 110, y: 164), to: NSPoint(x: 120, y: 96))
     }
 }
+
+/// Zones on WinEx's desktop: a zone of icons and a folder portal (or, switched off, the same icons
+/// loose on the wallpaper).
+final class WizardZonesSketch: WizardSketch {
+    var zonesOn: Bool { didSet { changed() } }
+
+    init(zonesOn: Bool) {
+        self.zonesOn = zonesOn
+        super.init(size: NSSize(width: 560, height: 180))
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func zone(_ rect: NSRect, title: String, portal: Bool = false) {
+        let path = NSBezierPath(roundedRect: rect, xRadius: 9, yRadius: 9)
+        NSColor.black.withAlphaComponent(0.3).setFill()
+        path.fill()
+        NSColor.white.withAlphaComponent(0.25).setStroke()
+        path.stroke()
+        NSColor.black.withAlphaComponent(0.18).setFill()
+        NSBezierPath(roundedRect: NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: 20), xRadius: 9, yRadius: 9).fill()
+        symbol("chevron.down", in: NSRect(x: rect.minX + 8, y: rect.minY + 6, width: 8, height: 8), color: .white.withAlphaComponent(0.7))
+        text(title, at: NSPoint(x: rect.midX, y: rect.minY + 4), size: 9, weight: .semibold, color: .white, width: rect.width - 40, centred: true)
+        if portal { symbol("arrow.up.right.square", in: NSRect(x: rect.maxX - 18, y: rect.minY + 5, width: 11, height: 10), color: .white.withAlphaComponent(0.8)) }
+    }
+
+    private func icon(_ image: NSImage, _ name: String, at point: NSPoint) {
+        image.draw(in: NSRect(x: point.x - 14, y: point.y, width: 28, height: 28))
+        text(name, at: NSPoint(x: point.x, y: point.y + 29), size: 7.5, weight: .medium, color: .white, width: 62, centred: true)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let screen = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let shape = NSBezierPath(roundedRect: screen, xRadius: 10, yRadius: 10)
+        NSGraphicsContext.saveGraphicsState()
+        shape.addClip()
+        NSGradient(colors: [NSColor(srgbRed: 0.16, green: 0.25, blue: 0.48, alpha: 1), NSColor(srgbRed: 0.55, green: 0.42, blue: 0.52, alpha: 1)])?
+            .draw(in: screen, angle: -70)
+        NSColor.black.withAlphaComponent(0.25).setFill()
+        NSRect(x: screen.minX, y: screen.minY, width: screen.width, height: 14).fill()
+        symbol("apple.logo", in: NSRect(x: 8, y: 3, width: 10, height: 8), color: .white)
+        text("WinEx", at: NSPoint(x: 24, y: 1.5), size: 8, weight: .bold, color: .white)
+        let work: [(NSImage, String)] = [(Self.icon(.pdf), L("Отчёт.pdf")), (Self.icon(.plainText), L("План.txt")), (Self.folder, L("Проекты"))]
+        let downloads: [(NSImage, String)] = [(Self.icon(.zip), "archive.zip"), (Self.icon(.png), "photo.png"), (Self.icon(.pdf), "invoice.pdf")]
+        if zonesOn {
+            let workZone = NSRect(x: 24, y: 28, width: 190, height: 92)
+            zone(workZone, title: L("Работа"))
+            for (n, item) in work.enumerated() { icon(item.0, item.1, at: NSPoint(x: workZone.minX + 34 + CGFloat(n) * 61, y: workZone.minY + 28)) }
+            let portal = NSRect(x: 250, y: 28, width: 190, height: 92)
+            zone(portal, title: L("Загрузки"), portal: true)
+            for (n, item) in downloads.enumerated() { icon(item.0, item.1, at: NSPoint(x: portal.minX + 34 + CGFloat(n) * 61, y: portal.minY + 28)) }
+            // A rolled-up one: just its title
+            zone(NSRect(x: 24, y: 136, width: 190, height: 20), title: L("Архив"))
+        } else {
+            // The same icons, loose
+            for (n, item) in (work + downloads).enumerated() {
+                icon(item.0, item.1, at: NSPoint(x: 60 + CGFloat(n % 3) * 76, y: 28 + CGFloat(n / 3) * 52))
+            }
+        }
+        for (n, item) in [(Self.folder, L("Фото"))].enumerated() {
+            icon(item.0, item.1, at: NSPoint(x: screen.maxX - 34, y: 26 + CGFloat(n) * 46))
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.separatorColor.setStroke()
+        shape.stroke()
+        if zonesOn {
+            callout(L("Зона"), from: NSPoint(x: 232, y: 146), to: NSPoint(x: 200, y: 120))
+            callout(L("Портал папки"), from: NSPoint(x: 458, y: 140), to: NSPoint(x: 430, y: 120))
+            callout(L("Свёрнутая"), from: NSPoint(x: 232, y: 168), to: NSPoint(x: 214, y: 146))
+        }
+    }
+}
