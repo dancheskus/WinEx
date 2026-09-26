@@ -194,30 +194,18 @@ final class FenceView: NSView, NSTextFieldDelegate {
         addCursorRect(NSRect(x: w - c, y: 0, width: c, height: c), cursor: .frameResize(position: .topRight, directions: .all))
     }
 
-    private var pendingRename: DispatchWorkItem?
-
     override func mouseDown(with event: NSEvent) {
         // A title being edited (here or on another fence) is kept when the click lands elsewhere
         if window?.firstResponder is NSTextView { window?.makeFirstResponder(superview) }
         let start = convert(event.locationInWindow, from: nil)
         let grabbed = edges(at: start)
-        pendingRename?.cancel()
-        pendingRename = nil
         if grabbed.isEmpty, chevronRect.contains(start) {
             onToggleCollapsed?()
             return
         }
-        if grabbed.isEmpty, event.clickCount == 2 {
-            onToggleCollapsed?()
-            return
-        }
         let moved = track(from: event, edges: grabbed.isEmpty ? [.minX, .maxX, .minY, .maxY] : grabbed)
-        // A plain click on the title: rename it (after the double-click time, which rolls up)
-        if !moved, grabbed.isEmpty, event.clickCount == 1 {
-            let rename = DispatchWorkItem { [weak self] in self?.beginRename() }
-            pendingRename = rename
-            DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: rename)
-        }
+        // A click on the title (not a drag): rename it at once. Rolling up is the chevron's job.
+        if !moved, grabbed.isEmpty { beginRename() }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { onMenu?(event) }
