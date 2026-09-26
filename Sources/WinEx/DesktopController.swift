@@ -1712,7 +1712,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
               var fence = layout.fences.first(where: { $0.id == pair[0] }) else { return }
         fence.color = pair[1].isEmpty ? nil : pair[1]
         layout.setFence(fence)
-        needsDisplay = true
+        syncFenceViews()
     }
 
     /// A portal: a fence showing a folder (chosen now) on the desktop.
@@ -1810,6 +1810,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    /// As if the colour was picked in the fence's menu.
+    func debugSetColor(_ id: String, _ hex: String) {
+        let item = NSMenuItem()
+        item.representedObject = [id, hex]
+        setFenceColor(item)
+    }
     /// Stores `name` at `point` (as if dragged there before the fence existed) and lays out again.
     func debugPlace(_ name: String, at point: CGPoint) { setPlacement(point, forName: name); relayout() }
     func debugMakePortal(_ folder: URL, at point: NSPoint) -> String? {

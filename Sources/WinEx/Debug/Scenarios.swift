@@ -753,6 +753,10 @@ enum Scenarios {
                 FenceStyle.cornerRadius = 0
                 FenceStyle.color = "#8B2E2E"
                 FenceStyle.opacity = 0.8
+                if let view = mainView(), let fence = view.layout.fences.last {
+                    view.debugSetColor(fence.id, "#1C3D6E")
+                    s.note("  own colour on screen: \(view.debugFenceView(fence.id)?.fence.color ?? "-")  expect #1C3D6E")
+                }
                 if let window = mainView()?.window {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)

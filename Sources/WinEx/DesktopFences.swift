@@ -200,10 +200,10 @@ enum FenceSnap {
 /// on top of it. Its title bar and edges take the mouse; clicks inside go to the desktop.
 @MainActor
 final class FenceView: NSView, NSTextFieldDelegate {
-    var fence: DesktopFence { didSet { if fence != oldValue { needsDisplay = true; updateBlur(); window?.invalidateCursorRects(for: self) } } }
-    var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
+    var fence: DesktopFence { didSet { if fence != oldValue { redraw(); updateBlur(); window?.invalidateCursorRects(for: self) } } }
+    var isDropTarget = false { didSet { if isDropTarget != oldValue { redraw() } } }
     /// Hidden icons below the visible rows (shown as "↓ N").
-    var overflow = 0 { didSet { if overflow != oldValue { needsDisplay = true } } }
+    var overflow = 0 { didSet { if overflow != oldValue { redraw() } } }
 
     /// Live frame while moving / resizing (with the snapping guides), then the final one.
     var onFrame: ((NSRect, _ final: Bool) -> Void)?
@@ -249,6 +249,13 @@ final class FenceView: NSView, NSTextFieldDelegate {
         didSet { if needsDisplay { overlay.needsDisplay = true } }
     }
 
+    /// Everything is drawn by the overlay, and the desktop window doesn't redraw it by itself:
+    /// a change shows at once.
+    func redraw() {
+        overlay.needsDisplay = true
+        overlay.displayIfNeeded()
+    }
+
     private func updateBlur() {
         blur.isHidden = !FenceStyle.blur
         blur.alphaValue = 0.55
@@ -258,9 +265,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
     /// Settings changed: redraw with the new look.
     func styleChanged() {
         updateBlur()
-        // Right away: the desktop window doesn't redraw the overlay by itself
-        overlay.needsDisplay = true
-        overlay.displayIfNeeded()
+        redraw()
     }
 
     private var titleRect: NSRect { NSRect(x: 0, y: 0, width: bounds.width, height: DesktopFence.titleHeight) }
@@ -323,9 +328,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
             let portal = PortalView(folder: URL(fileURLWithPath: path), cell: cell, iconSide: iconSide)
             portal.onNavigate = { [weak self] in
                 guard let self else { return }
-                // The title (folder name, back button) is drawn by the overlay: redraw it now
-                self.overlay.needsDisplay = true
-                self.overlay.displayIfNeeded()
+                self.redraw()  // the title: folder name, back button
                 self.window?.invalidateCursorRects(for: self)
             }
             addSubview(portal)
@@ -467,7 +470,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
         window?.makeKey()
         window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
-        needsDisplay = true
+        redraw()
     }
 
     /// Return, or a click anywhere else: the new title is kept. Esc: the old one stays.
@@ -477,7 +480,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
         let title = field.stringValue.trimmingCharacters(in: .whitespaces)
         field.removeFromSuperview()
         renameField = nil
-        needsDisplay = true
+        redraw()
         if !cancelled, !title.isEmpty, title != fence.title { onRename?(title) }
     }
 
