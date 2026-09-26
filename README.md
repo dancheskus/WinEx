@@ -197,7 +197,7 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
 - A global shortcut, like Win+E: opens a WinEx window from any app (⌥⌘E by default; another one or
   off in Settings). Registered with the system — no keyboard monitoring.
 - Always: ⌃Tab / ⌃⇧Tab and ⌃1…9 switch tabs; dragging with ⌘ moves (even to another disk), with
-  ⌥ copies, with ⌘⌥ makes an alias. With “Windows keys” also F3, F4 / ⌥D, F5, F11, Delete,
+  ⌥ copies, with ⌘⌥ makes an alias. With “Windows keys” also F3, F4 / ⌥D, F5, Delete,
   ⇧Delete, ⌥← ⌥→ ⌥↑, ⇧F10 (arrows and Delete don't get in the way of text fields).
 - Search (⌘F or the field in the toolbar): in the current folder and its subfolders (or the whole
   Mac — the field's menu), in names (every word, case-insensitive) and in file contents. Results
@@ -209,7 +209,8 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
   are walked by name once, at low priority and with a limit (⌘R — again).
 - Copy, move, Trash and delete work as in Windows: if the job takes longer than half a second, a
   progress window shows the percentage, pause, cancel, a speed graph, time and items left (“Fewer /
-  More Details”). When names collide — “Replace or Skip Files”: replace (the old files go to the
+  More Details”). Several at once share one window (“3 operations in progress”), each with its own
+  pause and cancel. When names collide — “Replace or Skip Files”: replace (the old files go to the
   Trash), skip, or decide for each file (replace / skip / keep both). On APFS copies are clones
   (instant, no extra space).
 - Folders are read in the background: the window doesn't freeze even with tens of thousands of
@@ -231,28 +232,35 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
   monitor returns.
 - On first launch it takes the icon layout from Finder (`~/Desktop/.DS_Store`, `dilc` records:
   bytes 0…3 — the monitor), then keeps its own. Icons avoid desktop widgets, as in Finder.
-- Icons can be dragged with the mouse, selected with a rubber band, renamed (F2).
-- Fences, like Stardock Fences: “New Fence” on the desktop (or “Put in a New Fence” on selected
-  icons) makes a translucent, titled area; drag icons in and out, drag it by its title, resize it
-  by its edges — both snap to the monitor's edges and the other fences (with guide lines; ⌘ turns
-  snapping off); click the title's text to rename it; double-click the title bar or click the chevron to roll it up; scroll when it holds more than fits;
-  rename or remove it from its menu (its icons stay where they are). Nothing runs in the
-  background for them.
-- Folder portals: “New Folder Portal…” shows any folder on the desktop in a fence — icons with
+- Icons can be dragged with the mouse (they glide from where they're let go into their cell),
+  selected with a rubber band, renamed (F2). An icon that had to give way to another keeps the
+  spot it went to, so nothing jumps when a file nearby is deleted.
+- Zones, like Stardock Fences: “New Zone” on the desktop, “Put in a Zone” (⌘G) on selected icons,
+  or a rubber band over bare wallpaper — it stays outlined and offers “Create a Zone Here”. A zone
+  is a translucent, titled area; drag icons in and out, drag it by its title, resize it by its
+  edges — both snap to the monitor's edges, the other zones and whole rows of icons (with guide
+  lines; ⌘ turns snapping off); click the title's text to rename it; double-click the title bar or
+  click the chevron to roll it up (it keeps its place, so nothing else moves). When its icons don't
+  fit it scrolls like a portal — the system's overlay scroller, momentum, the rubber band at the
+  ends. Its own colour and removal are in its menu (its icons stay where they are). Nothing runs in
+  the background for them.
+- Folder portals: “New Folder Portal…” shows any folder on the desktop in a zone — icons with
   thumbnails, scrolling, selection, open, Quick Look, drag out, drop in, the file context menu;
-  it follows the folder's changes (read in the background, no polling). Each fence can have its
-  own colour. Double-click the wallpaper to hide every icon and fence (and again to bring them
-  back), on all monitors. Settings ▸ Fences: corner radius, colour, opacity, frosted glass,
-  snapping, quick-hide.
-- Portals are named after their folder; double-click a subfolder to go into it inside the portal
-  (“‹” in the title goes back, ⌘↑ or Backspace too); the button at the title's right opens the
-  folder shown in a WinEx window.
-- Desktop snapshots: the whole arrangement — icons in fences and outside them, fences, portals,
-  icon size — saved as files in ~/Library/Application Support/WinEx/Desktop Snapshots,
-  automatically (daily by default: hourly, every 6 hours, weekly or off) and by hand; restore
-  one from the desktop's menu (Desktop Snapshots ▸) or Settings ▸ Fences ▸ Snapshots…; the
-  current arrangement is saved before a restore. Separate from the settings backup, which no
-  longer carries the desktop arrangement.
+  it follows the folder's changes (read in the background, no polling). Portals are named after
+  their folder; double-click a subfolder to go into it inside the portal (“‹” in the title goes
+  back, ⌘↑ or Backspace too); the button at the title's right opens the folder in a WinEx window.
+- Double-click the wallpaper to hide every icon and zone (and again to bring them back), on all
+  monitors. Zones of an unplugged monitor are shown on the remaining one in free spots, never on
+  top of its own zones.
+- Settings ▸ Zones: zones on or off (off, every icon is loose again and the zones come back when
+  switched on), corner radius, colour, opacity, frosted glass, snapping, quick-hide — all shown at
+  once on the desktop. Locked (with a way to Settings ▸ Finder) while WinEx doesn't draw the desktop.
+- Desktop snapshots (Settings ▸ Zones): the whole arrangement — icons in zones and outside them,
+  zones, portals, icon size — with a picture of the desktop (every monitor, wallpaper, icons,
+  zones), saved in ~/Library/Application Support/WinEx/Desktop Snapshots, automatically (daily by
+  default: hourly, every 6 hours, weekly or off; the 30 newest automatic ones are kept) and by hand.
+  They're shown as a strip of pictures (a click shows one larger); before a restore WinEx asks
+  whether to save the current arrangement first. Separate from the settings backup.
 - Menu: View ▸ large / medium / small icons, Auto Arrange Icons, Align Icons to Grid, Show Desktop
   Icons; Sort By ▸ name / size / type / date; New ▸ — the new file appears where the menu was opened.
 
@@ -262,7 +270,10 @@ A setup assistant walks through the essentials, each step can be skipped: langua
 Access (with a live status), WinEx instead of Finder, Finder or Windows keys and the global shortcut,
 the default folder view, the command bar, hidden files, opening at login, updates and where new
 windows open. It slides from step to step, comes back after a restart it asked for (a new language,
-Full Disk Access), and can be run again from Settings ▸ General or the menu. People who used WinEx
+Full Disk Access), and can be run again from Settings ▸ General or the menu. Steps show a live
+picture of what they change (the window with its command bar, view and hidden files; the desktop
+with WinEx's zones and its customizable context menu; the key table); with WinEx's desktop on, a
+Zones step follows. People who used WinEx
 before it existed don't see it after updating.
 
 ## Settings
@@ -277,7 +288,9 @@ before it existed don't see it after updating.
 - Finder: “Use WinEx instead of Finder”; “Reset the Desktop as in Finder…” (after a confirmation)
   forgets WinEx's arrangement and takes Finder's icon places (`~/Desktop/.DS_Store`), icon size and
   sorting (`DesktopViewSettings`).
-- Keyboard: “Windows keys” and the list of shortcuts.
+- Zones: see “The WinEx desktop” (zones and desktop snapshots).
+- Keyboard: Finder or Windows keys, with a table of what each key does in either mode (the chosen
+  column lit up, keys that don't apply faded; ⌘ shortcuts work in both).
 - Access: Full Disk Access status.
 - Updates: automatic checks, “Check Now”, the releases page.
 
