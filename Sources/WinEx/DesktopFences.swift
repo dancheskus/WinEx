@@ -314,7 +314,9 @@ final class FenceView: NSView, NSTextFieldDelegate {
             let portal = PortalView(folder: URL(fileURLWithPath: path), cell: cell, iconSide: iconSide)
             portal.onNavigate = { [weak self] in
                 guard let self else { return }
-                self.needsDisplay = true
+                // The title (folder name, back button) is drawn by the overlay: redraw it now
+                self.overlay.needsDisplay = true
+                self.overlay.displayIfNeeded()
                 self.window?.invalidateCursorRects(for: self)
             }
             addSubview(portal)

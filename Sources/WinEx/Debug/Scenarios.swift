@@ -781,9 +781,15 @@ enum Scenarios {
                 portal.show(URL(fileURLWithPath: "/tmp"))  // outside the portal: refused (opens a window instead)
                 s.note("  outside stays inside: \(portal.currentFolder.lastPathComponent)  expect Вложенная")
                 AppDelegate.shared.windowControllers.last?.window?.close()
-                portal.goUp()
             }),
-            (1.0, "back up", {
+            (2.0, "go up", {
+                guard let view = mainView(), let fence = view.layout.fences.last else { return }
+                view.debugFenceView(fence.id)?.portalView?.goUp()
+                if let window = view.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-2"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (2.0, "back up", {
                 guard let view = mainView(), let fence = view.layout.fences.last, let portal = view.debugFenceView(fence.id)?.portalView else { return }
                 s.note("  back in \(portal.currentFolder.lastPathComponent), can go up: \(portal.canGoUp)  expect Портал, false")
                 // Snapshots: take, change, restore
