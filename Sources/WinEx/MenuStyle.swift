@@ -34,6 +34,9 @@ enum MenuStyle {
         "refreshAction:": ("arrow.clockwise", "r", .command),
         "openWallpaperSettings:": ("photo", "", []),
         "showSettings:": ("gearshape", ",", .command),
+        "createFence:": ("rectangle.dashed", "", []),
+        "fenceFromSelection:": ("rectangle.stack.badge.plus", "g", .command),
+        "removeSelectionFromFence:": ("rectangle.portrait.and.arrow.right", "", []),
         "newFolder:": ("folder.badge.plus", "N", .command),
     ]
 

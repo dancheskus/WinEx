@@ -704,14 +704,35 @@ enum Scenarios {
                     try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
                 }
             }),
-            (2.0, "roll up and down", {
+            (2.0, "select two icons outside: the hint", {
+                guard let view = mainView() else { return }
+                let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { !$0.hasPrefix(".") }.sorted().dropFirst(3).prefix(2)
+                view.debugSelect(Array(names))
+                if let window = view.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (2.0, "roll up", {
+                guard let view = mainView(), let fence = view.layout.fences.last, let name = fence.members.first else { return }
+                view.debugSelect([])
+                view.debugToggle(fence.id)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    s.note("  rolled up hides icons: \(view.debugIsHidden(name))  expect true")
+                    if let window = view.window {
+                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-2"), atomically: true, encoding: .utf8)
+                    }
+                }
+            }),
+            (2.5, "roll down", {
                 guard let view = mainView(), let fence = view.layout.fences.last, let name = fence.members.first else { return }
                 view.debugToggle(fence.id)
-                let hidden = view.debugIsHidden(name)
-                view.debugToggle(fence.id)
-                s.note("  rolled up hides icons: \(hidden), unrolled shows: \(!view.debugIsHidden(name))  expect true, true")
-                controller.hide()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    s.note("  unrolled shows icons: \(!view.debugIsHidden(name))  expect true")
+                    controller.hide()
+                }
             }),
+            (1.0, "done", {}),
         ])
     }
 

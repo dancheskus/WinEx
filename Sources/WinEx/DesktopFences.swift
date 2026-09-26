@@ -152,18 +152,25 @@ final class FenceView: NSView {
 
     private var titleRect: NSRect { NSRect(x: 0, y: 0, width: bounds.width, height: DesktopFence.titleHeight) }
 
-    /// Which edges a point grabs (empty: none).
+    /// Which edges a point grabs (empty: none). Near a corner — both of its edges.
     private func edges(at point: NSPoint) -> Set<NSRectEdge> {
         var result = Set<NSRectEdge>()
-        let e = Self.edge
-        if point.x < e { result.insert(.minX) }
-        if point.x > bounds.width - e { result.insert(.maxX) }
+        let e = Self.edge, corner = Self.corner
+        let nearLeft = point.x < corner, nearRight = point.x > bounds.width - corner
+        let nearTop = point.y < corner, nearBottom = point.y > bounds.height - corner
+        if point.x < e || (nearLeft && (nearTop || nearBottom) && !fence.collapsed) { result.insert(.minX) }
+        if point.x > bounds.width - e || (nearRight && (nearTop || nearBottom) && !fence.collapsed) { result.insert(.maxX) }
         if !fence.collapsed {
-            if point.y < e / 2 { result.insert(.minY) }
-            if point.y > bounds.height - e { result.insert(.maxY) }
+            if point.y < e / 2 || (nearTop && (nearLeft || nearRight)) { result.insert(.minY) }
+            if point.y > bounds.height - e || (nearBottom && (nearLeft || nearRight)) { result.insert(.maxY) }
         }
         return result
     }
+
+    private static let corner: CGFloat = 14
+
+    /// The roll-up chevron at the title's left.
+    private var chevronRect: NSRect { NSRect(x: 4, y: 0, width: 26, height: DesktopFence.titleHeight) }
 
     /// The title bar and the edges; the inside belongs to the desktop (icons, rubber band, drops).
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -175,29 +182,48 @@ final class FenceView: NSView {
     }
 
     override func resetCursorRects() {
-        let e = Self.edge
-        addCursorRect(NSRect(x: 0, y: 0, width: e, height: bounds.height), cursor: .resizeLeftRight)
-        addCursorRect(NSRect(x: bounds.width - e, y: 0, width: e, height: bounds.height), cursor: .resizeLeftRight)
-        if !fence.collapsed {
-            addCursorRect(NSRect(x: e, y: bounds.height - e, width: bounds.width - 2 * e, height: e), cursor: .resizeUpDown)
-        }
+        let e = Self.edge, c = Self.corner, w = bounds.width, h = bounds.height
+        addCursorRect(chevronRect.insetBy(dx: 0, dy: 4), cursor: .pointingHand)
+        addCursorRect(NSRect(x: 0, y: c, width: e, height: max(h - 2 * c, 0)), cursor: .frameResize(position: .left, directions: .all))
+        addCursorRect(NSRect(x: w - e, y: c, width: e, height: max(h - 2 * c, 0)), cursor: .frameResize(position: .right, directions: .all))
+        guard !fence.collapsed else { return }
+        addCursorRect(NSRect(x: c, y: h - e, width: max(w - 2 * c, 0), height: e), cursor: .frameResize(position: .bottom, directions: .all))
+        addCursorRect(NSRect(x: 0, y: h - c, width: c, height: c), cursor: .frameResize(position: .bottomLeft, directions: .all))
+        addCursorRect(NSRect(x: w - c, y: h - c, width: c, height: c), cursor: .frameResize(position: .bottomRight, directions: .all))
+        addCursorRect(NSRect(x: 0, y: 0, width: c, height: c), cursor: .frameResize(position: .topLeft, directions: .all))
+        addCursorRect(NSRect(x: w - c, y: 0, width: c, height: c), cursor: .frameResize(position: .topRight, directions: .all))
     }
+
+    private var pendingRename: DispatchWorkItem?
 
     override func mouseDown(with event: NSEvent) {
         let start = convert(event.locationInWindow, from: nil)
         let grabbed = edges(at: start)
+        pendingRename?.cancel()
+        pendingRename = nil
+        if grabbed.isEmpty, chevronRect.contains(start) {
+            onToggleCollapsed?()
+            return
+        }
         if grabbed.isEmpty, event.clickCount == 2 {
             onToggleCollapsed?()
             return
         }
-        track(from: event, edges: grabbed.isEmpty ? [.minX, .maxX, .minY, .maxY] : grabbed)
+        let moved = track(from: event, edges: grabbed.isEmpty ? [.minX, .maxX, .minY, .maxY] : grabbed)
+        // A plain click on the title: rename it (after the double-click time, which rolls up)
+        if !moved, grabbed.isEmpty, event.clickCount == 1 {
+            let rename = DispatchWorkItem { [weak self] in self?.beginRename() }
+            pendingRename = rename
+            DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: rename)
+        }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { onMenu?(event) }
 
     /// Moves (all edges) or resizes (some) until the mouse goes up; snaps on the way.
-    private func track(from event: NSEvent, edges: Set<NSRectEdge>) {
-        guard let superview else { return }
+    @discardableResult
+    private func track(from event: NSEvent, edges: Set<NSRectEdge>) -> Bool {
+        guard let superview else { return false }
         let startMouse = superview.convert(event.locationInWindow, from: nil)
         let startFrame = frame
         let moving = edges.count == 4
@@ -233,6 +259,7 @@ final class FenceView: NSView {
         }
         onGuides?([])
         if moved { onFrame?(current, true) }
+        return moved
     }
 
     // MARK: Rename (inline, in the title bar)
@@ -240,6 +267,7 @@ final class FenceView: NSView {
     private var renameField: NSTextField?
 
     func beginRename() {
+        guard renameField == nil else { return }
         let field = NSTextField(frame: titleRect.insetBy(dx: 10, dy: 4))
         field.stringValue = fence.title
         field.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -300,9 +328,18 @@ final class FenceView: NSView {
             .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white,
             .paragraphStyle: paragraph, .shadow: shadow,
         ]
-        var title = fence.title
-        if fence.collapsed && !fence.members.isEmpty { title += "  ·  \(fence.members.count)" }
-        let text = NSAttributedString(string: title, attributes: attributes)
+        let text = NSAttributedString(string: fence.title, attributes: attributes)
+        if fence.collapsed && !fence.members.isEmpty {
+            // How many icons it holds: a small badge at the right, the title stays the same
+            let count = NSAttributedString(string: "\(fence.members.count)", attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white.withAlphaComponent(0.8),
+            ])
+            let size = count.size()
+            let badge = NSRect(x: bounds.width - size.width - 22, y: (DesktopFence.titleHeight - 18) / 2, width: size.width + 12, height: 18)
+            NSColor.white.withAlphaComponent(0.14).setFill()
+            NSBezierPath(roundedRect: badge, xRadius: 9, yRadius: 9).fill()
+            count.draw(at: NSPoint(x: badge.minX + 6, y: badge.midY - size.height / 2))
+        }
         let height = text.size().height
         text.draw(in: NSRect(x: 26, y: (DesktopFence.titleHeight - height) / 2, width: bounds.width - 52, height: height))
         // Roll-up chevron at the left
@@ -348,5 +385,76 @@ final class FenceGuidesView: NSView {
             path.setLineDash([5, 4], count: 2, phase: 0)
             path.stroke()
         }
+    }
+}
+
+/// The translucent hint under several selected desktop icons: «Поместить в ограду  ⌘G».
+@MainActor
+final class FenceHintButton: NSView {
+    var onClick: (() -> Void)?
+    private var hovering = false { didSet { needsDisplay = true } }
+    private let title = NSAttributedString(string: L("Поместить в ограду"), attributes: [
+        .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white,
+    ])
+    private let shortcut = NSAttributedString(string: "⌘G", attributes: [
+        .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
+    ])
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        let blur = NSVisualEffectView(frame: bounds)
+        blur.material = .hudWindow
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        blur.wantsLayer = true
+        blur.layer?.cornerRadius = 15
+        blur.layer?.masksToBounds = true
+        blur.autoresizingMask = [.width, .height]
+        blur.alphaValue = 0.7
+        addSubview(blur)
+        setFrameSize(intrinsicContentSize)
+        toolTip = L("Объединить выделенные значки в ограду")
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 16 + 16 + 6 + title.size().width + 10 + shortcut.size().width + 14, height: 30)
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseDown(with event: NSEvent) { onClick?() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 15, yRadius: 15)
+        NSColor.black.withAlphaComponent(hovering ? 0.45 : 0.3).setFill()
+        shape.fill()
+        NSColor.white.withAlphaComponent(0.25).setStroke()
+        shape.stroke()
+        var x: CGFloat = 16
+        if let icon = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold)) {
+            let white = NSImage(size: icon.size, flipped: false) { rect in
+                icon.draw(in: rect)
+                NSColor.white.set()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+            white.draw(in: NSRect(x: x, y: (bounds.height - icon.size.height) / 2, width: icon.size.width, height: icon.size.height))
+            x += icon.size.width + 6
+        }
+        title.draw(at: NSPoint(x: x, y: (bounds.height - title.size().height) / 2))
+        x += title.size().width + 10
+        shortcut.draw(at: NSPoint(x: x, y: (bounds.height - shortcut.size().height) / 2))
     }
 }

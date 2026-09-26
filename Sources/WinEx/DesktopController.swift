@@ -167,6 +167,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // Fences
     private var fenceViews: [String: FenceView] = [:]
     private let guidesView = FenceGuidesView()
+    private let fenceHint = FenceHintButton()
     /// First visible row of each fence (scrolled with the wheel).
     private var fenceScroll: [String: Int] = [:]
     /// Icons of collapsed fences and below a fence's visible rows.
@@ -576,6 +577,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         if guidesView.superview == nil { addSubview(guidesView) }
         guidesView.frame = bounds
         addSubview(guidesView, positioned: .above, relativeTo: nil)
+        updateFenceHint()
         rubberBandView.frame = rubberBand ?? .zero
         rubberBandView.isHidden = rubberBand == nil
         if rubberBand != nil { addSubview(rubberBandView) } // on top of the icons
@@ -705,7 +707,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             rubberBandBase = toggles ? selection : []
             selection = rubberBandBase
             rubberBand = NSRect(origin: point, size: .zero)
-            emptyClickCandidate = !toggles && event.clickCount == 1
+            // Inside a fence it's the fence's space, not the wallpaper: no "show desktop"
+            emptyClickCandidate = !toggles && event.clickCount == 1 && fence(at: point) == nil
         }
         needsDisplay = true
     }
@@ -768,6 +771,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         // Dropped on the Trash in the Dock: files go to the Trash, volumes are ejected (like Finder)
         if operation == .delete { removeItems(draggedNames.compactMap(index(named:))) }
         draggedNames = []
+        dragStarted = false
+        needsDisplay = true
     }
 
     // MARK: - Dragging destination (moving icons, files dropped from windows, drops onto folders)
@@ -879,6 +884,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameSelected(nil) }
         case (51, [.command]): trashSelection()
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
+        case (5, [.command]): if selection.count >= 1 { fenceFromSelection(nil) }                // ⌘G: into a fence
         case (120, []) where Settings.windowsKeys: renameSelected(nil)                  // F2
         case (117, []) where Settings.windowsKeys: trashSelection()                     // Delete
         case (117, [.shift]) where Settings.windowsKeys:                                 // ⇧Delete
@@ -1252,9 +1258,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         content.origin.y += DesktopFence.titleHeight - DesktopFence.padding
         content.size.height -= DesktopFence.titleHeight - DesktopFence.padding
         let columns = max(1, Int(content.width / cellSize.width))
-        let rows = max(0, Int(content.height / cellSize.height))
+        let rows = max(0, Int((content.height - fenceTopExtra) / cellSize.height))
         return (content, columns, rows)
     }
+
+    /// Icons sit as far from the fence's top as from its left side (a cell is wider than its icon).
+    private var fenceTopExtra: CGFloat { max(0, (cellSize.width - iconSide) / 2 + DesktopFence.padding - 8) }
 
     /// Puts the icons of this monitor's fences into their fences (in their order, row by row).
     private func layoutFences() {
@@ -1266,12 +1275,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             let total = Int(ceil(Double(members.count) / Double(grid.columns)))
             let first = min(fenceScroll[fence.id] ?? 0, max(total - grid.rows, 0))
             fenceScroll[fence.id] = first
-            let inset = (grid.content.width - CGFloat(grid.columns) * cellSize.width) / 2
             for (k, i) in members.enumerated() {
                 fenceOf[i] = fence.id
                 let row = k / grid.columns - first, column = k % grid.columns
-                centers[i] = CGPoint(x: grid.content.minX + inset + cellSize.width * (CGFloat(column) + 0.5),
-                                     y: grid.content.minY + iconSide / 2 + 8 + cellSize.height * CGFloat(row))
+                centers[i] = CGPoint(x: grid.content.minX + cellSize.width * (CGFloat(column) + 0.5),
+                                     y: grid.content.minY + fenceTopExtra + iconSide / 2 + 8 + cellSize.height * CGFloat(row))
                 if fence.collapsed || row < 0 || row >= grid.rows { hiddenIcons.insert(i) }
             }
         }
@@ -1291,12 +1299,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for fence in fences {
             let view = fenceViews[fence.id] ?? makeFenceView(fence)
             view.fence = fence
-            if view.window == nil || !isDraggingFence(fence.id) { view.frame = visibleFrame(of: fence) }
+            if view.window == nil || (!isDraggingFence(fence.id) && animatingFence != fence.id) { view.frame = visibleFrame(of: fence) }
             let grid = fenceGrid(fence)
             let count = fence.members.filter { index(named: $0) != nil }.count
             view.overflow = fence.collapsed ? 0 : max(0, count - (fenceScroll[fence.id] ?? 0) * grid.columns - grid.rows * grid.columns)
             view.minimumSize = NSSize(width: cellSize.width + 2 * DesktopFence.padding,
-                                      height: DesktopFence.titleHeight + cellSize.height + DesktopFence.padding)
+                                      height: DesktopFence.titleHeight + fenceTopExtra + cellSize.height + DesktopFence.padding)
         }
     }
 
@@ -1359,6 +1367,35 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         ]
     }
 
+    /// Several icons selected (not all of one fence already): the hint to fence them, under them.
+    private func updateFenceHint() {
+        let chosen = selection.filter { !hiddenIcons.contains($0) && items.indices.contains($0) }
+        let sameFence = Set(chosen.map { fenceOf[$0] ?? "" }).count == 1 && chosen.allSatisfy { fenceOf[$0] != nil }
+        let show = chosen.count >= 2 && !sameFence && rubberBand == nil && !dragStarted && iconsVisible && renameField == nil
+        if show {
+            if fenceHint.superview == nil {
+                fenceHint.onClick = { [weak self] in self?.fenceFromSelection(nil) }
+                fenceHint.alphaValue = 0
+                addSubview(fenceHint)
+            }
+            addSubview(fenceHint, positioned: .above, relativeTo: nil)
+            // Under the selection when it's a group; spread out — under its lowest icon
+            var box = chosen.map(hitRect).reduce(NSRect.null) { $0.union($1) }
+            if box.width > cellSize.width * 5 || box.height > cellSize.height * 4,
+               let lowest = chosen.max(by: { centers[$0].y < centers[$1].y }) { box = hitRect(lowest) }
+            let size = fenceHint.intrinsicContentSize
+            let area = screens.first?.iconArea ?? bounds
+            var origin = NSPoint(x: box.midX - size.width / 2, y: box.maxY + 10)
+            if origin.y + size.height > area.maxY - 8 { origin.y = box.minY - size.height - 10 }
+            origin.x = min(max(origin.x, area.minX + 8), area.maxX - size.width - 8)
+            fenceHint.frame = NSRect(origin: origin, size: size)
+            if fenceHint.alphaValue < 1 { NSAnimationContext.runAnimationGroup { $0.duration = 0.18; fenceHint.animator().alphaValue = 1 } }
+        } else if fenceHint.superview != nil {
+            fenceHint.removeFromSuperview()
+            fenceHint.alphaValue = 0
+        }
+    }
+
     private func highlightFence(_ id: String?) {
         for (fenceID, view) in fenceViews { view.isDropTarget = fenceID == id }
     }
@@ -1372,7 +1409,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         if let point, !fences[target].collapsed {
             let grid = fenceGrid(fences[target])
             let column = min(max(Int((point.x - grid.content.minX) / cellSize.width), 0), grid.columns - 1)
-            let row = max(Int((point.y - grid.content.minY) / cellSize.height), 0) + (fenceScroll[id] ?? 0)
+            let row = max(Int((point.y - grid.content.minY - fenceTopExtra) / cellSize.height), 0) + (fenceScroll[id] ?? 0)
             position = min(row * grid.columns + column, fences[target].members.count)
         }
         fences[target].members.insert(contentsOf: names, at: position)
@@ -1395,12 +1432,46 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
     }
 
+    private var animatingFence: String?
+
+    /// Rolls a fence up (its icons fade, the panel folds into its title) or down (the reverse).
     private func toggleCollapsed(_ id: String) {
-        guard var fence = layout.fences.first(where: { $0.id == id }) else { return }
+        guard var fence = layout.fences.first(where: { $0.id == id }), let view = fenceViews[id] else { return }
+        let memberTiles = { [self] in fenceOf.filter { $0.value == id }.map(\.key).filter(tiles.indices.contains).map { tiles[$0] } }
         fence.collapsed.toggle()
-        layout.setFence(fence)
         selection = selection.filter { fenceOf[$0] != id }
-        relayout()
+        animatingFence = id
+        if fence.collapsed {
+            let fading = memberTiles()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.22
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                fading.forEach { $0.animator().alphaValue = 0 }
+                view.animator().frame = visibleFrame(of: fence)
+            } completionHandler: { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.animatingFence = nil
+                    self.layout.setFence(fence)
+                    self.relayout()
+                    fading.forEach { $0.alphaValue = 1 }
+                }
+            }
+        } else {
+            layout.setFence(fence)
+            relayout()
+            displayIfNeeded()
+            let appearing = memberTiles()
+            appearing.forEach { $0.alphaValue = 0 }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.22
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                view.animator().frame = visibleFrame(of: fence)
+                appearing.forEach { $0.animator().alphaValue = 1 }
+            } completionHandler: { [weak self] in
+                MainActor.assumeIsolated { self?.animatingFence = nil; self?.needsDisplay = true }
+            }
+        }
     }
 
     /// A new fence of a sensible size at `point` (snapped), then its title is edited.
@@ -1409,7 +1480,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let columns = max(3, min(4, members.count))
         let rows = max(2, Int(ceil(Double(members.count) / Double(columns))))
         let size = NSSize(width: CGFloat(columns) * cellSize.width + 2 * DesktopFence.padding,
-                          height: DesktopFence.titleHeight + CGFloat(rows) * cellSize.height + DesktopFence.padding)
+                          height: DesktopFence.titleHeight + fenceTopExtra + CGFloat(rows) * cellSize.height + DesktopFence.padding)
         var rect = NSRect(origin: NSPoint(x: point.x - 20, y: point.y - 10), size: size)
         let others = myFences.map { visibleFrame(of: $0) } + widgetRects
         rect.origin.x = min(max(rect.minX, screen.iconArea.minX + FenceSnap.gap), screen.iconArea.maxX - rect.width - FenceSnap.gap)
@@ -1471,6 +1542,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    func debugSelect(_ names: [String]) { selection = Set(names.compactMap(index(named:))); needsDisplay = true }
     #endif
 
     // MARK: - Inline rename

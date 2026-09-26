@@ -631,5 +631,7 @@ enum English {
         "Создать ограду": "New Fence",
         "Убрать из ограды": "Take Out of the Fence",
         "Удалить ограду": "Remove Fence",
+        "Поместить в ограду": "Put in a Fence",
+        "Объединить выделенные значки в ограду": "Group the selected icons in a fence",
     ]
 }
