@@ -338,6 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func setReplaceFinder(_ on: Bool) {
         Settings.replaceFinder = on
+        defer { NotificationCenter.default.post(name: .replaceFinderChanged, object: nil) }
         if on {
             enableFinderReplacement()
         } else {

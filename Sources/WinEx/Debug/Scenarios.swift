@@ -1014,12 +1014,12 @@ enum Scenarios {
                 DesktopSnapshots.take(automatic: false)
                 let before = view.layout.fences.count
                 view.layout.fences = []
-                if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot) }
+                if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot, saveCurrent: true) }
                 controller.reloadLayout()  // (the app's own desktop is reloaded by the restore; this one is the scenario's)
                 s.note("  snapshots: \(DesktopSnapshots.all.count), fences after restore: \(mainView()?.layout.fences.count ?? -1)  expect 2, \(before)")
-                // Restoring it again: this arrangement is already kept, no new snapshot
-                if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot) }
-                s.note("  after restoring again: \(DesktopSnapshots.all.count)  expect 2")
+                // Restoring without saving: no new snapshot
+                if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot, saveCurrent: false) }
+                s.note("  after restoring without saving: \(DesktopSnapshots.all.count)  expect 2")
                 // One with a picture, then Settings ▸ Снимки shows them
                 DesktopSnapshots.take(automatic: false, preview: controller.previewImage())
                 controller.reloadLayout()

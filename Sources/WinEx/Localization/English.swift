@@ -651,7 +651,7 @@ enum English {
         "Зоны:": "Zones:",
         "Снимки рабочего стола": "Desktop snapshots",
         "Снимков пока нет. Они появятся автоматически или по кнопке «Сделать снимок».": "No snapshots yet. They're taken automatically or with “Take a Snapshot”.",
-        "Снимок хранит, где лежат значки, зоны и порталы на всех мониторах. Перед восстановлением текущая расстановка сама сохраняется снимком — его можно вернуть.": "A snapshot keeps where the icons, zones and portals are on every monitor. Before a restore, the current arrangement is saved as a snapshot itself, so you can go back.",
+        "Снимок хранит, где лежат значки, зоны и порталы на всех мониторах. Перед восстановлением WinEx спросит, сохранить ли текущую расстановку.": "A snapshot keeps where the icons, zones and portals are on every monitor. Before a restore, WinEx asks whether to save the current arrangement.",
         "Показать крупнее": "Show larger",
         "Адресная строка": "Address bar",
         "В Корзину": "Move to Trash",
@@ -679,5 +679,13 @@ enum English {
         "Открыть сочетания клавиш…": "Open Keyboard Shortcuts…",
         "Полноэкранный режим": "Full Screen",
         "⚠︎ F11 в macOS занята: «Показать рабочий стол». Чтобы F11 включала полный экран, снимите это сочетание в Системных настройках ▸ Клавиатура ▸ Сочетания клавиш ▸ Mission Control. ⌃⌘F работает всегда.": "⚠︎ macOS uses F11 for “Show Desktop”. For F11 to toggle full screen, turn that shortcut off in System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ Mission Control. ⌃⌘F always works.",
+        "Включить в «Finder»…": "Turn On in “Finder”…",
+        "Восстановить без сохранения": "Restore Without Saving",
+        "Восстановить расстановку от %@?": "Restore the arrangement from %@?",
+        "Значки, зоны и порталы встанут так, как в этом снимке. Текущую расстановку можно сперва сохранить снимком, чтобы к ней вернуться.": "Icons, zones and portals will go back to where they are in this snapshot. You can save the current arrangement as a snapshot first, to come back to it.",
+        "Зоны и снимки работают на рабочем столе WinEx, а он сейчас выключен.": "Zones and snapshots live on the WinEx desktop, which is off right now.",
+        "Меню настраивается": "The menu is customizable",
+        "Сохранить и восстановить": "Save and Restore",
+        "Открыть в терминале": "Open in Terminal",
     ]
 }

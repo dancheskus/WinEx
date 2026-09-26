@@ -808,26 +808,101 @@ final class FenceSettingsView: NSView {
 
         let separator = NSBox()
         separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        let snapshots = SnapshotsSection()
-        snapshots.translatesAutoresizingMaskIntoConstraints = false
-        for view in [grid, separator, snapshots] as [NSView] { addSubview(view) }
+        snapshots.onResize = { [weak self] in self?.refit() }
+
+        // Without WinEx's desktop there are no zones: everything below is locked, with a way there
+        let lockIcon = NSImageView(image: NSImage(systemSymbolName: "lock.fill", accessibilityDescription: nil) ?? NSImage())
+        lockIcon.contentTintColor = .secondaryLabelColor
+        let lockText = NSTextField(wrappingLabelWithString: L("Зоны и снимки работают на рабочем столе WinEx, а он сейчас выключен."))
+        lockText.preferredMaxLayoutWidth = 440
+        let lockButton = NSButton(title: L("Включить в «Finder»…"), target: self, action: #selector(openFinderTab(_:)))
+        let lockRow = NSStackView(views: [lockIcon, lockText, lockButton])
+        lockRow.spacing = 10
+        lockRow.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 12)
+        lockRow.wantsLayer = true
+        lockRow.layer?.cornerRadius = 10
+        lockRow.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.12).cgColor
+        banner = lockRow
+
+        body.wantsLayer = true
+        body.orientation = .vertical
+        body.alignment = .leading
+        body.spacing = 20
+        for view in [grid, separator, snapshots] as [NSView] { body.addArrangedSubview(view) }
+        body.setCustomSpacing(16, after: separator)
+        blocker.isHidden = true
+        let stack = NSStackView(views: [lockRow, body])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 18
+        stack.detachesHiddenViews = true
+        stack.edgeInsets = NSEdgeInsets(top: 22, left: 20, bottom: 20, right: 20)
+        // Neither stack may squeeze its parts (the grid would spill out of it)
+        for view in [stack, body] {
+            view.setClippingResistancePriority(.required, for: .vertical)
+            view.setHuggingPriority(.required, for: .vertical)
+        }
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        blocker.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        addSubview(blocker)
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: SettingsForm.width),
-            grid.topAnchor.constraint(equalTo: topAnchor, constant: 22),
-            grid.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            grid.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            separator.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 20),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            snapshots.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 16),
-            snapshots.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            snapshots.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            snapshots.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            lockRow.widthAnchor.constraint(equalToConstant: SettingsForm.width - 40),
+            body.widthAnchor.constraint(equalToConstant: SettingsForm.width - 40),
+            separator.widthAnchor.constraint(equalTo: body.widthAnchor),
+            snapshots.widthAnchor.constraint(equalTo: body.widthAnchor),
+            blocker.topAnchor.constraint(equalTo: body.topAnchor),
+            blocker.leadingAnchor.constraint(equalTo: body.leadingAnchor),
+            blocker.trailingAnchor.constraint(equalTo: body.trailingAnchor),
+            blocker.bottomAnchor.constraint(equalTo: body.bottomAnchor),
             preview.widthAnchor.constraint(equalToConstant: 150),
             preview.heightAnchor.constraint(equalToConstant: 100),
         ])
         sync()
+        syncLock()
+        observers.add(.replaceFinderChanged) { [weak self] in self?.syncLock() }
+    }
+
+    private let body = NSStackView()
+    private let snapshots = SnapshotsSection()
+    private let blocker = ClickBlocker()
+    private var banner: NSView?
+    private let observers = Observers()
+
+    /// Locked (dimmed, nothing takes clicks) while WinEx doesn't draw the desktop.
+    private func syncLock() {
+        let locked = !Settings.replaceFinder
+        banner?.isHidden = !locked
+        blocker.isHidden = !locked
+
+        func setEnabled(_ view: NSView) {
+            (view as? NSControl)?.isEnabled = !locked
+            view.subviews.forEach(setEnabled)
+        }
+        setEnabled(body)
+        refit()
+
+    }
+
+    /// The window follows the pane's height (the lock note, the first snapshot).
+    private func refit() {
+        layoutSubtreeIfNeeded()
+        let size = fittingSize
+        guard let controller = nextResponder as? NSViewController, controller.preferredContentSize != size else { return }
+        controller.preferredContentSize = size
+        guard let window, window.contentView === self || superview != nil, !isHiddenOrHasHiddenAncestor else { return }
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+        window.setFrame(frame, display: true, animate: true)
+    }
+
+    @objc private func openFinderTab(_ sender: Any?) {
+        AppDelegate.shared.showSettings(tab: .finder)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -841,6 +916,20 @@ final class FenceSettingsView: NSView {
     @objc private func radiusChanged(_ sender: NSSlider) { FenceStyle.cornerRadius = CGFloat(sender.doubleValue.rounded()); sync() }
     @objc private func opacityChanged(_ sender: NSSlider) { FenceStyle.opacity = CGFloat(sender.doubleValue); sync() }
     @objc private func colorChanged(_ sender: NSColorWell) { FenceStyle.color = FenceStyle.hex(sender.color); sync() }
+}
+
+/// Covers a locked part of a pane: clicks go nowhere.
+private final class ClickBlocker: NSView {
+    /// Dims what's under it.
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.withAlphaComponent(0.6).setFill()
+        bounds.fill()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { isHidden ? nil : (frame.contains(point) ? self : nil) }
+    override func mouseDown(with event: NSEvent) {}
+    override func rightMouseDown(with event: NSEvent) {}
+    override func scrollWheel(with event: NSEvent) {}
 }
 
 /// A fence drawn on a sample of wallpaper, with the current settings.

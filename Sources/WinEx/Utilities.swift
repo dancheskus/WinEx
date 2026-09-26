@@ -105,6 +105,8 @@ enum Settings {
 }
 
 extension Notification.Name {
+    /// WinEx started or stopped drawing the desktop.
+    static let replaceFinderChanged = Notification.Name("WinExReplaceFinderChanged")
     static let showHiddenChanged = Notification.Name("WinExShowHiddenChanged")
     static let keyboardSettingsChanged = Notification.Name("WinExKeyboardSettingsChanged")
     static let commandBarSettingChanged = Notification.Name("WinExCommandBarSettingChanged")

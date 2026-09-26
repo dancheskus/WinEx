@@ -70,16 +70,16 @@ enum DesktopSnapshots {
 
     /// Saves the current arrangement. Automatic ones are skipped when nothing changed since the last.
     @discardableResult
-    static func take(automatic: Bool, preview: NSImage? = nil, unlessSaved: Bool = false) -> Snapshot? {
+    static func take(automatic: Bool, preview: NSImage? = nil) -> Snapshot? {
         guard let layout = currentLayout else { return nil }
         let files = all.compactMap { snapshot -> [String: Any]? in
             guard let data = try? Data(contentsOf: snapshot.url) else { return nil }
             return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         }
         let same = files.filter { $0["layout"] as? Data == layout }
-        // Nothing new since the last automatic one / (before a restore) this arrangement is already kept
-        if (automatic && files.first.map { $0["layout"] as? Data == layout } == true) || (unlessSaved && !same.isEmpty) {
-            if automatic { defaults.set(Date(), forKey: "desktopSnapshotLast") }
+        // Nothing new since the last one: no automatic snapshot
+        if automatic && files.first.map({ $0["layout"] as? Data == layout }) == true {
+            defaults.set(Date(), forKey: "desktopSnapshotLast")
             return nil
         }
         let counts = (try? JSONSerialization.jsonObject(with: layout) as? [String: Any]) ?? [:]
@@ -116,13 +116,13 @@ enum DesktopSnapshots {
         }
     }
 
-    /// Puts the desktop back as it was in `snapshot` (the current arrangement is saved first, so
-    /// the restore can itself be undone).
-    static func restore(_ snapshot: Snapshot) {
+    /// Puts the desktop back as it was in `snapshot`; with `saveCurrent`, the current arrangement
+    /// is kept as a snapshot first (the settings ask).
+    static func restore(_ snapshot: Snapshot, saveCurrent: Bool) {
         guard let data = try? Data(contentsOf: snapshot.url),
               let file = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let layout = file["layout"] as? Data else { return }
-        take(automatic: false, unlessSaved: true)
+        if saveCurrent { take(automatic: false) }
         defaults.set(layout, forKey: "desktopLayout")
         AppDelegate.shared.reloadDesktopLayout()
     }
@@ -204,7 +204,7 @@ final class SnapshotsSection: NSView {
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let header = NSStackView(views: [title, spacer, label, interval, reveal, take])
         header.spacing = 8
-        let hint = SettingsForm.wideHint(L("Снимок хранит, где лежат значки, зоны и порталы на всех мониторах. Перед восстановлением текущая расстановка сама сохраняется снимком — его можно вернуть."))
+        let hint = SettingsForm.wideHint(L("Снимок хранит, где лежат значки, зоны и порталы на всех мониторах. Перед восстановлением WinEx спросит, сохранить ли текущую расстановку."))
 
         strip.orientation = .horizontal
         strip.alignment = .top
@@ -249,12 +249,17 @@ final class SnapshotsSection: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The section got taller or shorter (the first snapshot, the last one gone).
+    var onResize: (() -> Void)?
+
     private func reload() {
         strip.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let all = DesktopSnapshots.all
+        let wasEmpty = scroll.isHidden
         empty.isHidden = !all.isEmpty
         scroll.isHidden = all.isEmpty
         all.forEach { strip.addArrangedSubview(SnapshotTile($0)) }
+        if wasEmpty != all.isEmpty { onResize?() }
     }
 
     @objc private func intervalChanged(_ sender: NSPopUpButton) { DesktopSnapshots.intervalHours = sender.selectedTag() }
@@ -378,6 +383,23 @@ private final class SnapshotTile: NSView {
         if snapshot.preview != nil { addCursorRect(pictureRect, cursor: .pointingHand) }
     }
 
-    @objc private func restore(_ sender: Any?) { DesktopSnapshots.restore(snapshot) }
+    /// Asks first: keep the current arrangement as a snapshot, or just restore.
+    @objc private func restore(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = L("Восстановить расстановку от %@?", DesktopSnapshots.describe(snapshot))
+        alert.informativeText = L("Значки, зоны и порталы встанут так, как в этом снимке. Текущую расстановку можно сперва сохранить снимком, чтобы к ней вернуться.")
+        alert.addButton(withTitle: L("Сохранить и восстановить"))
+        alert.addButton(withTitle: L("Восстановить без сохранения"))
+        alert.addButton(withTitle: L("Отменить"))
+        let snapshot = snapshot
+        let answer: (NSApplication.ModalResponse) -> Void = { response in
+            switch response {
+            case .alertFirstButtonReturn: DesktopSnapshots.restore(snapshot, saveCurrent: true)
+            case .alertSecondButtonReturn: DesktopSnapshots.restore(snapshot, saveCurrent: false)
+            default: break
+            }
+        }
+        if let window { alert.beginSheetModal(for: window, completionHandler: answer) } else { answer(alert.runModal()) }
+    }
     @objc private func remove(_ sender: Any?) { DesktopSnapshots.delete(snapshot) }
 }
