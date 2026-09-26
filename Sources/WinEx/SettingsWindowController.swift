@@ -23,6 +23,7 @@ final class SettingsWindowController: NSWindowController {
     private let loginApproveButton = NSButton(title: L("Открыть «Объекты входа»…"), target: nil, action: nil)
     // Finder и рабочий стол
     private let replaceCheckbox = NSButton(checkboxWithTitle: L("Использовать WinEx вместо Finder"), target: nil, action: nil)
+    private let shellCheckbox = NSButton(checkboxWithTitle: L("Команда open в Терминале открывает папки в WinEx"), target: nil, action: nil)
     private let resetDesktopButton = NSButton(title: L("Сбросить рабочий стол как в Finder…"), target: nil, action: nil)
     // Клавиатура
     private let windowsKeysCheckbox = NSButton(checkboxWithTitle: L("Клавиши как в Windows"), target: nil, action: nil)
@@ -141,7 +142,9 @@ final class SettingsWindowController: NSWindowController {
         replaceCheckbox.action = #selector(toggleReplace(_:))
         resetDesktopButton.target = self
         resetDesktopButton.action = #selector(resetDesktop(_:))
-        let help = SettingsForm.helpButton(L("Когда WinEx заменяет Finder:\n• рабочий стол рисует WinEx, папки с него открываются в WinEx;\n• «Показать в Finder» в других программах показывает файл в WinEx;\n• папки, которые другие программы открывают сами, по-прежнему открываются в Finder — macOS не даёт сменить программу для папок;\n• «Выйти» в строке меню возвращает всё Finder."))
+        shellCheckbox.target = self
+        shellCheckbox.action = #selector(toggleShell(_:))
+        let help = SettingsForm.helpButton(L("Когда WinEx заменяет Finder:\n• рабочий стол рисует WinEx, папки с него открываются в WinEx;\n• «Показать в Finder» в других программах показывает файл в WinEx;\n• папки, которые другие программы открывают сами, по-прежнему открываются в Finder — macOS не даёт сменить программу для папок (для команды open в Терминале — флажок ниже);\n• «Выйти» в строке меню возвращает всё Finder."))
         let replaceRow = NSStackView(views: [replaceCheckbox, help])
         replaceRow.spacing = 6
         return SettingsForm.build([
@@ -150,6 +153,9 @@ final class SettingsWindowController: NSWindowController {
             .gap,
             .row(L("Значки:"), resetDesktopButton),
             .row(nil, SettingsForm.hint(L("Расставить значки, их размер и сортировку так, как у Finder."))),
+            .gap,
+            .row(L("Терминал:"), shellCheckbox),
+            .row(nil, SettingsForm.hint(L("«open ~/Documents» и «open .» откроют папку в WinEx; файлы, программы и ссылки — как раньше. WinEx добавит небольшую функцию в ~/.zshrc (снимите флажок — уберёт). Действует в новых окнах Терминала."))),
         ])
     }
 
@@ -262,6 +268,7 @@ final class SettingsWindowController: NSWindowController {
         viewModePopup.selectItem(withTag: ViewMode.saved.rawValue)
         tagsView.refresh()
         replaceCheckbox.state = Settings.replaceFinder ? .on : .off
+        shellCheckbox.state = ShellIntegration.isInstalled ? .on : .off
         resetDesktopButton.isEnabled = Settings.replaceFinder
         hiddenCheckbox.state = Settings.showHidden ? .on : .off
         commandBarCheckbox.state = Settings.showCommandBar ? .on : .off
@@ -340,6 +347,15 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func openReleases(_ sender: Any?) {
         if let url = URL(string: "https://github.com/\(Updater.repository)/releases") { NSWorkspace.shared.open(url) }
+    }
+
+    @objc private func toggleShell(_ sender: NSButton) {
+        do {
+            if sender.state == .on { try ShellIntegration.install() } else { try ShellIntegration.uninstall() }
+        } catch {
+            if let window { NSAlert(error: error).beginSheetModal(for: window) }
+        }
+        sender.state = ShellIntegration.isInstalled ? .on : .off
     }
 
     @objc private func toggleReplace(_ sender: NSButton) {

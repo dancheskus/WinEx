@@ -33,6 +33,7 @@ enum Scenarios {
         "backup": backup,
         "tabmerge": tabMerge,
         "wizard": wizard,
+        "shell": shell,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -655,6 +656,21 @@ enum Scenarios {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             step(0)
         }
+    }
+
+    /// `open` in the Terminal: the block goes into (a stand-in) ~/.zshrc and comes out cleanly.
+    /// Run with WINEX_SHELL_HOME=<dir>.
+    static func shell(_ s: Scenario) {
+        do {
+            try ShellIntegration.install()
+            try ShellIntegration.install()  // twice: still one block
+            s.note("  installed: \(ShellIntegration.isInstalled)  expect true")
+            if ProcessInfo.processInfo.environment["WINEX_SHELL_REMOVE"] != nil {
+                try ShellIntegration.uninstall()
+                s.note("  removed: \(!ShellIntegration.isInstalled)  expect true")
+            }
+        } catch { s.note("  error: \(error)") }
+        s.run([])
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.

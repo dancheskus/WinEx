@@ -268,8 +268,11 @@ When it's on:
   the desktop.
 
 WinEx can't become the default app for folders: on macOS 26+ LaunchServices answers `paramErr (-50)`
-to a change of the `public.folder` handler. So folders that other apps open directly
-(`open ~/Documents`) still open in Finder.
+to a change of the `public.folder` handler. So folders that other apps open directly still open in
+Finder. For the Terminal there's a way round: Settings ▸ Finder ▸ “The open command in Terminal opens
+folders in WinEx” adds a small `open` function to `~/.zshrc` (and `~/.bash_profile` if there is one)
+that sends folders to WinEx and everything else — files, apps, packages, URLs, options — to the real
+`open`; unchecking it removes those lines.
 
 Quitting WinEx undoes all of it. If WinEx crashes or is killed, a watchdog — a separate process
 waiting for WinEx to go away — gives the desktop back to Finder. If the desktop is gone anyway:

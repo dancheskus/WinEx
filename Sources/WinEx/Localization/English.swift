@@ -451,7 +451,7 @@ enum English {
         "Терминал:": "Terminal:",
         "Для папки — она сама, для файла — его папка; на пустом месте — открытая папка или рабочий стол.": "A folder opens as is, a file — its folder; on an empty spot — the open folder or the desktop.",
         "Запуск:": "Startup:",
-        "Когда WinEx заменяет Finder:\n• рабочий стол рисует WinEx, папки с него открываются в WinEx;\n• «Показать в Finder» в других программах показывает файл в WinEx;\n• папки, которые другие программы открывают сами, по-прежнему открываются в Finder — macOS не даёт сменить программу для папок;\n• «Выйти» в строке меню возвращает всё Finder.": "When WinEx replaces Finder:\n• WinEx draws the desktop, and folders on it open in WinEx;\n• “Show in Finder” in other apps shows the file in WinEx;\n• folders that other apps open by themselves still open in Finder — macOS doesn’t let you change the app for folders;\n• “Quit” in the menu bar gives everything back to Finder.",
+        "Когда WinEx заменяет Finder:\n• рабочий стол рисует WinEx, папки с него открываются в WinEx;\n• «Показать в Finder» в других программах показывает файл в WinEx;\n• папки, которые другие программы открывают сами, по-прежнему открываются в Finder — macOS не даёт сменить программу для папок (для команды open в Терминале — флажок ниже);\n• «Выйти» в строке меню возвращает всё Finder.": "When WinEx replaces Finder:\n• WinEx draws the desktop, and folders on it open in WinEx;\n• “Show in Finder” in other apps shows the file in WinEx;\n• folders that other apps open by themselves still open in Finder — macOS doesn’t let you change the app for folders (for the open command in Terminal — the checkbox below);\n• “Quit” in the menu bar gives everything back to Finder.",
         "Рабочий стол:": "Desktop:",
         "Рабочий стол и «Показать в Finder» переходят к WinEx. «Выйти» в строке меню возвращает Finder.": "The desktop and “Show in Finder” go to WinEx. “Quit” in the menu bar brings Finder back.",
         "Значки:": "Icons:",
@@ -622,5 +622,7 @@ enum English {
         "перетащите в список": "drag into the list",
         "Окно:": "Window:",
         "Файлы:": "Files:",
+        "Команда open в Терминале открывает папки в WinEx": "The open command in Terminal opens folders in WinEx",
+        "«open ~/Documents» и «open .» откроют папку в WinEx; файлы, программы и ссылки — как раньше. WinEx добавит небольшую функцию в ~/.zshrc (снимите флажок — уберёт). Действует в новых окнах Терминала.": "“open ~/Documents” and “open .” open the folder in WinEx; files, apps and links as before. WinEx adds a small function to ~/.zshrc (uncheck to remove it). Takes effect in new Terminal windows.",
     ]
 }
