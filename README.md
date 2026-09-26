@@ -235,9 +235,18 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
 - Menu: View ▸ large / medium / small icons, Auto Arrange Icons, Align Icons to Grid, Show Desktop
   Icons; Sort By ▸ name / size / type / date; New ▸ — the new file appears where the menu was opened.
 
+## First launch
+
+A setup assistant walks through the essentials, each step can be skipped: language, Full Disk
+Access (with a live status), WinEx instead of Finder, Finder or Windows keys and the global shortcut,
+the default folder view, the command bar, hidden files, opening at login, updates and where new
+windows open. It slides from step to step, comes back after a restart it asked for (a new language,
+Full Disk Access), and can be run again from Settings ▸ General or the menu. People who used WinEx
+before it existed don't see it after updating.
+
 ## Settings
 
-- General: language, where new windows open, the global shortcut, hidden files, the command bar,
+- General: language, where new windows open, the default folder view, the global shortcut, hidden files, the command bar,
   “Open in Terminal” and the terminal, “Open WinEx at login” (a login item — at login WinEx starts
   without a window); save every setting to a file, load them back (WinEx restarts with the same
   windows), or restore the defaults (the desktop icon arrangement and the Finder mode stay).

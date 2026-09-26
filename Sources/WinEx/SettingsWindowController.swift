@@ -9,6 +9,7 @@ final class SettingsWindowController: NSWindowController {
     private let tagsView = TagSettingsView()
     // Основные
     private let startPopup = NSPopUpButton()
+    private let viewModePopup = NSPopUpButton()
     private let languagePopup = NSPopUpButton()
     private let languageHint = SettingsForm.hint("")
     private let hotKeyPopup = NSPopUpButton()
@@ -103,11 +104,19 @@ final class SettingsWindowController: NSWindowController {
         }
         languagePopup.target = self
         languagePopup.action = #selector(changeLanguage(_:))
+        for mode in ViewMode.allCases {
+            viewModePopup.addItem(withTitle: mode.title)
+            viewModePopup.lastItem?.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: nil)
+            viewModePopup.lastItem?.tag = mode.rawValue
+        }
+        viewModePopup.target = self
+        viewModePopup.action = #selector(changeViewMode(_:))
         return SettingsForm.build([
             .row(L("Язык:"), languagePopup),
             .row(nil, languageHint),
             .gap,
             .row(L("Новые окна открываются в:"), startPopup),
+            .row(L("Вид папок по умолчанию:"), viewModePopup),
             .row(L("Окно WinEx из любой программы:"), hotKeyPopup),
             .row(nil, hotKeyHint),
             .gap,
@@ -203,13 +212,24 @@ final class SettingsWindowController: NSWindowController {
         return stack
     }
 
+    /// The default view for folders (like "Вид ▸ Применить ко всем папкам").
+    @objc private func changeViewMode(_ sender: NSPopUpButton) {
+        guard let mode = ViewMode(rawValue: sender.selectedTag()) else { return }
+        ViewMode.applyToAllFolders(mode)
+    }
+
     private func settingsButtons() -> NSView {
         let save = NSButton(title: L("Сохранить в файл…"), target: self, action: #selector(saveSettings(_:)))
         let load = NSButton(title: L("Загрузить из файла…"), target: self, action: #selector(loadSettings(_:)))
         let reset = NSButton(title: L("По умолчанию…"), target: self, action: #selector(resetSettings(_:)))
+        let wizard = NSButton(title: L("Мастер настройки…"), target: AppDelegate.shared, action: #selector(AppDelegate.showSetupWizard(_:)))
         let row = NSStackView(views: [save, load, reset])
+        let column = NSStackView(views: [row, wizard])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 8
         row.spacing = 8
-        return row
+        return column
     }
 
     @objc private func saveSettings(_ sender: Any?) { SettingsBackup.save(from: window) }
@@ -238,6 +258,7 @@ final class SettingsWindowController: NSWindowController {
 
     func sync() {
         syncLanguage()
+        viewModePopup.selectItem(withTag: ViewMode.saved.rawValue)
         tagsView.refresh()
         replaceCheckbox.state = Settings.replaceFinder ? .on : .off
         resetDesktopButton.isEnabled = Settings.replaceFinder

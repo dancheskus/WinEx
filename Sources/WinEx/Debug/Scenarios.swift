@@ -32,6 +32,7 @@ enum Scenarios {
         "apps": appsSettings,
         "backup": backup,
         "tabmerge": tabMerge,
+        "wizard": wizard,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -609,6 +610,30 @@ enum Scenarios {
                 s.note("  tabs now: \(target.tabs.map(\.title))  expect Вторая second")
             }),
         ])
+    }
+
+    /// Every step of the setup assistant, photographed (scripts/capture-window.sh wizard 8).
+    static func wizard(_ s: Scenario) {
+        AppDelegate.shared.windowControllers.forEach { $0.window?.close() }
+        SetupWizard.show()
+        func window() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.windowController is SetupWizard } }
+        @MainActor func step(_ index: Int) {
+            guard let window = window() else { s.note("  (no wizard)"); return s.run([]) }
+            try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+            @MainActor func wait(_ tries: Int) {
+                if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-\(index)").path) || tries == 0 {
+                    guard index < 7 else { window.close(); return s.run([]) }
+                    // "Пропустить" (so nothing is applied to the scenario's settings… or the Mac)
+                    let skip = s.findAll(NSButton.self, in: window.contentView ?? NSView()).first { $0.title == L(index == 0 ? "Начать" : "Пропустить") }
+                    if index == 0 { skip?.performClick(nil) } else { skip?.performClick(nil) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { step(index + 1) }
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { wait(tries - 1) }
+            }
+            wait(50)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { step(0) }
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.

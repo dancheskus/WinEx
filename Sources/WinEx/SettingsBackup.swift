@@ -107,6 +107,8 @@ enum SettingsBackup {
     /// Removes every setting except the kept ones (without the restart).
     static func reset() {
         for key in settings.keys where !keptOnReset.contains(key) { AppDefaults.store.removeObject(forKey: key) }
+        // Back to the defaults: the setup assistant welcomes again after the restart
+        AppDefaults.store.set(0, forKey: "setupWizardStep")
     }
 
     private static func show(_ error: Error, in window: NSWindow?) {

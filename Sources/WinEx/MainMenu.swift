@@ -47,6 +47,7 @@ enum MainMenu {
 
         submenu("WinEx", [
             item(L("Настройки…"), #selector(AppDelegate.showSettings(_:)), ","),
+            item(L("Мастер настройки…"), #selector(AppDelegate.showSetupWizard(_:)), ""),
             item(L("Проверить обновления…"), #selector(AppDelegate.checkForUpdates(_:)), ""),
             .separator(),
             item(L("Выйти из WinEx"), #selector(NSApplication.terminate(_:)), "q"),

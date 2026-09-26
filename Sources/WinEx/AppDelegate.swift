@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SetupWizard.markExistingUser()
         setupStatusItem()
 
         #if DEBUG
@@ -43,7 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Tags already on files join the sidebar's list (one quick Spotlight query)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { TagLibrary.discover() }
         // Back from a restart (a new language): the same windows as before
-        if restoreSession() { return }
+        let restored = restoreSession()
+        // The first launch (or back to the assistant after a restart it asked for)
+        if SetupWizard.shouldShow { SetupWizard.show(); return }
+        if restored { return }
         // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
         if !openedByEvent && !launchedAtLogin { openWindow(at: Settings.startURL) }
     }
@@ -268,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(withTitle: L("Загрузки"), action: #selector(openDownloadsFolder(_:)), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: L("Настройки…"), action: #selector(showSettings(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: L("Мастер настройки…"), action: #selector(showSetupWizard(_:)), keyEquivalent: "").target = self
         menu.addItem(withTitle: L("Проверить обновления…"), action: #selector(checkForUpdates(_:)), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: L("Выйти из WinEx (вернуть Finder)"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
@@ -290,6 +295,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func openDownloadsFolder(_ sender: Any?) {
         openWindow(at: FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
+    }
+
+    @objc func showSetupWizard(_ sender: Any?) {
+        SetupWizard.show()
     }
 
     @objc func showSettings(_ sender: Any?) {
