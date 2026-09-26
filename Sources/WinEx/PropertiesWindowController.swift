@@ -261,7 +261,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - «Подробно»
 
     private func detailsPage() -> NSView {
-        let loading = PropertiesUI.value(L("Собираю сведения…"))
+        let loading = PropertiesUI.value(L("Сбор сведений…"))
         loading.textColor = .secondaryLabelColor
         detailsStack.addArrangedSubview(loading)
         return detailsStack
@@ -318,7 +318,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             let read = bits & 4 != 0, write = bits & 2 != 0, run = bits & 1 != 0
             var text = read && write ? L("Чтение и запись") : read ? L("Только чтение") : write ? L("Только запись") : L("Нет доступа")
             if run && !isFolder { text += L(", запуск") }
-            if !run && isFolder && read { text += L(" (без входа в папку)") }
+            if !run && isFolder && read { text += L(" (содержимое не открыть)") }
             return text
         }
         page.addArrangedSubview(PropertiesUI.card(L("Права"), [
@@ -333,8 +333,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
                      access.isDeletableFile(atPath: single.path) ? L("удалять") : nil].compactMap { $0 }
         let flags = try? single.resourceValues(forKeys: [.isUserImmutableKey, .isHiddenKey])
         page.addArrangedSubview(attributesCard([flags]))
-        page.addArrangedSubview(PropertiesUI.card(L("Для вас"), [
-            PropertiesUI.row(L("Можно"), PropertiesUI.value(yours.isEmpty ? L("Ничего") : yours.joined(separator: ", ").capitalizedFirst)),
+        page.addArrangedSubview(PropertiesUI.card(L("Ваши права"), [
+            PropertiesUI.row(L("Вы можете"), PropertiesUI.value(yours.isEmpty ? L("Ничего") : yours.joined(separator: ", ").capitalizedFirst)),
         ]))
         return page
     }

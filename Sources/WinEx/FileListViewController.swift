@@ -464,7 +464,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         allItemsOrder = listing.order
         errorMessage = listing.error.map { error in
             location == .trash
-                ? L("WinEx нужен «Полный доступ к диску», чтобы показать Корзину (правый клик → открыть настройки)")
+                ? L("Корзина откроется, когда WinEx получит «Полный доступ к диску»")
                 : error.localizedDescription
         }
     }
@@ -557,7 +557,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         guard items.isEmpty, drivesView.isHidden else { return emptyState.isHidden = true }
         if location == .trash, errorMessage != nil {
             emptyState.show(L("Нет доступа к Корзине"),
-                            detail: L("macOS показывает Корзину только программам с «Полным доступом к диску». Включите WinEx в настройках и нажмите «Закрыть и открыть снова». После пересборки WinEx доступ нужно дать заново."),
+                            detail: L("macOS показывает Корзину только программам с «Полным доступом к диску». Включите WinEx в настройках и нажмите «Закрыть и открыть снова»."),
                             button: L("Открыть настройки «Полный доступ к диску»…")) { Places.openFullDiskAccessSettings() }
         } else if let errorMessage {
             emptyState.show(L("Нет доступа к папке"), detail: errorMessage)

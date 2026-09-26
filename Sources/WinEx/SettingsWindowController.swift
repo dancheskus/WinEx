@@ -127,7 +127,7 @@ final class SettingsWindowController: NSWindowController {
             .gap,
             .row(L("Терминал:"), terminalCheckbox),
             .row(nil, terminalPopup),
-            .row(nil, SettingsForm.hint(L("Для папки — она сама, для файла — его папка; на пустом месте — открытая папка или рабочий стол."))),
+            .row(nil, SettingsForm.hint(L("Папка откроется в терминале, для файла — папка, где он лежит; скрипт запустится."))),
             .gap,
             .row(L("Запуск:"), loginCheckbox),
             .row(nil, loginNote()),
@@ -204,7 +204,7 @@ final class SettingsWindowController: NSWindowController {
             .row(L("Обновления:"), updatesCheckbox),
             .row(nil, SettingsForm.hint(Updater.shared.isDevBuild
                 ? L("Своя сборка сама не обновляется — только по кнопке «Проверить сейчас».")
-                : L("Раз в сутки WinEx проверяет новые версии и предлагает обновиться. Разрешения сохраняются."))),
+                : L("Раз в сутки WinEx проверяет новые версии и предлагает обновиться. Выданные разрешения после обновления останутся."))),
             .row(nil, NSStackView(views: [checkNow, releases])),
         ])
     }
@@ -251,7 +251,7 @@ final class SettingsWindowController: NSWindowController {
 
     private func syncLanguage() {
         languagePopup.selectItem(at: Localization.Language.allCases.firstIndex(of: Localization.chosen) ?? 0)
-        languageHint.stringValue = L("«Как в системе»: русский, если macOS на русском, иначе английский.")
+        languageHint.stringValue = L("Язык macOS; если он не русский и не английский — английский.")
     }
 
     /// A new language: WinEx restarts at once and comes back with the same windows, tabs and
@@ -287,7 +287,7 @@ final class SettingsWindowController: NSWindowController {
         loginCheckbox.state = LoginItem.isEnabled || LoginItem.needsApproval ? .on : .off
         loginHint.stringValue = LoginItem.needsApproval
             ? L("macOS ждёт разрешения в «Системные настройки ▸ Основные ▸ Объекты входа».")
-            : L("Без окна: значок в строке меню и, если WinEx заменяет Finder, рабочий стол.")
+            : L("Запускается без окна: значок в строке меню и, если WinEx заменяет Finder, рабочий стол.")
         loginApproveButton.isHidden = !LoginItem.needsApproval
     }
 

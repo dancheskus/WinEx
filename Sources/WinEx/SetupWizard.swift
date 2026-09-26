@@ -264,7 +264,7 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
         case .language:
             let group = WizardChoiceGroup(options: Localization.Language.allCases.map { language in
                 (symbol: language == .system ? "globe" : "character.bubble", title: language.title,
-                 detail: language == .system ? L("Русский, если macOS на русском, иначе английский") : nil)
+                 detail: language == .system ? L("Сейчас — %@", Localization.systemIsRussian ? "русский" : "English") : nil)
             }, selected: Localization.Language.allCases.firstIndex(of: language) ?? 0) { [weak self] in
                 self?.language = Localization.Language.allCases[$0]
             }
@@ -300,7 +300,7 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
         case .finder:
             let group = WizardChoiceGroup(options: [
                 ("macwindow", L("Только окна"), L("Finder остаётся; WinEx — обычная программа со своими окнами.")),
-                ("menubar.dock.rectangle", L("Окна и рабочий стол"), L("Рабочий стол рисует WinEx, «Показать в Finder» в других программах открывает WinEx. Значки встанут как у Finder.")),
+                ("menubar.dock.rectangle", L("Окна и рабочий стол"), L("Рабочий стол рисует WinEx, а «Показать в Finder» в других программах открывает WinEx. Значки останутся на своих местах.")),
             ], selected: replaceFinder ? 1 : 0) { [weak self] in self?.replaceFinder = $0 == 1 }
             return WizardPage(symbol: "arrow.triangle.swap", colors: [.systemOrange, .systemPink], title: L("WinEx вместо Finder?"),
                               text: L("«Выйти» в строке меню всегда возвращает всё Finder."), content: [group])
@@ -322,7 +322,7 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
                 (ViewMode.details.symbol, ViewMode.details.title, nil),
             ], selected: modes.firstIndex(of: viewMode) ?? 0, horizontal: true) { [weak self] in self?.viewMode = modes[$0] }
             return WizardPage(symbol: "square.grid.2x2.fill", colors: [.systemIndigo, .systemBlue], title: L("Вид папок"),
-                              text: L("Вид запоминается для каждой папки; это — вид по умолчанию."), content: [
+                              text: L("Для папок, которым вы ещё не выбрали свой вид."), content: [
                 group,
                 WizardToggle(L("Панель команд под адресной строкой"), L("Создать, вырезать, копировать, сортировать, вид…"), on: commandBar) { [weak self] in self?.commandBar = $0 },
                 WizardToggle(L("Показывать скрытые файлы"), nil, on: showHidden) { [weak self] in self?.showHidden = $0 },
@@ -334,14 +334,14 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
             if replaceFinder && !LoginItem.isEnabled { openAtLogin = true }
             return WizardPage(symbol: "power", colors: [.systemRed, .systemOrange], title: L("Запуск"), text: nil, content: [
                 WizardToggle(L("Открывать WinEx при входе в систему"),
-                             replaceFinder ? L("Нужно для рабочего стола WinEx после перезагрузки") : L("Без окна: значок в строке меню"),
+                             replaceFinder ? L("Иначе после перезагрузки рабочий стол WinEx не появится") : L("Запускается без окна, со значком в строке меню"),
                              on: openAtLogin) { [weak self] in self?.openAtLogin = $0 },
-                WizardToggle(L("Проверять обновления автоматически"), L("Раз в сутки; разрешения сохраняются"), on: checkUpdates) { [weak self] in self?.checkUpdates = $0 },
+                WizardToggle(L("Проверять обновления автоматически"), L("Раз в сутки"), on: checkUpdates) { [weak self] in self?.checkUpdates = $0 },
                 folderRow,
             ])
         case .done:
             return WizardPage(symbol: "checkmark", colors: [.systemGreen, .systemMint], title: L("Готово!"),
-                              text: L("Всё можно поменять в «Настройки» (⌘,). Мастер можно пройти снова оттуда же."), content: [
+                              text: L("Всё это можно изменить в настройках (⌘,) — там же можно снова открыть мастер."), content: [
                 WizardPage.feature("sidebar.left", L("Перетащите папку в «Избранное», чтобы закрепить")),
                 WizardPage.feature("cursorarrow.click.2", L("Правый щелчок — меню в стиле Windows 11")),
                 WizardPage.feature("tag", L("Теги, программы и боковое меню — в настройках")),

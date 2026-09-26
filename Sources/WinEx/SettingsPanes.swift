@@ -48,7 +48,7 @@ final class SidebarSettingsView: NSView {
                 if on { SidebarConfig.pin(url) } else { SidebarConfig.unpin(url) }
             }
         }
-        stack.addArrangedSubview(SettingsForm.hint(L("Перетащите папку в «Избранное» боковой панели, чтобы закрепить её; перетаскиванием меняется и порядок.")))
+        stack.addArrangedSubview(SettingsForm.hint(L("Чтобы закрепить папку, перетащите её в «Избранное» в боковой панели. Порядок тоже меняется перетаскиванием.")))
 
         heading(L("Места"))
         for place in SidebarConfig.Place.allCases {
@@ -57,7 +57,7 @@ final class SidebarSettingsView: NSView {
 
         heading(L("Теги"))
         row(L("Теги"), symbol: "tag", on: SidebarConfig.showsTags) { SidebarConfig.showsTags = $0 }
-        stack.addArrangedSubview(SettingsForm.hint(L("Какие именно теги показывать — во вкладке «Теги».")))
+        stack.addArrangedSubview(SettingsForm.hint(L("Какие теги показывать, выбирается во вкладке «Теги».")))
         // A folder pinned or unpinned meanwhile: the window follows the new height
         (nextResponder as? NSViewController)?.preferredContentSize = fittingSize
     }
@@ -360,20 +360,20 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         stack.spacing = 8
 
         stack.addArrangedSubview(Self.heading(L("Открыть с помощью")))
-        stack.addArrangedSubview(SettingsForm.wideHint(L("Свои программы — для каких объектов и типов файлов их предлагать; «В меню» — отдельный пункт «Открыть в …» в контекстном меню.")))
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Добавьте программу и укажите, для чего её предлагать. «В меню» — отдельный пункт «Открыть в …» прямо в контекстном меню.")))
         setUp(appsTable, columns: [("app", L("Программа"), 205), ("scope", L("Для"), 150), ("ext", L("Расширения"), 140), ("menu", L("В меню"), 90)])
         stack.addArrangedSubview(Self.scroll(appsTable, height: 130))
         stack.addArrangedSubview(buttons(add: #selector(addApp(_:)), remove: removeApp, action: #selector(removeApp(_:))))
         stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
 
-        stack.addArrangedSubview(SettingsForm.wideHint(L("Программы, которые macOS предлагает в «Открыть с помощью» (снимите флажок — не предлагать):")))
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Программы в «Открыть с помощью» — снимите флажок, чтобы скрыть:")))
         setUp(hiddenTable, columns: [("shown", "", 34), ("hidden", L("Программа"), 560)])
         hiddenTable.headerView = nil
         stack.addArrangedSubview(Self.scroll(hiddenTable, height: 200))
         stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
 
         stack.addArrangedSubview(Self.heading(L("Создать")))
-        stack.addArrangedSubview(SettingsForm.wideHint(L("Какие файлы предлагать в «Создать ▸». Свой тип — название, имя нового файла с расширением и, если нужно, файл-образец, который будет копироваться.")))
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Что предлагать в меню «Создать». Для своего типа укажите название, имя файла и, если хотите, образец — новые файлы будут его копиями.")))
         setUp(templatesTable, columns: [("on", "", 34), ("title", L("Название"), 210), ("file", L("Имя файла"), 230), ("source", L("Образец"), 110)])
         stack.addArrangedSubview(Self.scroll(templatesTable, height: 240))
         stack.addArrangedSubview(buttons(add: #selector(addTemplate(_:)), remove: removeTemplate, action: #selector(removeTemplate(_:))))
@@ -530,7 +530,7 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
             button.isBordered = false
             button.contentTintColor = .linkColor
             button.tag = row
-            button.toolTip = custom.sourcePath ?? L("Файл, который будет копироваться; без него создаётся пустой файл")
+            button.toolTip = custom.sourcePath ?? L("Новые файлы будут копиями образца; без него — пустыми")
             return button
         }
     }
@@ -676,7 +676,7 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         panel.canChooseDirectories = false
         panel.treatsFilePackagesAsDirectories = false
         panel.prompt = L("Выбрать")
-        panel.message = L("Файл, который будет копироваться; без него создаётся пустой файл")
+        panel.message = L("Новые файлы будут копиями образца; без него — пустыми")
         guard let window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             MainActor.assumeIsolated {
