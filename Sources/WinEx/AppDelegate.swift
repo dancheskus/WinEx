@@ -48,8 +48,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // The first launch (or back to the assistant after a restart it asked for)
         if SetupWizard.shouldShow { SetupWizard.show(); return }
         if restored { return }
-        // At login WinEx starts quietly (desktop + menu bar); a normal launch opens a window
-        if !openedByEvent && !launchedAtLogin { openWindow(at: Settings.startURL) }
+        // Starting WinEx opens no window (the desktop and the menu bar icon come up); a click on
+        // its Dock icon, the global shortcut or «Новое окно» opens one
+        #if DEBUG
+        if Scenario.isRequested { openWindow(at: Settings.startURL) }  // the scenarios work in a window
+        #endif
     }
 
     // MARK: - Restart with the same windows
