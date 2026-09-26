@@ -43,9 +43,70 @@ enum Scenarios {
         "unzip": unzip,
         "paste": pasteKeys,
         "keys": keyboardShortcuts,
+        "threecopies": threeCopies,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// Three copies at once: how their windows look and sit, and cancelling the middle one alone.
+    static func threeCopies(_ s: Scenario) {
+        let fm = FileManager.default
+        let from = s.makeFiles([], in: "from")
+        let names = ["Видео.mov", "Архив.zip", "Образ.dmg"]
+        for name in names {
+            let url = from.appendingPathComponent(name)
+            fm.createFile(atPath: url.path, contents: nil)
+            if let handle = try? FileHandle(forWritingTo: url) {
+                let chunk = Data(repeating: 0x5A, count: 8 << 20)
+                for _ in 0..<15 { handle.write(chunk) }  // 120 MB
+                try? handle.close()
+            }
+        }
+        let targets = (1...3).map { s.makeFiles([], in: "to\($0)") }
+        FileOperation.cloneFiles = false
+        FileOperation.slowDownForTesting = 0.12
+        func progressWindows() -> [NSWindow] {
+            NSApp.windows.filter { $0.isVisible && $0.windowController is FileOperationWindowController }.sorted { $0.windowNumber < $1.windowNumber }
+        }
+        s.run([
+            (0.5, "start three copies, a moment apart", {
+                for (n, name) in names.enumerated() {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(n) * 0.4) {
+                        FileOperations.start(.copy, [from.appendingPathComponent(name)], to: targets[n])
+                    }
+                }
+            }),
+            (2.5, "the windows", {
+                let windows = progressWindows()
+                s.note("  progress windows: \(windows.count)")
+                for (n, window) in windows.enumerated() {
+                    s.note("    [\(n)] «\(window.title)» at \(Int(window.frame.minX)),\(Int(window.frame.minY)) \(Int(window.frame.width))×\(Int(window.frame.height))")
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(n)"), atomically: true, encoding: .utf8)
+                }
+                let frames = Set(windows.map { "\($0.frame)" })
+                s.note("  on top of each other: \(frames.count == 1 && windows.count > 1)")
+            }),
+            (3.0, "cancel the second one", {
+                let windows = progressWindows()
+                guard windows.count >= 2, let content = windows[1].contentView else { s.note("  (no second window)"); return }
+                let cancel = s.findAll(NSButton.self, in: content).first { $0.toolTip == L("Отмена") }
+                s.note("  cancelling «\(windows[1].title)» (button found: \(cancel != nil))")
+                cancel?.performClick(nil)
+            }),
+            (1.0, "right after", {
+                s.note("  still running: \(progressWindows().map(\.title))")
+            }),
+            (25.0, "when the others are done", {
+                for (n, target) in targets.enumerated() {
+                    let size = (try? fm.attributesOfItem(atPath: target.appendingPathComponent(names[n]).path)[.size] as? Int) ?? nil
+                    s.note("  \(names[n]): \(size.map { "\($0 >> 20) MB" } ?? "no file")  expect \(n == 1 ? "no file (cancelled)" : "120 MB")")
+                }
+                s.note("  windows left: \(progressWindows().count)  expect 0")
+                FileOperation.slowDownForTesting = 0
+                FileOperation.cloneFiles = true
+            }),
+        ])
+    }
 
     /// Every shortcut of Settings ▸ Клавиатура, in both modes, as a real keyboard sends it (arrows and
     /// F-keys with their function / numeric-pad flags), through the application like real key
