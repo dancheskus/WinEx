@@ -775,33 +775,57 @@ final class FenceSettingsView: NSView {
         quickHide.title = L("Двойной щелчок по рабочему столу скрывает значки и зоны")
         quickHide.state = FenceStyle.quickHide ? .on : .off
 
-        let form = SettingsForm.build([
-            .row(L("Зоны:"), enabled),
-            .row(nil, SettingsForm.hint(L("Выключено — все значки снова обычные, зоны и порталы скрыты; включите, и они вернутся."))),
-            .gap,
-            .row(nil, preview),
-            .gap,
-            .row(L("Скругление углов:"), NSStackView(views: [radiusSlider, radiusValue])),
-            .row(L("Цвет:"), colorRow),
-            .row(L("Непрозрачность:"), NSStackView(views: [opacitySlider, opacityValue])),
-            .row(nil, blur),
-            .gap,
-            .row(L("Поведение:"), snapping),
-            .row(nil, SettingsForm.hint(L("⌘ при перетаскивании временно отключает прилипание."))),
-            .row(nil, quickHide),
-            .gap,
+        // Settings on the left, a sample zone beside the look-related rows, snapshots underneath
+        let grid = NSGridView()
+        grid.rowSpacing = 8
+        grid.columnSpacing = 10
+        func row(_ label: String?, _ view: NSView) {
+            let title = NSTextField(labelWithString: label ?? "")
+            title.alignment = .right
+            grid.addRow(with: [title, view, NSGridCell.emptyContentView]).rowAlignment = .firstBaseline
+        }
+        func gap() { grid.addRow(with: [NSGridCell.emptyContentView]).height = 6 }
+        row(L("Зоны:"), enabled)
+        row(nil, SettingsForm.hint(L("Выключено — все значки снова обычные, зоны и порталы скрыты; включите, и они вернутся.")))
+        gap()
+        let lookRows = grid.numberOfRows
+        row(L("Скругление углов:"), NSStackView(views: [radiusSlider, radiusValue]))
+        row(L("Цвет:"), colorRow)
+        row(L("Непрозрачность:"), NSStackView(views: [opacitySlider, opacityValue]))
+        row(nil, blur)
+        grid.cell(atColumnIndex: 2, rowIndex: lookRows).contentView = preview
+        grid.mergeCells(inHorizontalRange: NSRange(location: 2, length: 1), verticalRange: NSRange(location: lookRows, length: 4))
+        gap()
+        row(L("Поведение:"), snapping)
+        row(nil, SettingsForm.hint(L("⌘ при перетаскивании временно отключает прилипание.")))
+        row(nil, quickHide)
+        row(nil, SettingsForm.hint(L("Создать зону — правый щелчок по рабочему столу WinEx; там же у каждой зоны свой цвет.")))
+        grid.column(at: 0).xPlacement = .trailing
+        grid.column(at: 1).xPlacement = .leading
+        grid.column(at: 2).xPlacement = .trailing
+        grid.cell(atColumnIndex: 2, rowIndex: lookRows).yPlacement = .center
+        grid.translatesAutoresizingMaskIntoConstraints = false
 
-            .row(nil, SettingsForm.hint(L("Зоны работают на рабочем столе WinEx (Настройки ▸ Finder). Создать — правый щелчок по рабочему столу; у каждой зоны можно выбрать свой цвет в её меню."))),
-        ])
-        form.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(form)
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        let snapshots = SnapshotsSection()
+        snapshots.translatesAutoresizingMaskIntoConstraints = false
+        for view in [grid, separator, snapshots] as [NSView] { addSubview(view) }
         NSLayoutConstraint.activate([
-            form.topAnchor.constraint(equalTo: topAnchor),
-            form.leadingAnchor.constraint(equalTo: leadingAnchor),
-            form.trailingAnchor.constraint(equalTo: trailingAnchor),
-            form.bottomAnchor.constraint(equalTo: bottomAnchor),
-            preview.widthAnchor.constraint(equalToConstant: SettingsForm.controlWidth + 60),
-            preview.heightAnchor.constraint(equalToConstant: 150),
+            widthAnchor.constraint(equalToConstant: SettingsForm.width),
+            grid.topAnchor.constraint(equalTo: topAnchor, constant: 22),
+            grid.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            grid.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            separator.topAnchor.constraint(equalTo: grid.bottomAnchor, constant: 20),
+            separator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            separator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            snapshots.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 16),
+            snapshots.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
+            snapshots.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+            snapshots.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
+            preview.widthAnchor.constraint(equalToConstant: 200),
+            preview.heightAnchor.constraint(equalToConstant: 140),
         ])
         sync()
     }
@@ -827,7 +851,7 @@ private final class FencePreview: NSView {
         let backdrop = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
         NSGradient(colors: [NSColor(srgbRed: 0.10, green: 0.18, blue: 0.35, alpha: 1), NSColor(srgbRed: 0.42, green: 0.36, blue: 0.30, alpha: 1)])?
             .draw(in: backdrop, angle: 60)
-        let fence = NSRect(x: 40, y: 22, width: bounds.width - 80, height: bounds.height - 44)
+        let fence = bounds.insetBy(dx: 18, dy: 18)
         let radius = min(FenceStyle.cornerRadius, fence.height / 2)
         let shape = NSBezierPath(roundedRect: fence, xRadius: radius, yRadius: radius)
         if FenceStyle.blur {
@@ -849,9 +873,10 @@ private final class FencePreview: NSView {
             .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white, .paragraphStyle: paragraph,
         ]).draw(in: NSRect(x: fence.minX, y: fence.minY + 6, width: fence.width, height: 20))
         let icon = NSWorkspace.shared.icon(for: .folder)
-        let fits = max(1, Int((fence.width - 24) / 90))
+        let fits = max(1, Int((fence.width - 12) / 54))
+        let side = (fence.width - CGFloat(fits) * 54) / 2
         for n in 0..<fits {
-            icon.draw(in: NSRect(x: fence.minX + 24 + CGFloat(n) * 90, y: fence.minY + 42, width: 48, height: 48))
+            icon.draw(in: NSRect(x: fence.minX + side + 7 + CGFloat(n) * 54, y: fence.minY + 42, width: 40, height: 40))
         }
     }
 }

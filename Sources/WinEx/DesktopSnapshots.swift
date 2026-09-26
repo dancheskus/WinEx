@@ -159,15 +159,18 @@ enum DesktopSnapshots {
     }
 }
 
-/// Settings ▸ Снимки: automatic snapshots (how often), take one now, and every snapshot as a card
-/// with its picture — restore or delete it.
-final class SnapshotsSettingsView: NSView {
-    private let cards = NSStackView()
+/// The lower part of Settings ▸ Зоны: how often snapshots are taken, "take one now", and every
+/// snapshot as a tile with its picture in a sideways-scrolling strip (newest first).
+final class SnapshotsSection: NSView {
+    private let strip = NSStackView()
+    private let scroll = SidewaysScrollView()
     private let empty = SettingsForm.wideHint(L("Снимков пока нет. Они появятся автоматически или по кнопке «Сделать снимок»."))
     private let observers = Observers()
 
     init() {
         super.init(frame: .zero)
+        let title = NSTextField(labelWithString: L("Снимки рабочего стола"))
+        title.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         let interval = NSPopUpButton()
         for option in DesktopSnapshots.intervals {
             interval.addItem(withTitle: option.title)
@@ -176,51 +179,62 @@ final class SnapshotsSettingsView: NSView {
         interval.selectItem(withTag: DesktopSnapshots.intervalHours)
         interval.target = self
         interval.action = #selector(intervalChanged(_:))
-        let take = NSButton(title: L("Сделать снимок"), target: self, action: #selector(takeNow(_:)))
-        take.bezelColor = .controlAccentColor
-        let reveal = NSButton(title: L("Показать файлы"), target: self, action: #selector(revealFolder(_:)))
+        interval.controlSize = .small
+        interval.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         let label = NSTextField(labelWithString: L("Автоматически:"))
+        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = .secondaryLabelColor
+        let reveal = NSButton(image: NSImage(systemSymbolName: "folder", accessibilityDescription: nil) ?? NSImage(),
+                              target: self, action: #selector(revealFolder(_:)))
+        reveal.controlSize = .small
+        reveal.toolTip = L("Показать файлы")
+        let take = NSButton(title: L("Сделать снимок"), target: self, action: #selector(takeNow(_:)))
+        take.image = NSImage(systemSymbolName: "camera", accessibilityDescription: nil)
+        take.imagePosition = .imageLeading
+        take.controlSize = .small
+        take.bezelColor = .controlAccentColor
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let header = NSStackView(views: [label, interval, spacer, reveal, take])
+        let header = NSStackView(views: [title, spacer, label, interval, reveal, take])
         header.spacing = 8
-        let hint = SettingsForm.wideHint(L("Снимок — вся расстановка рабочего стола: значки в зонах и вне их, зоны и порталы, на всех мониторах. «Восстановить» возвращает её; текущая перед этим сохраняется отдельным снимком. Хранятся 30 последних автоматических снимков, сделанные вручную — пока их не удалить."))
+        let hint = SettingsForm.wideHint(L("Снимок хранит, где лежат значки, зоны и порталы на всех мониторах. Перед восстановлением текущая расстановка сама сохраняется снимком — его можно вернуть."))
 
-        cards.orientation = .vertical
-        cards.alignment = .leading
-        cards.spacing = 12
+        strip.orientation = .horizontal
+        strip.alignment = .top
+        strip.spacing = 12
+        strip.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 10, right: 0)
         let document = FlippedView()
-        cards.translatesAutoresizingMaskIntoConstraints = false
-        document.addSubview(cards)
-        let scroll = NSScrollView()
+        strip.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(strip)
         scroll.documentView = document
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
         document.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            cards.topAnchor.constraint(equalTo: document.topAnchor),
-            cards.leadingAnchor.constraint(equalTo: document.leadingAnchor),
-            cards.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            cards.bottomAnchor.constraint(equalTo: document.bottomAnchor),
-            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            strip.topAnchor.constraint(equalTo: document.topAnchor),
+            strip.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            strip.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+            strip.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            document.heightAnchor.constraint(equalTo: scroll.contentView.heightAnchor),
+            document.widthAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.widthAnchor),
         ])
 
         let stack = NSStackView(views: [header, hint, empty, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
+        stack.spacing = 10
+        stack.setCustomSpacing(14, after: hint)
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
-            widthAnchor.constraint(equalToConstant: SettingsForm.width),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             header.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            scroll.heightAnchor.constraint(equalToConstant: 470),
+            scroll.heightAnchor.constraint(equalToConstant: SnapshotTile.height + 10),
         ])
         observers.add(DesktopSnapshots.didChange) { [weak self] in self?.reload() }
         reload()
@@ -229,18 +243,18 @@ final class SnapshotsSettingsView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     private func reload() {
-        cards.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        strip.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let all = DesktopSnapshots.all
         empty.isHidden = !all.isEmpty
-        for snapshot in all {
-            let card = SnapshotCard(snapshot)
-            cards.addArrangedSubview(card)
-            card.widthAnchor.constraint(equalTo: cards.widthAnchor).isActive = true
-        }
+        scroll.isHidden = all.isEmpty
+        all.forEach { strip.addArrangedSubview(SnapshotTile($0)) }
     }
 
     @objc private func intervalChanged(_ sender: NSPopUpButton) { DesktopSnapshots.intervalHours = sender.selectedTag() }
-    @objc private func takeNow(_ sender: Any?) { DesktopSnapshots.take(automatic: false) }
+    @objc private func takeNow(_ sender: Any?) {
+        DesktopSnapshots.take(automatic: false)
+        scroll.contentView.scroll(to: .zero)
+    }
 
     @objc private func revealFolder(_ sender: Any?) {
         try? FileManager.default.createDirectory(at: DesktopSnapshots.folder, withIntermediateDirectories: true)
@@ -248,59 +262,81 @@ final class SnapshotsSettingsView: NSView {
     }
 }
 
-/// One snapshot: its picture, when, how, what — and «Восстановить» / «Удалить».
-private final class SnapshotCard: NSView {
+/// A strip that scrolls sideways with an ordinary mouse wheel too.
+private final class SidewaysScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        guard abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX), let document = documentView else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let step = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 12
+        let maxX = max(document.frame.width - contentView.bounds.width, 0)
+        let x = min(max(contentView.bounds.origin.x - step, 0), maxX)
+        contentView.scroll(to: NSPoint(x: x, y: contentView.bounds.origin.y))
+        reflectScrolledClipView(contentView)
+    }
+}
+
+/// One snapshot: its picture (a click shows it bigger), when, what — «Восстановить» and a bin.
+private final class SnapshotTile: NSView {
+    static let width: CGFloat = 200
+    static let pictureHeight: CGFloat = 124
+    static let height: CGFloat = 214
     private let snapshot: DesktopSnapshots.Snapshot
+    private let picture = NSImageView()
 
     init(_ snapshot: DesktopSnapshots.Snapshot) {
         self.snapshot = snapshot
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 12
-        let picture = NSImageView()
+        layer?.cornerRadius = 10
         picture.wantsLayer = true
+        picture.layer?.cornerRadius = 6
+        picture.layer?.masksToBounds = true
+        picture.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.25).cgColor
         if let preview = snapshot.preview {
             picture.image = preview
             picture.imageScaling = .scaleProportionallyUpOrDown
+            picture.toolTip = L("Показать крупнее")
         } else {
             // Older snapshots have no picture: a small symbol on a dim plate
             picture.image = NSImage(systemSymbolName: "photo", accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 36, weight: .light))
+                .withSymbolConfiguration(.init(pointSize: 26, weight: .light))
             picture.imageScaling = .scaleNone
             picture.contentTintColor = .tertiaryLabelColor
-            picture.layer?.backgroundColor = NSColor.quaternaryLabelColor.withAlphaComponent(0.08).cgColor
         }
-        picture.layer?.cornerRadius = 8
-        picture.layer?.masksToBounds = true
         let date = NSTextField(labelWithString: DesktopSnapshots.describe(snapshot))
-        date.font = .systemFont(ofSize: 14, weight: .semibold)
-        let kind = NSTextField(labelWithString: snapshot.automatic ? L("Автоматически") : L("Вручную"))
-        kind.textColor = .secondaryLabelColor
+        date.font = .systemFont(ofSize: 12, weight: .semibold)
         let contents = NSTextField(labelWithString:
-            "\(snapshot.icons) \(plural(snapshot.icons, L("значок"), L("значка"), L("значков"))), \(snapshot.fences) \(plural(snapshot.fences, L("зона"), L("зоны"), L("зон")))")
+            "\(snapshot.automatic ? L("Авто") : L("Вручную")) · \(snapshot.icons) \(plural(snapshot.icons, L("значок"), L("значка"), L("значков"))), \(snapshot.fences) \(plural(snapshot.fences, L("зона"), L("зоны"), L("зон")))")
+        contents.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         contents.textColor = .secondaryLabelColor
+        contents.lineBreakMode = .byTruncatingTail
         let restore = NSButton(title: L("Восстановить"), target: self, action: #selector(restore(_:)))
-        let delete = NSButton(title: L("Удалить"), target: self, action: #selector(remove(_:)))
+        restore.controlSize = .small
+        let delete = NSButton(image: NSImage(systemSymbolName: "trash", accessibilityDescription: L("Удалить")) ?? NSImage(),
+                              target: self, action: #selector(remove(_:)))
+        delete.controlSize = .small
+        delete.toolTip = L("Удалить")
         let buttons = NSStackView(views: [restore, delete])
-        buttons.spacing = 8
-        let info = NSStackView(views: [date, kind, contents, buttons])
-        info.orientation = .vertical
-        info.alignment = .leading
-        info.spacing = 6
-        info.setCustomSpacing(14, after: contents)
-        let row = NSStackView(views: [picture, info])
-        row.spacing = 16
-        row.alignment = .top
-        row.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(row)
-        let ratio = snapshot.preview.map { $0.size.height / max($0.size.width, 1) } ?? 0.56
+        buttons.spacing = 6
+        let stack = NSStackView(views: [picture, date, contents, buttons])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 3
+        stack.setCustomSpacing(8, after: picture)
+        stack.setCustomSpacing(8, after: contents)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
         NSLayoutConstraint.activate([
-            row.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
-            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            row.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-            picture.widthAnchor.constraint(equalToConstant: 380),
-            picture.heightAnchor.constraint(equalToConstant: min(380 * ratio, 260)),
+            widthAnchor.constraint(equalToConstant: Self.width),
+            heightAnchor.constraint(equalToConstant: Self.height),
+            stack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            picture.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            picture.heightAnchor.constraint(equalToConstant: Self.pictureHeight),
+            contents.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
         ])
         toolTip = snapshot.url.lastPathComponent
     }
@@ -309,6 +345,31 @@ private final class SnapshotCard: NSView {
 
     override var wantsUpdateLayer: Bool { true }
     override func updateLayer() { layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05).cgColor }
+
+    private var pictureRect: NSRect { picture.convert(picture.bounds, to: self) }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let preview = snapshot.preview,
+              pictureRect.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        // The picture, big, in a popover
+        let size = NSSize(width: 640, height: (640 * preview.size.height / max(preview.size.width, 1)).rounded())
+        let big = NSImageView(frame: NSRect(origin: .zero, size: size))
+        big.image = preview
+        big.imageScaling = .scaleProportionallyUpOrDown
+        let controller = NSViewController()
+        let container = NSView(frame: NSRect(origin: .zero, size: NSSize(width: size.width + 20, height: size.height + 20)))
+        big.frame.origin = NSPoint(x: 10, y: 10)
+        container.addSubview(big)
+        controller.view = container
+        let popover = NSPopover()
+        popover.contentViewController = controller
+        popover.behavior = .transient
+        popover.show(relativeTo: picture.bounds, of: picture, preferredEdge: .maxY)
+    }
+
+    override func resetCursorRects() {
+        if snapshot.preview != nil { addCursorRect(pictureRect, cursor: .pointingHand) }
+    }
 
     @objc private func restore(_ sender: Any?) { DesktopSnapshots.restore(snapshot) }
     @objc private func remove(_ sender: Any?) { DesktopSnapshots.delete(snapshot) }

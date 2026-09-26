@@ -807,18 +807,10 @@ enum Scenarios {
                 // One with a picture, then Settings ▸ Снимки shows them
                 DesktopSnapshots.take(automatic: false, preview: controller.previewImage())
                 controller.reloadLayout()
-                AppDelegate.shared.showSettings(tab: .snapshots)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    if let window = NSApp.windows.first(where: { $0.contentViewController is NSTabViewController }) {
-                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
-                    }
-                }
-            }),
-            (2.5, "settings: zones", {
                 AppDelegate.shared.showSettings(tab: .fences)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     if let window = NSApp.windows.first(where: { $0.contentViewController is NSTabViewController }) {
-                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-4"), atomically: true, encoding: .utf8)
+                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
                     }
                 }
             }),

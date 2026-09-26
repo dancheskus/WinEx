@@ -772,8 +772,6 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         } else {
             // Double-click on the wallpaper: every icon and fence hides (again: they come back)
             if event.clickCount == 2, !toggles, FenceStyle.quickHide, fence(at: point) == nil {
-                pendingReveal?.cancel()
-                pendingReveal = nil
                 setQuickHidden(!quickHidden)
                 return
             }
@@ -824,15 +822,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
         slowClickIndex = nil
         // Clicking the wallpaper moves windows aside (and back), as System Settings asks
+        // Right away, like Finder; a second click (double-click) then only hides the icons
         if emptyClickCandidate && rubberBand != nil && SystemDesktop.clickRevealsDesktop {
-            if FenceStyle.quickHide {
-                // Wait: a second click makes it a double-click (hide icons), not "show desktop"
-                let reveal = DispatchWorkItem { SystemDesktop.toggleShowDesktop() }
-                pendingReveal = reveal
-                DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: reveal)
-            } else {
-                SystemDesktop.toggleShowDesktop()
-            }
+            SystemDesktop.toggleShowDesktop()
         }
         emptyClickCandidate = false
         rubberBand = nil
@@ -1588,7 +1580,6 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     // MARK: Quick-hide
 
-    private var pendingReveal: DispatchWorkItem?
     private(set) var quickHidden = false
 
     /// Hides every icon and fence of this monitor with a fade (or brings them back).

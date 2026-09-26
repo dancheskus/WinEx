@@ -314,11 +314,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         showSettings(tab: nil)
     }
 
-    func showSettings(tab: SettingsWindowController.Tab?, snapshots: Bool) {
-        showSettings(tab: tab)
-        if snapshots { settingsController?.select(.snapshots) }
-    }
-
     func showSettings(tab: SettingsWindowController.Tab?) {
         if settingsController == nil { settingsController = SettingsWindowController() }
         settingsController?.sync()
