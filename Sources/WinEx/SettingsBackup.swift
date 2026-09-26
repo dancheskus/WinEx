@@ -9,7 +9,7 @@ enum SettingsBackup {
 
     /// Never saved or loaded: the restart hand-over, and AppKit's own bookkeeping.
     private static func isInternal(_ key: String) -> Bool {
-        key == "restartSession" || key.hasPrefix("NS") || key.hasPrefix("com.apple")
+        key == "restartSession" || key == "setupWizardStep" || key.hasPrefix("NS") || key.hasPrefix("com.apple")
     }
 
     /// Kept when loading or resetting: switching "instead of Finder" through a restart could
@@ -45,15 +45,28 @@ enum SettingsBackup {
 
     /// The settings file's contents.
     static func fileData() throws -> Data {
-        let file: [String: Any] = [marker: 1, "version": Updater.shared.currentVersion, "date": Date(), "settings": settings]
+        let file: [String: Any] = [marker: 1, "version": Updater.shared.currentVersion, "date": Date(),
+                                   "settings": settings, "extras": extras()]
         return try PropertyListSerialization.data(fromPropertyList: file, format: .xml, options: 0)
     }
 
-    /// A settings file's settings and date (nil: not a WinEx settings file).
-    static func read(_ data: Data) -> (settings: [String: Any], date: Date?)? {
+    /// What isn't in WinEx's own settings: the favourite tags (kept in Finder's settings), the
+    /// login item (a system setting) and the sample files of own "Создать" types (by id).
+    private static func extras() -> [String: Any] {
+        var samples: [String: Data] = [:]
+        for template in AppsConfig.templates {
+            guard let path = template.sourcePath, let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? Int,
+                  size < 10_000_000, let data = FileManager.default.contents(atPath: path) else { continue }
+            samples[template.id] = data
+        }
+        return ["favoriteTags": TagLibrary.favoriteNames, "openAtLogin": LoginItem.isEnabled, "samples": samples]
+    }
+
+    /// A settings file's settings, date and extras (nil: not a WinEx settings file).
+    static func read(_ data: Data) -> (settings: [String: Any], date: Date?, extras: [String: Any])? {
         guard let file = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               file[marker] != nil, let saved = file["settings"] as? [String: Any] else { return nil }
-        return (saved, file["date"] as? Date)
+        return (saved, file["date"] as? Date, file["extras"] as? [String: Any] ?? [:])
     }
 
     // MARK: Load
@@ -63,7 +76,7 @@ enum SettingsBackup {
         panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         panel.message = L("Файл настроек WinEx")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let data = try? Data(contentsOf: url), let (saved, savedDate) = read(data) else {
+        guard let data = try? Data(contentsOf: url), let (saved, savedDate, savedExtras) = read(data) else {
             let alert = NSAlert()
             alert.messageText = L("Это не файл настроек WinEx")
             alert.informativeText = url.lastPathComponent
@@ -78,15 +91,44 @@ enum SettingsBackup {
         alert.addButton(withTitle: L("Загрузить"))
         alert.addButton(withTitle: L("Отмена"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        apply(saved)
+        apply(saved, extras: savedExtras)
         AppDelegate.shared.restartKeepingWindows(settingsOpen: true)
     }
 
     /// Replaces the settings with `saved` (without the restart; scenario runs check this).
-    static func apply(_ saved: [String: Any]) {
+    static func apply(_ saved: [String: Any], extras: [String: Any] = [:]) {
         let store = AppDefaults.store
         for key in settings.keys where !keptOnLoad.contains(key) { store.removeObject(forKey: key) }
         for (key, value) in saved where !isInternal(key) && !keptOnLoad.contains(key) { store.set(value, forKey: key) }
+        if let tags = extras["favoriteTags"] as? [String] { TagLibrary.favoriteNames = tags }
+        // Sample files come with the settings: they go to WinEx's folder, the types point there
+        if let samples = extras["samples"] as? [String: Data], !samples.isEmpty {
+            let folder = samplesFolder
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            AppsConfig.templates = AppsConfig.templates.map { template in
+                guard let data = samples[template.id] else { return template }
+                let name = template.id + "." + (template.fileName as NSString).pathExtension
+                let url = folder.appendingPathComponent(name)
+                guard (try? data.write(to: url, options: .atomic)) != nil else { return template }
+                var changed = template
+                changed.sourcePath = url.path
+                return changed
+            }
+        }
+        #if DEBUG
+        if Scenario.isRequested { return }  // never touch the Mac's login items from a test run
+        #endif
+        if let login = extras["openAtLogin"] as? Bool, login != LoginItem.isEnabled { try? LoginItem.set(login) }
+    }
+
+    /// ~/Library/Application Support/WinEx/Templates (the scenario runs: their own folder).
+    static var samplesFolder: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
+        #if DEBUG
+        if Scenario.isRequested { return FileManager.default.temporaryDirectory.appendingPathComponent("winex-scenario-templates") }
+        #endif
+        return base.appendingPathComponent("WinEx/Templates")
     }
 
     // MARK: Reset

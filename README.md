@@ -248,7 +248,8 @@ before it existed don't see it after updating.
 
 - General: language, where new windows open, the default folder view, the global shortcut, hidden files, the command bar,
   “Open in Terminal” and the terminal, “Open WinEx at login” (a login item — at login WinEx starts
-  without a window); save every setting to a file, load them back (WinEx restarts with the same
+  without a window); save every setting to a file — with the favourite tags, the login item and the
+  sample files of your own New ▸ types — load them back (WinEx restarts with the same
   windows), or restore the defaults (the desktop icon arrangement and the Finder mode stay).
 - Sidebar: which favorites, locations and tags it shows.
 - Tags: the tag editor (see above).

@@ -570,12 +570,21 @@ enum Scenarios {
         Settings.windowsKeys = true
         SidebarConfig.showsTags = false
         AppDefaults.store.set(Data([1, 2, 3]), forKey: "desktopLayout")
+        TagLibrary.favoriteNames = ["Работа", "Дом"]
+        let sample = s.sandbox.appendingPathComponent("образец.md")
+        try? "# Образец".write(to: sample, atomically: true, encoding: .utf8)
+        AppsConfig.templates = [AppsConfig.Template(title: "Заметка", fileName: "Заметка.md", sourcePath: sample.path)]
         guard let data = try? SettingsBackup.fileData() else { s.note("  (no file)"); s.run([]); return }
         s.note("  file: \(data.count) bytes, readable: \(SettingsBackup.read(data) != nil)")
         Settings.showHidden = false
         Settings.windowsKeys = false
         SidebarConfig.showsTags = true
-        if let saved = SettingsBackup.read(data)?.settings { SettingsBackup.apply(saved) }
+        TagLibrary.favoriteNames = ["Красный"]
+        try? FileManager.default.removeItem(at: sample)  // as on another Mac
+        if let file = SettingsBackup.read(data) { SettingsBackup.apply(file.settings, extras: file.extras) }
+        let restored = AppsConfig.templates.first?.sourcePath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
+        s.note("  favourite tags: \(TagLibrary.favoriteNames)  expect [Работа, Дом]")
+        s.note("  sample restored: \(restored ?? "none")  expect # Образец")
         s.note("  after loading: hidden \(Settings.showHidden), windows keys \(Settings.windowsKeys), sidebar tags \(SidebarConfig.showsTags)  expect true, true, false")
         SettingsBackup.reset()
         s.note("  after reset: hidden \(Settings.showHidden), windows keys \(Settings.windowsKeys), sidebar tags \(SidebarConfig.showsTags)  expect false, false, true")
