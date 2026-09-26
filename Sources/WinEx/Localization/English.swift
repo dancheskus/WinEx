@@ -693,5 +693,9 @@ enum English {
         "Снимки расстановки рабочего стола:": "Desktop arrangement snapshots:",
         "Пустая зона на месте выделенной области": "An empty zone where the area is selected",
         "Создать зону здесь": "Create a Zone Here",
+        "Выполняется %@": "%@ in progress",
+        "операция": "operation",
+        "операции": "operations",
+        "операций": "operations",
     ]
 }

@@ -5,18 +5,16 @@ import AppKit
 /// than a moment, and a "Replace or skip files" dialog when names clash.
 @MainActor
 enum FileOperations {
-    private static var running: [FileOperationWindowController] = []
-
     static func start(_ kind: FileOperation.Kind, _ urls: [URL], to destination: URL? = nil) {
         let urls = urls.filter { (try? $0.checkResourceIsReachable()) == true }
         guard !urls.isEmpty else { return }
         let operation = FileOperation(kind: kind, sources: urls, destination: destination)
-        let controller = FileOperationWindowController(operation: operation)
-        running.append(controller)
+        let panel = FileOperationPanel(operation: operation)
+        let progress = FileOperationWindowController.shared
 
         operation.decideConflicts = { conflicts in
             waitForMain { answer in
-                ConflictWindowController.ask(title: controller.headline, conflicts: conflicts, near: controller.window, answer: answer)
+                ConflictWindowController.ask(title: panel.headline, conflicts: conflicts, near: progress.window, answer: answer)
             }
         }
         operation.onError = { error, url in
@@ -33,7 +31,7 @@ enum FileOperations {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     recordUndo(kind, result)
-                    // Finder's sounds, once something was actually done
+                    // The system's sounds, once something was actually done
                     if !result.done.isEmpty {
                         switch kind {
                         case .copy: FileSounds.play(.copy)
@@ -42,12 +40,11 @@ enum FileOperations {
                         case .delete: FileSounds.play(.delete)
                         }
                     }
-                    controller.finish()
-                    running.removeAll { $0 === controller }
+                    progress.finish(panel)
                 }
             }
         }
-        controller.startShowingSoon()
+        progress.add(panel)
         operation.start()
     }
 
@@ -98,30 +95,28 @@ enum FileOperations {
 
 // MARK: - Progress window
 
+/// One window for every operation under way, like Explorer's: a block per operation (what, where,
+/// percentage, pause, cancel — and with details, the speed graph and what's left). Each block shows
+/// up after half a second of work, so quick operations never appear; the window goes when the last
+/// one is done.
 @MainActor
 final class FileOperationWindowController: NSWindowController, NSWindowDelegate {
-    private let operation: FileOperation
-    private let percentLabel = NSTextField(labelWithString: L("Подготовка…"))
-    private let pauseButton = NSButton()
-    private let cancelButton = NSButton()
-    private let graph = SpeedGraphView()
-    private let nameValue = NSTextField(labelWithString: "")
-    private let timeValue = NSTextField(labelWithString: "")
-    private let itemsValue = NSTextField(labelWithString: "")
-    private let details = NSStackView()
+    static let shared = FileOperationWindowController()
+
+    private let summary = NSTextField(labelWithString: "")
+    private let list = NSStackView()
     private let detailsToggle = NSButton()
+    private var panels: [FileOperationPanel] = []
     private var timer: Timer?
-    private var finished = false
-    private var lastSample: (time: Date, bytes: Int64, items: Int)?
-    private var speed: Double = 0  // bytes (or items) per second, smoothed
+    /// Details are on, but there's no room for them.
+    private var compact = false
+    private static let width: CGFloat = 460
 
-    let headline: [(text: String, link: URL?)]
+    private var shown: [FileOperationPanel] { panels.filter(\.isShown) }
+    private var showsDetails: Bool { UserDefaults.standard.object(forKey: "operationDetails") as? Bool ?? true }
 
-    init(operation: FileOperation) {
-        self.operation = operation
-        let from = operation.sources.first?.deletingLastPathComponent()
-        headline = FileOperations.headline(operation.kind, count: operation.sources.count, from: from, to: operation.destination)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 300),
+    private init() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 300),
                               styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         window.title = L("Подготовка…")
@@ -134,8 +129,182 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
 
     private func build() {
         guard let window else { return }
-        let header = FileOperationUI.headlineView(headline)
+        summary.font = .systemFont(ofSize: 15, weight: .semibold)
+        list.orientation = .vertical
+        list.alignment = .leading
+        list.spacing = 14
+        detailsToggle.bezelStyle = .accessoryBarAction
+        detailsToggle.isBordered = false
+        detailsToggle.imagePosition = .imageLeading
+        detailsToggle.target = self
+        detailsToggle.action = #selector(toggleDetails(_:))
+        let separator = NSBox()
+        separator.boxType = .separator
+        let stack = NSStackView(views: [summary, list, separator, detailsToggle])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.detachesHiddenViews = true
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 12, right: 20)
+        for view in [list, separator] {
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
+        }
+        stack.widthAnchor.constraint(equalToConstant: Self.width).isActive = true
+        window.contentView = stack
+        syncDetailsToggle()
+    }
 
+    // MARK: Operations
+
+    func add(_ panel: FileOperationPanel) {
+        panels.append(panel)
+        if timer == nil {
+            timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.tick() }
+            }
+        }
+        panel.whenWorking(after: 0.5) { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            self.reveal(panel)
+        }
+    }
+
+    func finish(_ panel: FileOperationPanel) {
+        panel.isFinished = true
+        panels.removeAll { $0 === panel }
+        if panel.isShown {
+            panel.removeFromSuperview()
+            panel.isShown = false
+        }
+        if panels.isEmpty {
+            timer?.invalidate()
+            timer = nil
+            window?.orderOut(nil)
+        } else {
+            relayout()
+        }
+    }
+
+    private func reveal(_ panel: FileOperationPanel) {
+        guard !panel.isFinished, !panel.isShown else { return }
+        panel.isShown = true
+        panel.showsDetails = showsDetails
+        list.addArrangedSubview(panel)
+        panel.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
+        panel.tick()
+        relayout()
+        guard let window else { return }
+        if !window.isVisible {
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+        }
+    }
+
+    /// The summary (with more than one), the lines between blocks, the height.
+    private func relayout() {
+        let visible = shown
+        summary.isHidden = visible.count < 2
+        summary.stringValue = L("Выполняется %@", "\(visible.count) \(plural(visible.count, L("операция"), L("операции"), L("операций")))")
+        for (n, panel) in visible.enumerated() { panel.separatorHidden = n == 0 }
+        tick()
+        fitToContent()
+    }
+
+    private func tick() {
+        let visible = shown
+        visible.forEach { $0.tick() }
+        window?.title = visible.count == 1 ? visible[0].title : visible.count > 1 ? summary.stringValue : L("Подготовка…")
+    }
+
+    // MARK: Details
+
+    @objc private func toggleDetails(_ sender: Any?) {
+        UserDefaults.standard.set(!showsDetails, forKey: "operationDetails")
+        syncDetailsToggle()
+        compact = false
+        panels.forEach { $0.showsDetails = showsDetails }
+        fitToContent()
+    }
+
+    private func syncDetailsToggle() {
+        detailsToggle.title = showsDetails ? L("Меньше подробностей") : L("Больше подробностей")
+        detailsToggle.image = NSImage(systemSymbolName: showsDetails ? "chevron.up.circle" : "chevron.down.circle", accessibilityDescription: nil)
+    }
+
+    /// The window is as tall as what it shows; the top edge stays put. Too many operations with
+    /// details for the screen: they show without details for now (the choice itself stays).
+    private func fitToContent() {
+        guard let window, let content = window.contentView else { return }
+        let top = window.frame.maxY
+        content.layoutSubtreeIfNeeded()
+        let room = (window.screen ?? NSScreen.main)?.visibleFrame.height ?? 800
+        let tooTall = showsDetails && window.frameRect(forContentRect: NSRect(origin: .zero, size: content.fittingSize)).height > room - 40
+        let details = showsDetails && !(tooTall || (compact && shown.count > 1))
+        compact = showsDetails && !details
+        panels.forEach { $0.showsDetails = details }
+        content.layoutSubtreeIfNeeded()
+        window.setContentSize(NSSize(width: Self.width, height: content.fittingSize.height))
+        if window.isVisible { window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top)) }
+    }
+
+    static func duration(_ seconds: Double) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
+        formatter.maximumUnitCount = 2
+        formatter.calendar?.locale = Localization.locale
+        return L("около ") + (formatter.string(from: max(1, seconds.rounded())) ?? "")
+    }
+
+    /// Closing the window cancels what's under way, like in Explorer.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if panels.isEmpty { return true }
+        panels.forEach { $0.cancel() }
+        return false
+    }
+}
+
+/// One operation in the progress window: "Копирование 3 элементов из A в B", the percentage with
+/// pause and cancel, a thin bar — or, with details, the speed graph, the name, time and items left.
+@MainActor
+final class FileOperationPanel: NSView {
+    let operation: FileOperation
+    let headline: [(text: String, link: URL?)]
+    var isShown = false
+    var isFinished = false
+    var showsDetails = true { didSet { details.isHidden = !showsDetails; bar.isHidden = showsDetails } }
+    var separatorHidden = true { didSet { separator.isHidden = separatorHidden } }
+    private(set) var title = L("Подготовка…")
+
+    private let separator = NSBox()
+    private let percentLabel = NSTextField(labelWithString: L("Подготовка…"))
+    private let pauseButton = NSButton()
+    private let cancelButton = NSButton()
+    private let bar = NSProgressIndicator()
+    private let graph = SpeedGraphView()
+    private let nameValue = NSTextField(labelWithString: "")
+    private let timeValue = NSTextField(labelWithString: "")
+    private let itemsValue = NSTextField(labelWithString: "")
+    private let details = NSStackView()
+    private var lastSample: (time: Date, bytes: Int64, items: Int)?
+    private var speed: Double = 0  // bytes (or items) per second, smoothed
+    private var cancelling = false
+
+    init(operation: FileOperation) {
+        self.operation = operation
+        let from = operation.sources.first?.deletingLastPathComponent()
+        headline = FileOperations.headline(operation.kind, count: operation.sources.count, from: from, to: operation.destination)
+        super.init(frame: .zero)
+        build()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func build() {
+        separator.boxType = .separator
+        separator.isHidden = true
+        let header = FileOperationUI.headlineView(headline)
         percentLabel.font = .systemFont(ofSize: 18)
         for (button, symbol, tip) in [(pauseButton, "pause.fill", L("Приостановить")), (cancelButton, "xmark", L("Отмена"))] {
             button.bezelStyle = .accessoryBarAction
@@ -148,6 +317,11 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         cancelButton.action = #selector(cancelTransfer(_:))
         let titleRow = NSStackView(views: [percentLabel, NSView(), pauseButton, cancelButton])
         titleRow.spacing = 10
+        bar.style = .bar
+        bar.isIndeterminate = false
+        bar.minValue = 0
+        bar.maxValue = 1
+        bar.controlSize = .small
 
         graph.translatesAutoresizingMaskIntoConstraints = false
         graph.heightAnchor.constraint(equalToConstant: 96).isActive = true
@@ -168,82 +342,47 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
         }
         graph.widthAnchor.constraint(equalTo: details.widthAnchor).isActive = true
 
-        detailsToggle.bezelStyle = .accessoryBarAction
-        detailsToggle.isBordered = false
-        detailsToggle.imagePosition = .imageLeading
-        detailsToggle.target = self
-        detailsToggle.action = #selector(toggleDetails(_:))
-        let separator = NSBox()
-        separator.boxType = .separator
-
-        let stack = NSStackView(views: [header, titleRow, details, separator, detailsToggle])
+        let stack = NSStackView(views: [separator, header, titleRow, bar, details])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
+        stack.detachesHiddenViews = true
+        stack.setCustomSpacing(14, after: separator)
         stack.setCustomSpacing(4, after: header)
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 12, right: 20)
-        for view in [titleRow, details, separator] {
-            view.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
-        }
-        stack.widthAnchor.constraint(equalToConstant: 460).isActive = true
-        window.contentView = stack
-        showDetails(UserDefaults.standard.object(forKey: "operationDetails") as? Bool ?? true)
-    }
-
-    // MARK: Showing
-
-    /// Quick operations never show a window; it appears after half a second of work.
-    func startShowingSoon() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self, !finished, operation.progress.phase != .waiting else {
-                // Asking about conflicts: show the progress once the answer is in
-                if let self, !self.finished { self.showWhenWorking() }
-                return
-            }
-            show()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+        for view in [separator, titleRow, bar, details] {
+            view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
     }
 
-    private func showWhenWorking() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, !finished else { return }
-            if operation.progress.phase == .waiting { showWhenWorking() } else { show() }
+    /// `then` once the operation has worked for `delay` (not while it waits for an answer about
+    /// clashing names); never if it's done by then.
+    func whenWorking(after delay: TimeInterval, then: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !isFinished else { return }
+            if operation.progress.phase == .waiting { whenWorking(after: 0.3, then: then) } else { then() }
         }
     }
 
-    private func show() {
-        guard let window, !window.isVisible else { return }
-        fitToContent()
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
-    }
-
-    func finish() {
-        finished = true
-        timer?.invalidate()
-        timer = nil
-        window?.orderOut(nil)
-    }
-
-    // MARK: Updates
-
-    private func tick() {
+    func tick() {
         let progress = operation.progress
         let percent = Int(progress.fraction * 100)
-        let title: String
         switch progress.phase {
         case .counting: title = L("Подготовка…")
         case .waiting: title = L("Ожидание ответа…")
         case .working, .finished: title = progress.paused ? L("Приостановлено — %@%", percent) : L("%@% выполнено", percent)
         }
-        percentLabel.stringValue = title
-        window?.title = title
+        if !cancelling { percentLabel.stringValue = title }
         pauseButton.image = NSImage(systemSymbolName: progress.paused ? "play.fill" : "pause.fill", accessibilityDescription: nil)
         pauseButton.toolTip = progress.paused ? L("Продолжить") : L("Приостановить")
+        bar.doubleValue = progress.fraction
 
         // Speed: smoothed over the last samples
         let now = Date()
@@ -270,57 +409,23 @@ final class FileOperationWindowController: NSWindowController, NSWindowDelegate 
             : "\(remainingItems)"
         let left = progress.byBytes ? Double(remainingBytes) : Double(remainingItems)
         timeValue.stringValue = speed > 0 && progress.phase == .working && !progress.paused
-            ? Self.duration(left / speed) : L("Вычисление…")
+            ? FileOperationWindowController.duration(left / speed) : L("Вычисление…")
     }
 
-    static func duration(_ seconds: Double) -> String {
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .abbreviated
-        formatter.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute, .second]
-        formatter.maximumUnitCount = 2
-        formatter.calendar?.locale = Locale(identifier: "ru_RU")
-        return L("около ") + (formatter.string(from: max(1, seconds.rounded())) ?? "")
+    func cancel() {
+        cancelling = true
+        operation.cancel()
+        percentLabel.stringValue = L("Отмена…")
+        pauseButton.isEnabled = false
+        cancelButton.isEnabled = false
     }
-
-    // MARK: Actions
 
     @objc private func togglePause(_ sender: Any?) {
         if operation.progress.paused { operation.resume() } else { operation.pause() }
         tick()
     }
 
-    @objc private func cancelTransfer(_ sender: Any?) {
-        operation.cancel()
-        percentLabel.stringValue = L("Отмена…")
-    }
-
-    @objc private func toggleDetails(_ sender: Any?) {
-        showDetails(details.isHidden)
-    }
-
-    private func showDetails(_ show: Bool) {
-        details.isHidden = !show
-        UserDefaults.standard.set(show, forKey: "operationDetails")
-        detailsToggle.title = show ? L("Меньше подробностей") : L("Больше подробностей")
-        detailsToggle.image = NSImage(systemSymbolName: show ? "chevron.up.circle" : "chevron.down.circle", accessibilityDescription: nil)
-        fitToContent()
-    }
-
-    /// The window is as tall as what it shows (details or not); the top edge stays put.
-    private func fitToContent() {
-        guard let window, let content = window.contentView else { return }
-        let top = window.frame.maxY
-        content.layoutSubtreeIfNeeded()
-        window.setContentSize(NSSize(width: 460, height: content.fittingSize.height))
-        if window.isVisible { window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: top)) }
-    }
-
-    /// Closing the window cancels the operation, like in Explorer.
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if finished { return true }
-        operation.cancel()
-        return false
-    }
+    @objc private func cancelTransfer(_ sender: Any?) { cancel() }
 }
 
 /// Explorer's graph: the done part in light green, the speed over time as a dark green area.

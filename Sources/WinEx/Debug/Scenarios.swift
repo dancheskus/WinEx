@@ -76,25 +76,35 @@ enum Scenarios {
                     }
                 }
             }),
-            (2.5, "the windows", {
+            (2.5, "the window", {
                 let windows = progressWindows()
-                s.note("  progress windows: \(windows.count)")
-                for (n, window) in windows.enumerated() {
-                    s.note("    [\(n)] «\(window.title)» at \(Int(window.frame.minX)),\(Int(window.frame.minY)) \(Int(window.frame.width))×\(Int(window.frame.height))")
-                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(n)"), atomically: true, encoding: .utf8)
+                s.note("  progress windows: \(windows.count)  expect 1")
+                guard let window = windows.first, let content = window.contentView else { return }
+                let cancels = s.findAll(NSButton.self, in: content).filter { $0.toolTip == L("Отмена") }
+                s.note("  «\(window.title)», \(Int(window.frame.width))×\(Int(window.frame.height)), cancel buttons: \(cancels.count)  expect «Выполняется 3 операции», 3")
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+            }),
+            (1.5, "fewer details", {
+                guard let window = progressWindows().first, let content = window.contentView else { return }
+                s.findAll(NSButton.self, in: content).first { $0.title == L("Меньше подробностей") }?.performClick(nil)
+                s.note("  \(Int(window.frame.width))×\(Int(window.frame.height))")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
                 }
-                let frames = Set(windows.map { "\($0.frame)" })
-                s.note("  on top of each other: \(frames.count == 1 && windows.count > 1)")
             }),
-            (3.0, "cancel the second one", {
-                let windows = progressWindows()
-                guard windows.count >= 2, let content = windows[1].contentView else { s.note("  (no second window)"); return }
-                let cancel = s.findAll(NSButton.self, in: content).first { $0.toolTip == L("Отмена") }
-                s.note("  cancelling «\(windows[1].title)» (button found: \(cancel != nil))")
-                cancel?.performClick(nil)
+            (1.5, "cancel the second one", {
+                guard let window = progressWindows().first, let content = window.contentView else { s.note("  (no window)"); return }
+                let cancels = s.findAll(NSButton.self, in: content).filter { $0.toolTip == L("Отмена") }
+                    .sorted { $0.convert($0.bounds, to: nil).maxY > $1.convert($1.bounds, to: nil).maxY }
+                guard cancels.count >= 2 else { s.note("  (\(cancels.count) cancel buttons)"); return }
+                cancels[1].performClick(nil)
             }),
-            (1.0, "right after", {
-                s.note("  still running: \(progressWindows().map(\.title))")
+            (1.5, "right after", {
+                guard let window = progressWindows().first, let content = window.contentView else { s.note("  (no window)"); return }
+                let cancels = s.findAll(NSButton.self, in: content).filter { $0.toolTip == L("Отмена") }
+                s.note("  «\(window.title)», blocks left: \(cancels.count)  expect «Выполняется 2 операции», 2")
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-2"), atomically: true, encoding: .utf8)
+                s.findAll(NSButton.self, in: content).first { $0.title == L("Больше подробностей") }?.performClick(nil)
             }),
             (25.0, "when the others are done", {
                 for (n, target) in targets.enumerated() {
