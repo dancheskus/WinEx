@@ -574,12 +574,13 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     // MARK: Changes
 
     @objc private func addApp(_ sender: Any?) {
-        guard let app = chooseApp() else { return }
-        var list = AppsConfig.apps
-        guard !list.contains(where: { $0.path == app.path }) else { return }
-        list.append(AppsConfig.App(path: app.path))
-        AppsConfig.apps = list
-        reload()
+        chooseApp { [weak self] app in
+            var list = AppsConfig.apps
+            guard !list.contains(where: { $0.path == app.path }) else { return }
+            list.append(AppsConfig.App(path: app.path))
+            AppsConfig.apps = list
+            self?.reload()
+        }
     }
 
     @objc private func removeApp(_ sender: Any?) {
@@ -617,12 +618,18 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         return apps.sorted { OpenWithMenu.appName($0).localizedStandardCompare(OpenWithMenu.appName($1)) == .orderedAscending }
     }
 
-    private func chooseApp() -> URL? {
+    /// An app chosen in a sheet on the settings window.
+    private func chooseApp(_ done: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowedContentTypes = [.application]
+        panel.canChooseDirectories = false
+        panel.treatsFilePackagesAsDirectories = false
         panel.prompt = L("Выбрать")
-        return panel.runModal() == .OK ? panel.url : nil
+        guard let window else { return }
+        panel.beginSheetModal(for: window) { response in
+            MainActor.assumeIsolated { if response == .OK, let url = panel.url { done(url) } }
+        }
     }
 
     @objc private func changeScope(_ sender: NSPopUpButton) {
@@ -670,9 +677,18 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         panel.treatsFilePackagesAsDirectories = false
         panel.prompt = L("Выбрать")
         panel.message = L("Файл, который будет копироваться; без него создаётся пустой файл")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            MainActor.assumeIsolated {
+                guard response == .OK, let url = panel.url else { return }
+                self?.useSample(url, for: custom.id)
+            }
+        }
+    }
+
+    private func useSample(_ url: URL, for id: String) {
         AppsConfig.templates = AppsConfig.templates.map { template in
-            guard template.id == custom.id else { return template }
+            guard template.id == id else { return template }
             var changed = template
             changed.sourcePath = url.path
             // The new file gets the sample's extension

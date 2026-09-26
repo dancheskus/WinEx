@@ -386,7 +386,15 @@ final class SettingsWindowController: NSWindowController {
             panel.canChooseDirectories = true
             panel.canChooseFiles = false
             panel.prompt = L("Выбрать")
-            if panel.runModal() == .OK, let url = panel.url { Settings.startFolder = url.path }
+            syncStartFolder()
+            guard let window else { return }
+            panel.beginSheetModal(for: window) { [weak self] response in
+                MainActor.assumeIsolated {
+                    if response == .OK, let url = panel.url { Settings.startFolder = url.path }
+                    self?.syncStartFolder()
+                }
+            }
+            return
         }
         syncStartFolder()
     }
@@ -433,11 +441,25 @@ final class SettingsWindowController: NSWindowController {
         if let url = sender.selectedItem?.representedObject as? URL {
             Settings.terminalApp = url.path
         } else {
+            // A sheet on the settings window (a separate modal loop from a pop-up's action could
+            // leave the app waiting), apps only
             let panel = NSOpenPanel()
-            panel.title = L("Терминал для «Открыть в терминале»")
+            panel.message = L("Терминал для «Открыть в терминале»")
             panel.directoryURL = URL(fileURLWithPath: "/Applications")
             panel.allowedContentTypes = [.application]
-            if panel.runModal() == .OK, let url = panel.url { Settings.terminalApp = url.path }
+            panel.canChooseDirectories = false
+            panel.treatsFilePackagesAsDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.prompt = L("Выбрать")
+            syncTerminal()  // until a choice is made, the pop-up shows the current terminal
+            guard let window else { return }
+            panel.beginSheetModal(for: window) { [weak self] response in
+                MainActor.assumeIsolated {
+                    if response == .OK, let url = panel.url { Settings.terminalApp = url.path }
+                    self?.syncTerminal()
+                }
+            }
+            return
         }
         syncTerminal()
     }

@@ -31,13 +31,32 @@ final class TerminalLauncher: NSObject {
         ("co.zeit.hyper", .folder),
         ("org.tabby", .folder),
         ("com.raphaelamorim.rio", .folder),
+        ("com.cmuxterm.app", .folder),
     ]
 
-    /// The terminals installed on this Mac, Terminal first.
+    /// The terminals installed on this Mac, Terminal first: the known ones, apps that run programs
+    /// (they open "Unix executable" files), and apps in the Applications folders that call
+    /// themselves a terminal or are one of the well-known names (cmux, Ghostty…).
     static var installed: [App] {
-        known.compactMap { entry in
-            NSWorkspace.shared.urlForApplication(withBundleIdentifier: entry.id).map { App(name: displayName($0), url: $0) }
+        let workspace = NSWorkspace.shared
+        var urls = known.compactMap { workspace.urlForApplication(withBundleIdentifier: $0.id) }
+        urls += workspace.urlsForApplications(toOpen: .unixExecutable)
+        // Product names match at the start ("cmux", "cmux NIGHTLY"), "term" anywhere ("iTerm", "WezTerm")
+        let products = ["cmux", "ghostty", "kitty", "alacritty", "warp", "tabby", "hyper", "rio"]
+        let fm = FileManager.default
+        for folder in [URL(fileURLWithPath: "/Applications"), fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications"),
+                       URL(fileURLWithPath: "/System/Applications/Utilities")] {
+            for app in (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [] where app.pathExtension == "app" {
+                let name = app.deletingPathExtension().lastPathComponent.lowercased()
+                let identifier = Bundle(url: app)?.bundleIdentifier?.lowercased() ?? ""
+                if name.contains("term") || products.contains(where: { name.hasPrefix($0) || identifier.contains(".\($0)") }) { urls.append(app) }
+            }
         }
+        var seen = Set<String>()
+        return urls.filter { url in
+            guard url.standardizedFileURL != Bundle.main.bundleURL.standardizedFileURL else { return false }
+            return seen.insert(Bundle(url: url)?.bundleIdentifier ?? url.path).inserted
+        }.map { App(name: displayName($0), url: $0) }
     }
 
     /// The chosen terminal (Terminal when none was chosen or it's gone).
