@@ -32,7 +32,6 @@ enum MenuStyle {
         "openFullDiskAccess:": ("lock.shield", "", []),
         "refresh:": ("arrow.clockwise", "r", .command),
         "refreshAction:": ("arrow.clockwise", "r", .command),
-        "openDesktopAction:": ("folder", "", []),
         "openWallpaperSettings:": ("photo", "", []),
         "showSettings:": ("gearshape", ",", .command),
         "newFolder:": ("folder.badge.plus", "N", .command),

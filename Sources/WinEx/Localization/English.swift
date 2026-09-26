@@ -74,7 +74,6 @@ enum English {
         "Сортировка": "Sort By",
         "Обновить": "Refresh",
         "Вставить": "Paste",
-        "Открыть «Рабочий стол» в WinEx": "Open “Desktop” in WinEx",
         "Обои…": "Wallpaper…",
         "Настройки WinEx…": "WinEx Settings…",
         "Крупные значки": "Large Icons",

@@ -903,7 +903,6 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         menu.addItem(.separator())
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
         menu.addItem(.separator())
-        add(L("Открыть «Рабочий стол» в WinEx"), #selector(openDesktopAction(_:)))
         if let terminal = TerminalLauncher.menuItem(for: [desktopURL]) { menu.addItem(terminal) }
         OpenWithMenu.mainMenuItems(for: [desktopURL]).forEach(menu.addItem)
         add(L("Обои…"), #selector(openWallpaperSettings(_:)))
@@ -1079,7 +1078,6 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     @objc func copyPath(_ sender: Any?) { FileOps.copyPaths(selectedURLs) }
     @objc func moveToTrash(_ sender: Any?) { trashSelection() }
     @objc private func refreshAction(_ sender: Any?) { reload() }
-    @objc private func openDesktopAction(_ sender: Any?) { AppDelegate.shared.openWindow(at: desktopURL) }
 
     // ⌘X / ⌘C / ⌘V arrive here through the main menu when the desktop is focused
     @objc func cut(_ sender: Any?) { FileClipboard.shared.cut(selectedFileURLs) }
