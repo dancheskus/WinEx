@@ -390,3 +390,29 @@ struct UpdaterTests {
         #expect(release.version == "1.2.0" && release.archive?.name == "WinEx-1.2.0.zip")
     }
 }
+
+struct FenceSnapTests {
+    let area = NSRect(x: 0, y: 30, width: 1500, height: 900)
+    let other = NSRect(x: 100, y: 100, width: 300, height: 200)
+
+    @Test func movedFenceClingsNextToAnother() {
+        let (rect, guides) = FenceSnap.snap(NSRect(x: 413, y: 104, width: 300, height: 200), edges: [.minX, .maxX, .minY, .maxY], area: area, others: [other])
+        #expect(rect.origin == CGPoint(x: 408, y: 100))
+        #expect(guides.count == 2)
+    }
+
+    @Test func farAwayStaysPut() {
+        let start = NSRect(x: 700, y: 500, width: 300, height: 200)
+        #expect(FenceSnap.snap(start, edges: [.minX, .maxX, .minY, .maxY], area: area, others: [other]).0 == start)
+    }
+
+    @Test func resizedEdgeLinesUp() {
+        let (rect, _) = FenceSnap.snap(NSRect(x: 100, y: 400, width: 295, height: 200), edges: [.maxX], area: area, others: [other])
+        #expect(rect.width == 300 && rect.minX == 100)
+    }
+
+    @Test func screenEdgeKeepsAGap() {
+        let (rect, _) = FenceSnap.snap(NSRect(x: 3, y: 500, width: 300, height: 200), edges: [.minX, .maxX, .minY, .maxY], area: area, others: [])
+        #expect(rect.minX == FenceSnap.gap)
+    }
+}

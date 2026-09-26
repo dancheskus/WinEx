@@ -60,6 +60,8 @@ final class DesktopLayout {
         var importedFromFinder = false
         /// File name → display UUID of the monitor it's on (none: the main monitor).
         var screens: [String: String]?
+        /// Fences (areas grouping icons), on all monitors.
+        var fences: [DesktopFence]?
     }
 
     /// Where an icon is: center as fractions of the monitor, and the monitor (nil: the main one).
@@ -134,6 +136,19 @@ final class DesktopLayout {
         set { stored.sortKey = newValue.rawValue; save() }
     }
 
+    var fences: [DesktopFence] {
+        get { stored.fences ?? [] }
+        set { stored.fences = newValue; save() }
+    }
+
+    /// Updates (or adds) one fence; `save: false` while it's being dragged.
+    func setFence(_ fence: DesktopFence, save shouldSave: Bool = true) {
+        var list = stored.fences ?? []
+        if let index = list.firstIndex(where: { $0.id == fence.id }) { list[index] = fence } else { list.append(fence) }
+        stored.fences = list
+        if shouldSave { save() }
+    }
+
     func place(for name: String) -> Place? {
         guard let value = stored.positions[name], value.count == 2 else { return nil }
         return Place(point: CGPoint(x: value[0], y: value[1]), screenID: stored.screens?[name])
@@ -147,6 +162,11 @@ final class DesktopLayout {
     }
 
     func renamePosition(from oldName: String, to newName: String) {
+        stored.fences = stored.fences?.map { fence in
+            var fence = fence
+            fence.members = fence.members.map { $0 == oldName ? newName : $0 }
+            return fence
+        }
         stored.positions[newName] = stored.positions.removeValue(forKey: oldName)
         let screen = stored.screens?.removeValue(forKey: oldName)
         stored.screens?[newName] = screen
@@ -158,7 +178,13 @@ final class DesktopLayout {
         let before = stored.positions.count
         stored.positions = stored.positions.filter { names.contains($0.key) }
         stored.screens = stored.screens?.filter { names.contains($0.key) }
-        if stored.positions.count != before { save() }
+        let fencesBefore = stored.fences
+        stored.fences = stored.fences?.map { fence in
+            var fence = fence
+            fence.members = fence.members.filter(names.contains)
+            return fence
+        }
+        if stored.positions.count != before || stored.fences != fencesBefore { save() }
     }
 
     func save() {

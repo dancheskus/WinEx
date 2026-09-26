@@ -623,5 +623,13 @@ enum English {
         "Файлы:": "Files:",
         "Команда open в Терминале открывает папки в WinEx": "The open command in Terminal opens folders in WinEx",
         "«open ~/Documents» и «open .» откроют папку в WinEx; файлы, программы и ссылки — как раньше. WinEx добавит небольшую функцию в ~/.zshrc (снимите флажок — уберёт). Действует в новых окнах Терминала.": "“open ~/Documents” and “open .” open the folder in WinEx; files, apps and links as before. WinEx adds a small function to ~/.zshrc (uncheck to remove it). Takes effect in new Terminal windows.",
+        "Новая ограда": "New Fence",
+        "Переименовать ограду": "Rename Fence",
+        "Поместить в новую ограду": "Put in a New Fence",
+        "Развернуть ограду": "Expand Fence",
+        "Свернуть ограду": "Roll Up Fence",
+        "Создать ограду": "New Fence",
+        "Убрать из ограды": "Take Out of the Fence",
+        "Удалить ограду": "Remove Fence",
     ]
 }

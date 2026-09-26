@@ -232,6 +232,12 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
 - On first launch it takes the icon layout from Finder (`~/Desktop/.DS_Store`, `dilc` records:
   bytes 0…3 — the monitor), then keeps its own. Icons avoid desktop widgets, as in Finder.
 - Icons can be dragged with the mouse, selected with a rubber band, renamed (F2).
+- Fences, like Stardock Fences: “New Fence” on the desktop (or “Put in a New Fence” on selected
+  icons) makes a translucent, titled area; drag icons in and out, drag it by its title, resize it
+  by its edges — both snap to the monitor's edges and the other fences (with guide lines; ⌘ turns
+  snapping off); double-click the title to roll it up; scroll when it holds more than fits;
+  rename or remove it from its menu (its icons stay where they are). Nothing runs in the
+  background for them.
 - Menu: View ▸ large / medium / small icons, Auto Arrange Icons, Align Icons to Grid, Show Desktop
   Icons; Sort By ▸ name / size / type / date; New ▸ — the new file appears where the menu was opened.
 

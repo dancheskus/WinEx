@@ -34,6 +34,7 @@ enum Scenarios {
         "tabmerge": tabMerge,
         "wizard": wizard,
         "shell": shell,
+        "fences": fences,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -671,6 +672,47 @@ enum Scenarios {
             }
         } catch { s.note("  error: \(error)") }
         s.run([])
+    }
+
+    /// Fences on the desktop: one made from three icons (they move inside), rolled up (hidden),
+    /// unrolled; snapping math; the desktop photographed (scripts/capture-window.sh fences).
+    static func fences(_ s: Scenario) {
+        let controller = DesktopController()
+        controller.show()
+        func mainView() -> DesktopView? {
+            NSApp.windows.lazy.compactMap { $0.contentView as? DesktopView }.first { $0.window?.screen == NSScreen.screens.first }
+        }
+        // Snapping: 5 pt from another fence's right edge (+ gap) → clings to it
+        let area = NSRect(x: 0, y: 30, width: 1500, height: 900)
+        let other = NSRect(x: 100, y: 100, width: 300, height: 200)
+        let (snapped, guides) = FenceSnap.snap(NSRect(x: 413, y: 104, width: 300, height: 200), edges: [.minX, .maxX, .minY, .maxY], area: area, others: [other])
+        s.note("  snap: x \(Int(snapped.minX)) y \(Int(snapped.minY)), guides \(guides.count)  expect x 408 (400 + gap), y 100")
+        let (resized, _) = FenceSnap.snap(NSRect(x: 100, y: 400, width: 295, height: 200), edges: [.maxX], area: area, others: [other])
+        s.note("  resize: width \(Int(resized.width))  expect 300 (right edges lined up)")
+        s.run([
+            (2.0, "make a fence of three icons", {
+                guard let view = mainView() else { s.note("  (no desktop)"); return }
+                let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { !$0.hasPrefix(".") }.sorted().prefix(3)
+                guard let id = view.debugMakeFence(at: NSPoint(x: 420, y: 160), members: Array(names)) else { s.note("  (no fence)"); return }
+                view.needsDisplay = true
+                view.displayIfNeeded()
+                guard let fenceView = view.debugFenceView(id) else { s.note("  (no fence view)"); return }
+                let inside = names.compactMap { view.debugCenter(of: $0) }.allSatisfy { fenceView.frame.contains($0) }
+                s.note("  fence \(Int(fenceView.frame.width))×\(Int(fenceView.frame.height)); icons inside: \(inside)  expect true")
+                if let window = view.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (2.0, "roll up and down", {
+                guard let view = mainView(), let fence = view.layout.fences.last, let name = fence.members.first else { return }
+                view.debugToggle(fence.id)
+                let hidden = view.debugIsHidden(name)
+                view.debugToggle(fence.id)
+                s.note("  rolled up hides icons: \(hidden), unrolled shows: \(!view.debugIsHidden(name))  expect true, true")
+                controller.hide()
+            }),
+        ])
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.
