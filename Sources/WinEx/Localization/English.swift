@@ -618,5 +618,7 @@ enum English {
         "Теги, программы и боковое меню — в настройках": "Tags, apps and the sidebar — in Settings",
         "Только окна": "Windows Only",
         "Язык": "Language",
+        "Запустить в Терминале": "Run in Terminal",
+        "Запустить в %@": "Run in %@",
     ]
 }

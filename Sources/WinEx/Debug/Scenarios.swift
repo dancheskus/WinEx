@@ -452,6 +452,10 @@ enum Scenarios {
         Settings.terminalInMenu = true
         let item = TerminalLauncher.menuItem(for: [base.appendingPathComponent("a.txt")])
         s.note("  item: \(item?.title ?? "none")")
+        let script = base.appendingPathComponent("скрипт.sh")
+        try? "echo hi".write(to: script, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        s.note("  script: \(TerminalLauncher.isScript(script)), \(TerminalLauncher.menuItem(for: [script])?.title ?? "none"); a.txt: \(TerminalLauncher.isScript(base.appendingPathComponent("a.txt")))  expect true, Запустить в …, false")
         s.run([
             (1.0, "file menu", {
                 s.select("a.txt")
