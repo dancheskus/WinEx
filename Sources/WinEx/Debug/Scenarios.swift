@@ -645,7 +645,7 @@ enum Scenarios {
                 content.hitTest(content.convert(NSPoint(x: label.bounds.midX, y: label.bounds.midY), from: label))?.mouseDown(with: event)
             }
             switch index {
-            case 3: click(L("Окна и рабочий стол"))
+            case 3 where ProcessInfo.processInfo.environment["WINEX_WIZARD_DEFAULTS"] == nil: click(L("Окна и рабочий стол"))
             case 4: click(L("Как в Windows"))
             case 5:
                 click(ViewMode.details.title)
@@ -844,6 +844,9 @@ enum Scenarios {
                 if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot) }
                 controller.reloadLayout()  // (the app's own desktop is reloaded by the restore; this one is the scenario's)
                 s.note("  snapshots: \(DesktopSnapshots.all.count), fences after restore: \(mainView()?.layout.fences.count ?? -1)  expect 2, \(before)")
+                // Restoring it again: this arrangement is already kept, no new snapshot
+                if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot) }
+                s.note("  after restoring again: \(DesktopSnapshots.all.count)  expect 2")
                 // One with a picture, then Settings ▸ Снимки shows them
                 DesktopSnapshots.take(automatic: false, preview: controller.previewImage())
                 controller.reloadLayout()

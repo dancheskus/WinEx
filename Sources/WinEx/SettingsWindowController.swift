@@ -174,6 +174,10 @@ final class SettingsWindowController: NSWindowController {
             .row(L("Клавиши:"), keysMode),
             .row(nil, SettingsForm.hint(L("Сочетания с ⌘ работают всегда. «Как в Windows» добавляет клавиши Windows, и Enter открывает, а не переименовывает."))),
             .row(nil, keysTable),
+        ] + (SystemDesktop.f11ShowsDesktop ? [
+            .row(nil, SettingsForm.hint(L("⚠︎ F11 в macOS занята: «Показать рабочий стол». Чтобы F11 включала полный экран, снимите это сочетание в Системных настройках ▸ Клавиатура ▸ Сочетания клавиш ▸ Mission Control. ⌃⌘F работает всегда."))),
+            .row(nil, NSButton(title: L("Открыть сочетания клавиш…"), target: self, action: #selector(openKeyboardShortcuts(_:)))),
+        ] : []) + [
             .gap,
             .row(nil, SettingsForm.keyTable(title: L("В обоих режимах"), [
                 ("⌘I, ⌥Enter", L("свойства")),
@@ -408,6 +412,10 @@ final class SettingsWindowController: NSWindowController {
         GlobalHotKey.preset = GlobalHotKey.Preset.allCases[max(0, sender.indexOfSelectedItem)]
         GlobalHotKey.shared.apply()
         syncHotKey()
+    }
+
+    @objc private func openKeyboardShortcuts(_ sender: Any?) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") { NSWorkspace.shared.open(url) }
     }
 
     @objc private func changeKeysMode(_ sender: NSSegmentedControl) { setWindowsKeys(sender.selectedSegment == 1) }

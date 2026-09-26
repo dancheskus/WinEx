@@ -70,12 +70,16 @@ enum DesktopSnapshots {
 
     /// Saves the current arrangement. Automatic ones are skipped when nothing changed since the last.
     @discardableResult
-    static func take(automatic: Bool, preview: NSImage? = nil) -> Snapshot? {
+    static func take(automatic: Bool, preview: NSImage? = nil, unlessSaved: Bool = false) -> Snapshot? {
         guard let layout = currentLayout else { return nil }
-        if automatic, let last = all.first, let data = try? Data(contentsOf: last.url),
-           let file = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-           file["layout"] as? Data == layout {
-            defaults.set(Date(), forKey: "desktopSnapshotLast")
+        let files = all.compactMap { snapshot -> [String: Any]? in
+            guard let data = try? Data(contentsOf: snapshot.url) else { return nil }
+            return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        }
+        let same = files.filter { $0["layout"] as? Data == layout }
+        // Nothing new since the last automatic one / (before a restore) this arrangement is already kept
+        if (automatic && files.first.map { $0["layout"] as? Data == layout } == true) || (unlessSaved && !same.isEmpty) {
+            if automatic { defaults.set(Date(), forKey: "desktopSnapshotLast") }
             return nil
         }
         let counts = (try? JSONSerialization.jsonObject(with: layout) as? [String: Any]) ?? [:]
@@ -87,6 +91,9 @@ enum DesktopSnapshots {
         if let image = preview ?? AppDelegate.shared.desktopPreview(), let tiff = image.tiffRepresentation,
            let jpeg = NSBitmapImageRep(data: tiff)?.representation(using: .jpeg, properties: [.compressionFactor: 0.7]) {
             file["preview"] = jpeg
+        } else if let earlier = same.lazy.compactMap({ $0["preview"] as? Data }).first {
+            // WinEx isn't drawing the desktop now: the picture of the same arrangement taken earlier
+            file["preview"] = earlier
         }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -115,7 +122,7 @@ enum DesktopSnapshots {
         guard let data = try? Data(contentsOf: snapshot.url),
               let file = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let layout = file["layout"] as? Data else { return }
-        take(automatic: false)
+        take(automatic: false, unlessSaved: true)
         defaults.set(layout, forKey: "desktopLayout")
         AppDelegate.shared.reloadDesktopLayout()
     }

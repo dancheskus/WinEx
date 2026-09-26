@@ -105,6 +105,8 @@ enum MainMenu {
             .separator(),
             item(L("Показывать скрытые файлы"), #selector(AppDelegate.toggleHiddenFiles(_:)), ".", [.command, .shift]),
             item(L("Обновить"), #selector(ExplorerWindowController.refresh(_:)), "r"),
+            .separator(),
+            item(L("Полноэкранный режим"), #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ])
         submenu(L("Переход"), [
             item(L("Назад"), #selector(ExplorerWindowController.goBack(_:)), "["),

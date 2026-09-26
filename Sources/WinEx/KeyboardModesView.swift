@@ -21,7 +21,7 @@ final class KeyboardModesView: NSView {
             Row(action: L("Поиск"), finder: ["⌘F"], windows: ["F3"]),
             Row(action: L("Адресная строка"), finder: ["⌘L"], windows: ["F4", "⌥D"]),
             Row(action: L("Обновить"), finder: ["⌘R"], windows: ["F5"]),
-            Row(action: L("Полный экран"), finder: ["⌃⌘F"], windows: ["F11"]),
+            Row(action: L("Полный экран"), finder: ["⌃⌘F"], windows: [SystemDesktop.f11ShowsDesktop ? "F11 ⚠︎" : "F11"]),
             Row(action: L("В Корзину"), finder: ["⌘⌫"], windows: ["⌦ Delete"]),
             Row(action: L("Удалить навсегда"), finder: [], windows: ["⇧⌦"]),
             Row(action: L("Контекстное меню"), finder: [], windows: ["⇧F10"]),
@@ -189,7 +189,8 @@ private final class KeyCap: NSView {
             .foregroundColor: state == .on ? NSColor.labelColor : NSColor.secondaryLabelColor,
             .strikethroughStyle: state == .struck ? NSUnderlineStyle.single.rawValue : 0,
         ])
-        toolTip = state == .struck ? L("С клавишами Windows Enter открывает") : nil
+        toolTip = state == .struck ? L("С клавишами Windows Enter открывает")
+            : text.hasSuffix("⚠︎") ? L("В macOS F11 показывает рабочий стол — см. подсказку под таблицей") : nil
         needsDisplay = true
     }
 }

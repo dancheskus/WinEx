@@ -675,5 +675,9 @@ enum English {
         "Фото": "Photos",
         "Язык, доступ к файлам, замена Finder, клавиши и вид окон — по шагам, с картинками.": "Language, file access, replacing Finder, keys and window look — step by step, with pictures.",
         "свойства": "properties",
+        "В macOS F11 показывает рабочий стол — см. подсказку под таблицей": "In macOS, F11 shows the desktop — see the note under the table",
+        "Открыть сочетания клавиш…": "Open Keyboard Shortcuts…",
+        "Полноэкранный режим": "Full Screen",
+        "⚠︎ F11 в macOS занята: «Показать рабочий стол». Чтобы F11 включала полный экран, снимите это сочетание в Системных настройках ▸ Клавиатура ▸ Сочетания клавиш ▸ Mission Control. ⌃⌘F работает всегда.": "⚠︎ macOS uses F11 for “Show Desktop”. For F11 to toggle full screen, turn that shortcut off in System Settings ▸ Keyboard ▸ Keyboard Shortcuts ▸ Mission Control. ⌃⌘F always works.",
     ]
 }

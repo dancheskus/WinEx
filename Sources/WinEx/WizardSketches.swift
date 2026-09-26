@@ -109,9 +109,15 @@ final class WizardWindowSketch: WizardSketch {
         NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
     }
 
-    override func draw(_ dirtyRect: NSRect) {
+    /// The window's own size (the rest of the width is for the callouts).
+    static let windowSize = NSSize(width: 441, height: 180)
+
+    override func draw(_ dirtyRect: NSRect) { drawWindow(callouts: true) }
+
+    /// The window at the origin, `windowSize` big (other sketches draw it scaled, without callouts).
+    func drawWindow(callouts: Bool) {
         // The window, a little narrower than the page so the callout fits beside it
-        let window = NSRect(x: 0.5, y: 0.5, width: 440, height: bounds.height - 1)
+        let window = NSRect(x: 0.5, y: 0.5, width: Self.windowSize.width - 1, height: Self.windowSize.height - 1)
         let shape = NSBezierPath(roundedRect: window, xRadius: 10, yRadius: 10)
         NSColor.windowBackgroundColor.setFill()
         shape.fill()
@@ -138,6 +144,7 @@ final class WizardWindowSketch: WizardSketch {
         NSBezierPath(roundedRect: address, xRadius: 4, yRadius: 4).fill()
         text(L("Домашняя папка  ›  Документы"), at: NSPoint(x: address.minX + 7, y: address.minY + 3), size: 9)
         let search = NSRect(x: 330, y: y, width: 102, height: 17)
+        NSColor.labelColor.withAlphaComponent(0.07).setFill()
         NSBezierPath(roundedRect: search, xRadius: 4, yRadius: 4).fill()
         symbol("magnifyingglass", in: NSRect(x: search.minX + 4, y: y + 3, width: 12, height: 10))
         y += 22
@@ -227,14 +234,17 @@ final class WizardWindowSketch: WizardSketch {
         NSColor.separatorColor.setStroke()
         shape.stroke()
         // What the switches change, named beside the window
+        guard callouts else { return }
         if let point = commandBarMid { callout(L("Панель команд"), from: NSPoint(x: window.maxX + 14, y: point.y), to: point) }
         if let point = hiddenPoint { callout(L("Скрытые файлы"), from: NSPoint(x: window.maxX + 14, y: point.y), to: point) }
     }
 }
 
-/// The screen with or without WinEx's desktop: menu bar, wallpaper, icons (and a zone), the Dock.
+/// "Только окна": just WinEx's window. "Окна и рабочий стол": WinEx's desktop — wallpaper,
+/// icons, a zone — with the window over it.
 final class WizardDesktopSketch: WizardSketch {
     var replaceFinder: Bool { didSet { changed() } }
+    private let explorer = WizardWindowSketch(viewMode: .mediumIcons, commandBar: true, showHidden: false)
 
     init(replaceFinder: Bool) {
         self.replaceFinder = replaceFinder
@@ -243,7 +253,24 @@ final class WizardDesktopSketch: WizardSketch {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The explorer window drawn at `origin`, `scale` times its size.
+    private func drawExplorer(at origin: NSPoint, scale: CGFloat) {
+        NSGraphicsContext.saveGraphicsState()
+        let transform = NSAffineTransform()
+        transform.translateX(by: origin.x, yBy: origin.y)
+        transform.scale(by: scale)
+        transform.concat()
+        explorer.drawWindow(callouts: false)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        let size = WizardWindowSketch.windowSize
+        guard replaceFinder else {
+            let scale = min(bounds.width / size.width, bounds.height / size.height)
+            drawExplorer(at: NSPoint(x: (bounds.width - size.width * scale) / 2, y: (bounds.height - size.height * scale) / 2), scale: scale)
+            return
+        }
         let screen = bounds.insetBy(dx: 0.5, dy: 0.5)
         let shape = NSBezierPath(roundedRect: screen, xRadius: 10, yRadius: 10)
         NSGraphicsContext.saveGraphicsState()
@@ -254,51 +281,39 @@ final class WizardDesktopSketch: WizardSketch {
         NSColor.black.withAlphaComponent(0.25).setFill()
         NSRect(x: screen.minX, y: screen.minY, width: screen.width, height: 14).fill()
         symbol("apple.logo", in: NSRect(x: 8, y: 3, width: 10, height: 8), color: .white)
-        text(replaceFinder ? "WinEx" : "Finder", at: NSPoint(x: 24, y: 1.5), size: 8, weight: .bold, color: .white)
-        // Desktop icons on the right (Finder's or WinEx's: the same places)
+        text("WinEx", at: NSPoint(x: 24, y: 1.5), size: 8, weight: .bold, color: .white)
+        // Icons on the right, as they were
         for (n, (name, icon)) in [(L("Проекты"), Self.folder), (L("Отчёт.pdf"), Self.icon(.pdf)), (L("Фото"), Self.folder)].enumerated() {
             let y = 22 + CGFloat(n) * 40
             icon.draw(in: NSRect(x: screen.maxX - 44, y: y, width: 26, height: 26))
             text(name, at: NSPoint(x: screen.maxX - 31, y: y + 27), size: 7.5, weight: .medium, color: .white, width: 60, centred: true)
         }
-        if replaceFinder {
-            // A zone: only WinEx's desktop has them
-            let zone = NSRect(x: 22, y: 26, width: 150, height: 74)
-            let path = NSBezierPath(roundedRect: zone, xRadius: 8, yRadius: 8)
-            NSColor.black.withAlphaComponent(0.3).setFill()
-            path.fill()
-            NSColor.white.withAlphaComponent(0.25).setStroke()
-            path.stroke()
-            text(L("Работа"), at: NSPoint(x: zone.midX, y: zone.minY + 4), size: 8.5, weight: .semibold, color: .white, width: zone.width, centred: true)
-            for n in 0..<3 {
-                Self.icon(n == 1 ? .pdf : .plainText).draw(in: NSRect(x: zone.minX + 14 + CGFloat(n) * 46, y: zone.minY + 24, width: 26, height: 26))
-            }
-        } else {
-            // A WinEx window among the others
-            let window = NSRect(x: 40, y: 34, width: 170, height: 96)
-            NSColor.windowBackgroundColor.setFill()
-            NSBezierPath(roundedRect: window, xRadius: 7, yRadius: 7).fill()
-            NSColor.labelColor.withAlphaComponent(0.07).setFill()
-            NSRect(x: window.minX, y: window.minY, width: window.width, height: 16).fill()
-            text("WinEx", at: NSPoint(x: window.midX, y: window.minY + 3), size: 8, weight: .semibold, width: 80, centred: true)
-            for n in 0..<3 {
-                Self.folder.draw(in: NSRect(x: window.minX + 16 + CGFloat(n) * 50, y: window.minY + 30, width: 28, height: 28))
-            }
+        // A zone: only WinEx's desktop has them
+        let zone = NSRect(x: 18, y: 24, width: 140, height: 70)
+        let path = NSBezierPath(roundedRect: zone, xRadius: 8, yRadius: 8)
+        NSColor.black.withAlphaComponent(0.3).setFill()
+        path.fill()
+        NSColor.white.withAlphaComponent(0.25).setStroke()
+        path.stroke()
+        text(L("Работа"), at: NSPoint(x: zone.midX, y: zone.minY + 4), size: 8.5, weight: .semibold, color: .white, width: zone.width, centred: true)
+        for n in 0..<3 {
+            Self.icon(n == 1 ? .pdf : .plainText).draw(in: NSRect(x: zone.minX + 12 + CGFloat(n) * 44, y: zone.minY + 24, width: 26, height: 26))
         }
-        // Dock
-        let dock = NSRect(x: screen.midX - 29, y: screen.maxY - 30, width: 58, height: 24)
-        NSColor.white.withAlphaComponent(0.25).setFill()
-        NSBezierPath(roundedRect: dock, xRadius: 8, yRadius: 8).fill()
-        let finder = NSWorkspace.shared.icon(forFile: "/System/Library/CoreServices/Finder.app")
-        let winex = NSApp.applicationIconImage ?? NSImage()
-        for (n, icon) in [finder, winex].enumerated() {
-            icon.draw(in: NSRect(x: dock.minX + 10 + CGFloat(n) * 24, y: dock.minY + 3, width: 18, height: 18))
-        }
+        // The window over the desktop
+        let scale: CGFloat = 0.52
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.4)
+        shadow.shadowBlurRadius = 8
+        shadow.shadowOffset = NSSize(width: 0, height: -3)
+        shadow.set()
+        NSColor.windowBackgroundColor.setFill()
+        NSBezierPath(roundedRect: NSRect(x: 120, y: 62, width: size.width * scale, height: size.height * scale), xRadius: 6, yRadius: 6).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        drawExplorer(at: NSPoint(x: 120, y: 62), scale: scale)
         NSGraphicsContext.restoreGraphicsState()
         NSColor.separatorColor.setStroke()
         shape.stroke()
-        if replaceFinder {
-            callout(L("Зоны WinEx"), from: NSPoint(x: 190, y: 116), to: NSPoint(x: 150, y: 96))
-        }
+        callout(L("Зоны WinEx"), from: NSPoint(x: 30, y: 128), to: NSPoint(x: 40, y: 94))
     }
 }
