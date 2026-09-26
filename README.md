@@ -68,6 +68,21 @@ Scenarios exist in debug builds only: the app drives itself from the inside (no 
 keyboard), writes a log and quits. A scenario has its own settings — your WinEx settings and the
 “instead of Finder” mode are left alone.
 
+### Starting from scratch
+
+```sh
+scripts/reset-to-fresh.sh --dry-run            # what would be done
+scripts/reset-to-fresh.sh                      # WinEx as if never installed
+scripts/reset-to-fresh.sh --install-release    # …and the latest release in /Applications, as a download
+```
+
+It quits WinEx, gives the desktop back to Finder, removes the login item, resets every privacy
+permission WinEx asked for (`tccutil reset All dev.winex.WinEx`) and deletes all its settings,
+caches and saved state. Files, Finder's own settings and the signing certificate are left alone.
+With `--install-release` the app is marked as downloaded from the internet, so the first launch
+meets Gatekeeper like a new user's. For a truly clean Mac (nothing else installed, a different
+macOS language) use a separate user account or a macOS virtual machine.
+
 ## Languages
 
 WinEx speaks Russian and English. Settings ▸ General ▸ Language: the system's language (Russian if
