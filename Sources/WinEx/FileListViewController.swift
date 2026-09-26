@@ -827,6 +827,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     static let cutAlpha: CGFloat = 0.4
 
     @objc private func refresh(_ sender: Any?) {
+        #if DEBUG
+        ExplorerWindowController.debugRefreshes += 1
+        #endif
         reload()
     }
 

@@ -593,8 +593,25 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     @objc func refresh(_ sender: Any?) {
+        #if DEBUG
+        Self.debugRefreshes += 1
+        #endif
         fileList.reload()
     }
+
+    /// Вид ▸ Полноэкранный режим (⌃⌘F), F11 with Windows keys.
+    @objc func toggleFullScreenMode(_ sender: Any?) {
+        #if DEBUG
+        // Scenarios count it instead: a real full screen would switch the user's Spaces
+        if Scenario.isRequested { Self.debugFullScreenToggles += 1; return }
+        #endif
+        window?.toggleFullScreen(sender)
+    }
+
+    #if DEBUG
+    static var debugRefreshes = 0
+    static var debugFullScreenToggles = 0
+    #endif
 
     /// ⌘L, F4, a click beside the breadcrumbs: type a path (the whole current one selected).
     @objc func focusPathField(_ sender: Any?) {
@@ -850,6 +867,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             // ⌃9 is the last tab, like in browsers
             selectTab(at: number == 9 ? tabs.count - 1 : min(number - 1, tabs.count - 1))
             return true
+        case (36, [.option]) where !typing, (76, [.option]) where !typing:           // ⌥Enter: properties, like Alt+Enter
+            fileList.showProperties(nil)
+            return true
         default: break
         }
         guard Settings.windowsKeys else { return false }
@@ -857,7 +877,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         case (99, []): focusSearchField(nil)                                          // F3
         case (118, []): focusPathField(nil)                                           // F4
         case (96, []): refresh(nil)                                                   // F5
-        case (103, []): window?.toggleFullScreen(nil)                                 // F11
+        case (103, []): toggleFullScreenMode(nil)                                     // F11
         case (109, [.shift]): fileList.showContextMenuForSelection()                  // ⇧F10
         case (2, [.option]) where !typing: focusPathField(nil)                        // ⌥D
         case (123, [.option]) where !typing: goBack(nil)                              // ⌥←

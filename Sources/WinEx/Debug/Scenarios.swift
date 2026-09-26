@@ -42,9 +42,182 @@ enum Scenarios {
         "contextmenu": contextMenu,
         "unzip": unzip,
         "paste": pasteKeys,
+        "keys": keyboardShortcuts,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// Every shortcut of Settings ▸ Клавиатура, in both modes, as a real keyboard sends it (arrows and
+    /// F-keys with their function / numeric-pad flags), through the application like real key
+    /// presses. Full screen and refresh are counted rather than done.
+    static func keyboardShortcuts(_ s: Scenario) {
+        let base = s.makeFiles(["Папка/", "file.txt", "del.txt", "gone.txt"])
+        s.makeFiles(["Внутри/"], in: "Папка")
+        let folder = base.appendingPathComponent("Папка")
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        func press(_ characters: String, _ code: UInt16, _ modifiers: NSEvent.ModifierFlags = [], ignoring: String? = nil) {
+            var flags = modifiers
+            let scalar = characters.unicodeScalars.first.map { Int($0.value) } ?? 0
+            if (0xF700...0xF703).contains(scalar) { flags.formUnion([.function, .numericPad]) }       // arrows
+            if (0xF704...0xF8FF).contains(scalar) { flags.insert(.function) }                         // F-keys, ⌦
+            guard let window = s.window?.window,
+                  let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: characters,
+                                               charactersIgnoringModifiers: ignoring ?? characters, isARepeat: false, keyCode: code) else { return }
+            NSApp.sendEvent(event)
+        }
+        func fn(_ key: Int) -> String { String(Character(UnicodeScalar(key) ?? " ")) }
+        let down = fn(NSDownArrowFunctionKey), up = fn(NSUpArrowFunctionKey), left = fn(NSLeftArrowFunctionKey), right = fn(NSRightArrowFunctionKey)
+        let f2 = fn(NSF2FunctionKey), f3 = fn(NSF3FunctionKey), f4 = fn(NSF4FunctionKey), f5 = fn(NSF5FunctionKey)
+        let f10 = fn(NSF10FunctionKey), f11 = fn(NSF11FunctionKey), forwardDelete = fn(NSDeleteFunctionKey)
+        var here: String { s.window?.selectedTab.url.lastPathComponent ?? "?" }
+        var focus: String {
+            let responder = s.window?.window?.firstResponder
+            if let editor = responder as? NSTextView {
+                if editor.delegate is RoomySearchField { return "search" }
+                if editor.delegate is AddressField { return "address" }
+                return "rename"
+            }
+            return "list"
+        }
+        func reset(in url: URL = base) {
+            press("\u{1b}", 53)  // Esc: ends whatever is being typed
+            s.window?.navigate(to: url)
+        }
+        func check(_ title: String, _ result: @escaping @autoclosure () -> String, _ expected: String, after: Double = 0.4) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + after) {
+                let got = result()
+                s.note("  \(got == expected ? "ok  " : "FAIL") \(title): \(got)  expect \(expected)")
+            }
+        }
+        func mode(_ windows: Bool) -> Scenario.Step {
+            (0.5, windows ? "— Как в Windows —" : "— Как в Finder —", {
+                Settings.windowsKeys = windows
+                NotificationCenter.default.post(name: .keyboardSettingsChanged, object: nil)
+                reset()
+            })
+        }
+        // A keypress test: get ready (navigate), then select, press and look
+        func test(_ title: String, in url: URL = base, select name: String? = nil, _ action: @escaping () -> Void,
+                  _ result: @escaping () -> String, _ expected: String) -> [Scenario.Step] {
+            [(0.7, "", { reset(in: url) }),
+             (0.8, title, {
+                 if let name { s.select(name) } else { s.window?.window?.makeFirstResponder(s.table) }
+                 action()
+                 check(title, result(), expected)
+             })]
+        }
+        func counted(_ title: String, _ counter: @escaping () -> Int, _ action: @escaping () -> Void) -> [Scenario.Step] {
+            var before = 0
+            return [(0.7, "", { reset() }),
+                    (0.8, title, { before = counter(); s.window?.window?.makeFirstResponder(s.table); action(); check(title, counter() - before == 1 ? "done" : "not done", "done") })]
+        }
+        func trash(_ title: String, _ action: @escaping () -> Void) -> [Scenario.Step] {
+            [(0.7, "", { reset() }),
+             (0.8, title, { s.select("del.txt"); action(); check(title, s.files().contains("del.txt") ? "still there" : "in the Trash", "in the Trash", after: 1.2) }),
+             (1.6, "⌘Z (back from the Trash)", { s.key("z", code: 6, modifiers: .command, viaMenu: true); FileUndo.waitForFileWork() }),
+             (0.8, "", { check("undo", s.files().contains("del.txt") ? "back" : "missing", "back", after: 0) })]
+        }
+        func properties(_ title: String, _ action: @escaping () -> Void) -> [Scenario.Step] {
+            [(1.0, "", { reset() }),
+             (0.8, title, {
+                 s.select("file.txt")
+                 action()
+                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                     let window = NSApp.windows.first { $0.isVisible && $0.windowController is PropertiesWindowController }
+                     s.note("  \(window != nil ? "ok  " : "FAIL") \(title): \(window != nil ? "Свойства open" : "nothing")  expect Свойства open")
+                     window?.close()
+                 }
+             })]
+        }
+        let refreshes = { ExplorerWindowController.debugRefreshes }
+        let fullScreens = { ExplorerWindowController.debugFullScreenToggles }
+
+        var steps: [Scenario.Step] = [(0.8, "start", {})]
+        // Finder
+        steps.append(mode(false))
+        steps += test("⌘↓ opens", select: "Папка", { press(down, 125, .command) }, { here }, "Папка")
+        steps += test("⌘O opens", select: "Папка", { press("o", 31, .command) }, { here }, "Папка")
+        steps += test("Enter renames", select: "file.txt", { press("\r", 36) }, { focus }, "rename")
+        steps += test("F2 does nothing", select: "file.txt", { press(f2, 120) }, { focus }, "list")
+        steps += test("⌘↑ goes up", in: folder, { press(up, 126, .command) }, { here }, base.lastPathComponent)
+        steps += test("Backspace does nothing", in: folder, { press("\u{7f}", 51) }, { here }, "Папка")
+        steps += test("⌘[ back", in: folder, { press("[", 33, .command) }, { here }, base.lastPathComponent)
+        steps += [(0.6, "⌘] forward", { press("]", 30, .command); check("⌘] forward", here, "Папка") })]
+        steps += test("⌘F search", { press("f", 3, .command) }, { focus }, "search")
+        steps += test("⌘L address bar", { press("l", 37, .command) }, { focus }, "address")
+        steps += counted("⌘R refresh", refreshes) { press("r", 15, .command) }
+        steps += counted("⌃⌘F full screen", fullScreens) { press("f", 3, [.command, .control]) }
+        steps += trash("⌘⌫ to the Trash") { press("\u{7f}", 51, .command) }
+        steps += properties("⌘I properties") { press("i", 34, .command) }
+        steps += properties("⌥Enter properties") { press("\r", 36, .option) }
+        // Windows
+        steps.append(mode(true))
+        steps += test("Enter opens", select: "Папка", { press("\r", 36) }, { here }, "Папка")
+        steps += test("⌘↓ still opens", select: "Папка", { press(down, 125, .command) }, { here }, "Папка")
+        steps += test("F2 renames", select: "file.txt", { press(f2, 120) }, { focus }, "rename")
+        steps += test("Backspace goes up", in: folder, { press("\u{7f}", 51) }, { here }, base.lastPathComponent)
+        steps += test("⌥↑ goes up", in: folder, { press(up, 126, .option) }, { here }, base.lastPathComponent)
+        steps += test("⌘↑ still goes up", in: folder, { press(up, 126, .command) }, { here }, base.lastPathComponent)
+        steps += test("⌥← back", in: folder, { press(left, 123, .option) }, { here }, base.lastPathComponent)
+        steps += [(0.6, "⌥→ forward", { press(right, 124, .option); check("⌥→ forward", here, "Папка") })]
+        steps += test("F3 search", { press(f3, 99) }, { focus }, "search")
+        steps += test("F4 address bar", { press(f4, 118) }, { focus }, "address")
+        steps += test("⌥D address bar", { press("∂", 2, .option, ignoring: "d") }, { focus }, "address")
+        steps += counted("F5 refresh", refreshes) { press(f5, 96) }
+        steps += counted("F11 full screen", fullScreens) { press(f11, 103) }
+        steps += trash("⌦ Delete to the Trash") { press(forwardDelete, 117) }
+        steps += [(0.7, "", { reset() }),
+                  (0.8, "⇧⌦ deletes for good (after the question)", {
+                      s.select("gone.txt")
+                      // The question is modal: answer «Удалить» from inside its loop
+                      var asked = false
+                      let answer = Timer(timeInterval: 0.3, repeats: false) { _ in
+                          MainActor.assumeIsolated {
+                              asked = NSApp.modalWindow != nil
+                              NSApp.stopModal(withCode: .alertFirstButtonReturn)
+                          }
+                      }
+                      RunLoop.main.add(answer, forMode: .modalPanel)
+                      press(forwardDelete, 117, .shift)
+                      check("asked first", asked ? "asked" : "not asked", "asked", after: 0)
+                      check("⇧⌦ deletes for good", s.files().contains("gone.txt") ? "still there" : "gone", "gone", after: 1.2)
+                  })]
+        steps += [(1.6, "", { reset() }),
+                  (0.8, "⇧F10 context menu", {
+                      s.select("file.txt")
+                      var shown = false
+                      var menu: NSMenu?
+                      let observer = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+                          MainActor.assumeIsolated {
+                              shown = true
+                              menu = note.object as? NSMenu
+                          }
+                      }
+                      // The menu runs its own loop: closed from inside it
+                      let close = Timer(timeInterval: 0.4, repeats: false) { _ in MainActor.assumeIsolated { menu?.cancelTracking() } }
+                      RunLoop.main.add(close, forMode: .eventTracking)
+                      press(f10, 109, .shift)
+                      close.invalidate()
+                      NotificationCenter.default.removeObserver(observer)
+                      check("⇧F10 context menu", shown ? "menu shown" : "no menu", "menu shown", after: 0)
+                  })]
+        steps += properties("⌥Enter properties") { press("\r", 36, .option) }
+        // Tabs, both modes
+        steps += [(0.8, "— Вкладки —", {
+                      reset()
+                      s.window?.addTab(url: folder)
+                      s.window?.addTab(url: base)
+                  }),
+                  (0.8, "⌃1 first tab", { press("1", 18, .control); check("⌃1 first tab", "\(s.window?.selectedIndex ?? -1)", "0") }),
+                  (0.6, "⌃Tab next", { press("\t", 48, .control); check("⌃Tab next", "\(s.window?.selectedIndex ?? -1)", "1") }),
+                  (0.6, "⌃⇧Tab previous", { press("\u{19}", 48, [.control, .shift], ignoring: "\t"); check("⌃⇧Tab previous", "\(s.window?.selectedIndex ?? -1)", "0") }),
+                  (0.6, "⌃9 last tab", { press("9", 25, .control); check("⌃9 last tab", "\(s.window?.selectedIndex ?? -1)", "2") }),
+                  (0.8, "back to Finder keys", { Settings.windowsKeys = false }),
+        ]
+        s.run(steps)
+    }
 
     /// A real-timed click (button held 0.15 s) beside the breadcrumbs switches to typing with the
     /// whole path selected — five times in a row; Esc brings the breadcrumbs back each time.

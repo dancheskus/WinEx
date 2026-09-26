@@ -73,7 +73,8 @@ enum MainMenu {
             item(L("Распаковать"), #selector(FileListViewController.extractArchive(_:)), ""),
             item(L("Найти"), #selector(ExplorerWindowController.focusSearchField(_:)), "f"),
             renameItem,
-            item(L("Переместить в корзину"), #selector(FileListViewController.moveToTrash(_:)), key(NSBackspaceCharacter)),
+            // The ⌫ key sends DEL (0x7F): a menu with Backspace (0x08) never matches it
+            item(L("Переместить в корзину"), #selector(FileListViewController.moveToTrash(_:)), "\u{7f}"),
             .separator(),
             item(L("Свойства"), #selector(FileListViewController.showProperties(_:)), "i"),
             {
@@ -106,7 +107,7 @@ enum MainMenu {
             item(L("Показывать скрытые файлы"), #selector(AppDelegate.toggleHiddenFiles(_:)), ".", [.command, .shift]),
             item(L("Обновить"), #selector(ExplorerWindowController.refresh(_:)), "r"),
             .separator(),
-            item(L("Полноэкранный режим"), #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
+            item(L("Полноэкранный режим"), #selector(ExplorerWindowController.toggleFullScreenMode(_:)), "f", [.command, .control]),
         ])
         submenu(L("Переход"), [
             item(L("Назад"), #selector(ExplorerWindowController.goBack(_:)), "["),

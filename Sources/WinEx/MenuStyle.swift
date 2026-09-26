@@ -22,7 +22,7 @@ enum MenuStyle {
         "compress:": ("archivebox", "", []),
         "extractArchive:": ("shippingbox.and.arrow.backward", "", []),
         "renameSelected:": ("pencil", "", []),
-        "moveToTrash:": ("trash", String(Character(UnicodeScalar(NSBackspaceCharacter)!)), .command),
+        "moveToTrash:": ("trash", "\u{7f}", .command),
         "share:": ("square.and.arrow.up", "", []),
         "customizeFolder:": ("paintbrush", "", []),
         "showProperties:": ("info.circle", "i", .command),
@@ -191,7 +191,7 @@ enum MenuStyle {
         switch key {
         case String(Character(UnicodeScalar(NSDownArrowFunctionKey)!)): name = "↓"
         case String(Character(UnicodeScalar(NSUpArrowFunctionKey)!)): name = "↑"
-        case String(Character(UnicodeScalar(NSBackspaceCharacter)!)): name = "⌫"
+        case String(Character(UnicodeScalar(NSBackspaceCharacter)!)), "\u{7f}": name = "⌫"
         case "\r": name = "↩"
         case " ": name = L("Пробел")
         default:
