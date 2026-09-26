@@ -239,17 +239,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Called when a window that was dragged by its tab is dropped. If it lands on another
     /// window's tab bar, its tabs are merged into that window (like Chrome).
     func windowDragEnded(_ window: NSWindow, at screenPoint: NSPoint) {
-        guard let source = windowControllers.first(where: { $0.window === window }) else { return }
-        let target = NSApp.orderedWindows.lazy
-            .filter { $0 !== window && $0.isVisible }
-            .compactMap { w in self.windowControllers.first { $0.window === w } }
-            .first { $0.tabBar.screenFrame.insetBy(dx: 0, dy: -8).contains(screenPoint) }
-        guard let target else { return }
+        guard let source = windowControllers.first(where: { $0.window === window }),
+              let target = mergeTarget(for: window, at: screenPoint) else { return }
         let index = target.tabBar.insertionIndex(forScreenPoint: screenPoint)
         let tabs = source.tabs
         source.window?.close()
         target.insertTabs(tabs, at: index)
         target.window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// The window whose tab strip `screenPoint` is over (the frontmost one), other than `window`.
+    func mergeTarget(for window: NSWindow, at screenPoint: NSPoint) -> ExplorerWindowController? {
+        NSApp.orderedWindows.lazy
+            .filter { $0 !== window && $0.isVisible }
+            .compactMap { w in self.windowControllers.first { $0.window === w } }
+            .first { $0.tabBar.screenFrame.insetBy(dx: 0, dy: -8).contains(screenPoint) }
     }
 
     // MARK: - Menu bar item

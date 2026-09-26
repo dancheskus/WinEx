@@ -31,6 +31,7 @@ enum Scenarios {
         "session": session,
         "apps": appsSettings,
         "backup": backup,
+        "tabmerge": tabMerge,
         "look": look,
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
@@ -576,6 +577,38 @@ enum Scenarios {
         s.note("  desktop layout kept: \(AppDefaults.store.data(forKey: "desktopLayout") == Data([1, 2, 3]))  expect true")
         s.note("  not a settings file: \(SettingsBackup.read(Data("hello".utf8)) == nil)  expect true")
         s.run([])
+    }
+
+    /// A tab from another window over this window's strip: it's shown there before the drop.
+    static func tabMerge(_ s: Scenario) {
+        let a = s.makeFiles(["1.txt"], in: "Первая"), b = s.makeFiles(["2.txt"], in: "Вторая")
+        let app = AppDelegate.shared
+        app.windowControllers.forEach { $0.window?.close() }
+        let target = app.openWindow(at: a)
+        target.addTab(url: s.sandbox)
+        target.window?.setFrame(NSRect(x: 150, y: 200, width: 1100, height: 500), display: true)
+        let source = app.openWindow(at: b)
+        source.window?.setFrame(NSRect(x: 600, y: 120, width: 700, height: 400), display: true)
+        s.run([
+            (1.0, "hover over the strip", {
+                guard let bar = target.tabBar.window.map({ _ in target.tabBar }) else { return }
+                let point = NSPoint(x: bar.screenFrame.minX + 150, y: bar.screenFrame.midY)
+                s.note("  target found: \(app.mergeTarget(for: source.window ?? NSWindow(), at: point) === target)  expect true")
+                bar.showIncoming(title: source.selectedTab.title, icon: source.selectedTab.location.icon, atScreenPoint: point)
+                source.window?.alphaValue = 0
+                target.window?.orderFront(nil)
+            }),
+            (0.6, "photograph", {
+                if let number = target.window?.windowNumber {
+                    try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.5, "drop", {
+                target.tabBar.clearIncoming()
+                app.windowDragEnded(source.window ?? NSWindow(), at: NSPoint(x: target.tabBar.screenFrame.minX + 150, y: target.tabBar.screenFrame.midY))
+                s.note("  tabs now: \(target.tabs.map(\.title))  expect Вторая second")
+            }),
+        ])
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.

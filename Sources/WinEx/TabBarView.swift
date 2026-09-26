@@ -15,6 +15,11 @@ final class TabBarView: NSView {
     private let addButton = NSButton()
     /// While reordering: index of the dragged tab and its current x.
     private var dragState: (index: Int, x: CGFloat)?
+    /// A tab dragged in from another window, shown in the strip before the drop (Chrome).
+    private var incoming: (view: TabItemView, index: Int)?
+    /// The window whose strip shows our dragged tab right now.
+    private weak var mergePreview: ExplorerWindowController?
+    private var slotCount: Int { itemViews.count + (incoming == nil ? 0 : 1) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -72,7 +77,7 @@ final class TabBarView: NSView {
 
     private var tabWidth: CGFloat {
         let available = bounds.width - 40
-        let perTab = available / CGFloat(max(itemViews.count, 1))
+        let perTab = available / CGFloat(max(slotCount, 1))
         return min(Self.maxTabWidth, max(Self.minTabWidth, perTab))
     }
 
@@ -87,8 +92,13 @@ final class TabBarView: NSView {
     }
 
     private func layoutTabs(animated: Bool) {
+        if let incoming {
+            let frame = frameForTab(at: incoming.index)
+            if animated { incoming.view.animator().frame = frame } else { incoming.view.frame = frame }
+        }
         for (i, view) in itemViews.enumerated() {
-            var frame = frameForTab(at: i)
+            // Tabs after an incoming one make room for it
+            var frame = frameForTab(at: i + (incoming.map { i >= $0.index ? 1 : 0 } ?? 0))
             if let drag = dragState, drag.index == i {
                 frame.origin.x = drag.x
                 view.frame = frame
@@ -98,8 +108,43 @@ final class TabBarView: NSView {
                 view.frame = frame
             }
         }
-        let addX = CGFloat(itemViews.count) * tabWidth + 6
+        let addX = CGFloat(slotCount) * tabWidth + 6
         addButton.frame = NSRect(x: addX, y: ((bounds.height - 24) / 2).rounded(), width: 24, height: 24)
+    }
+
+    /// While a tab from another window is over this strip: it snaps in here, the others move
+    /// aside — so it's clear before the drop that the tab will join this window.
+    func showIncoming(title: String, icon: NSImage?, atScreenPoint point: NSPoint) {
+        let index = insertionIndex(forScreenPoint: point)
+        if let incoming, incoming.index == index { return }
+        let view: TabItemView
+        if let current = incoming?.view {
+            view = current
+        } else {
+            view = TabItemView(tabID: UUID())
+            view.title = title
+            view.icon = icon
+            view.isSelected = true
+            view.alphaValue = 0
+            view.frame = frameForTab(at: index)
+            addSubview(view, positioned: .below, relativeTo: addButton)
+        }
+        incoming = (view, index)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            view.animator().alphaValue = 1
+            layoutTabs(animated: true)
+        }
+    }
+
+    func clearIncoming() {
+        guard let view = incoming?.view else { return }
+        incoming = nil
+        view.removeFromSuperview()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            layoutTabs(animated: true)
+        }
     }
 
     func insertionIndex(forScreenPoint point: NSPoint) -> Int {
@@ -171,6 +216,18 @@ final class TabBarView: NSView {
 
             if let floating = floatingWindow {
                 floating.setFrameOrigin(NSPoint(x: mouse.x - windowGrabOffset.x, y: mouse.y - windowGrabOffset.y))
+                // Over another window's tabs: the window fades out and its tab snaps into that
+                // strip; away from it, the window comes back (Chrome)
+                let target = AppDelegate.shared.mergeTarget(for: floating, at: mouse)
+                if target !== mergePreview { mergePreview?.tabBar.clearIncoming() }
+                if let target, let source = floating.windowController as? ExplorerWindowController {
+                    if target !== mergePreview { target.window?.order(.below, relativeTo: floating.windowNumber) }
+                    target.tabBar.showIncoming(title: source.selectedTab.title, icon: source.selectedTab.location.icon, atScreenPoint: mouse)
+                    floating.alphaValue = 0
+                } else {
+                    floating.alphaValue = 1
+                }
+                mergePreview = target
                 continue
             }
 
@@ -207,8 +264,11 @@ final class TabBarView: NSView {
         }
 
         dragState = nil
+        mergePreview?.tabBar.clearIncoming()
+        mergePreview = nil
         if let floating = floatingWindow {
             AppDelegate.shared.windowDragEnded(floating, at: lastMouse)
+            floating.alphaValue = 1
         }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
