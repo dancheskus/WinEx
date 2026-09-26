@@ -36,10 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if !Scenario.isRequested {
             GlobalHotKey.shared.apply()
             Updater.shared.startAutomaticChecks()
+            DesktopSnapshots.startSchedule()
         }
         #else
         GlobalHotKey.shared.apply()
         Updater.shared.startAutomaticChecks()
+        DesktopSnapshots.startSchedule()
         #endif
         // Tags already on files join the sidebar's list (one quick Spotlight query)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { TagLibrary.discover() }
@@ -312,6 +314,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         showSettings(tab: nil)
     }
 
+    func showSettings(tab: SettingsWindowController.Tab?, snapshots: Bool) {
+        showSettings(tab: tab)
+        if snapshots { settingsController?.showSnapshots() }
+    }
+
     func showSettings(tab: SettingsWindowController.Tab?) {
         if settingsController == nil { settingsController = SettingsWindowController() }
         settingsController?.sync()
@@ -343,6 +350,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             desktop = nil
             FinderReplacement.restore()
         }
+    }
+
+    /// A desktop snapshot was restored: the desktop takes the stored arrangement again.
+    func reloadDesktopLayout() {
+        desktop?.reloadLayout()
     }
 
     /// Puts the WinEx desktop back the way Finder has it (icon places, size, sorting).

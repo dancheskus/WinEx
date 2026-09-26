@@ -7,13 +7,20 @@ import Quartz
 /// context menu. It watches the folder (no polling) and reads it in the background.
 @MainActor
 final class PortalView: NSScrollView {
+    /// The portal's own folder; `currentFolder` is where it's navigated to (inside it).
     let folder: URL
     private let grid: PortalGrid
+    var currentFolder: URL { grid.folder }
+    var canGoUp: Bool { grid.folder.standardizedFileURL.path != folder.standardizedFileURL.path }
+    /// The folder shown changed (the fence's title and back button follow).
+    var onNavigate: (() -> Void)?
 
     init(folder: URL, cell: NSSize, iconSide: CGFloat) {
         self.folder = folder
         grid = PortalGrid(folder: folder, cell: cell, iconSide: iconSide)
         super.init(frame: .zero)
+        grid.navigate = { [weak self] url in self?.show(url) }
+        grid.goUp = { [weak self] in self?.goUp() }
         drawsBackground = false
         hasVerticalScroller = true
         autohidesScrollers = true
@@ -38,12 +45,36 @@ final class PortalView: NSScrollView {
     }
 
     var itemCount: Int { grid.items.count }
+
+    /// Shows a folder inside the portal (never above its own folder).
+    @discardableResult
+    func show(_ url: URL) -> Any? {
+        let root = folder.standardizedFileURL.path
+        let target = url.standardizedFileURL
+        // Somewhere else (an alias pointing out of the portal): opens in a WinEx window
+        guard target.path == root || target.path.hasPrefix(root + "/") else { return AppDelegate.shared.openWindow(at: target) }
+        grid.setFolder(target)
+        contentView.scroll(to: .zero)
+        reflectScrolledClipView(contentView)
+        onNavigate?()
+        return nil
+    }
+
+    func goUp() {
+        guard canGoUp else { return }
+        let from = grid.folder
+        show(from.deletingLastPathComponent())
+        grid.select(named: from.lastPathComponent)
+    }
 }
 
 /// The icons of a portal, drawn like the desktop's.
 @MainActor
 private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMenuDelegate, QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-    let folder: URL
+    private(set) var folder: URL
+    var navigate: ((URL) -> Void)?
+    var goUp: (() -> Void)?
+    private var pendingSelection: String?
     var cell: NSSize { didSet { if cell != oldValue { needsLayoutGrid = true } } }
     var iconSide: CGFloat { didSet { if iconSide != oldValue { needsLayoutGrid = true; thumbnails = [:] } } }
     private(set) var items: [FileItem] = []
@@ -80,6 +111,20 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
 
     // MARK: Contents (read in the background: a portal to a big or network folder stays smooth)
 
+    /// Another folder (navigating inside the portal): new contents, a new watcher.
+    func setFolder(_ url: URL) {
+        folder = url
+        selection = []
+        anchor = nil
+        items = []
+        needsLayoutGrid = true
+        watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
+        reading = false
+        reload()
+    }
+
+    func select(named name: String) { pendingSelection = name }
+
     func reload() {
         guard !reading else { return }
         reading = true
@@ -91,10 +136,12 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
             // A huge folder: the first thousands are plenty for a desktop portal
             let loaded = FileItem.sorted(urls.prefix(5000).map(FileItem.init), by: FileItem.SortOrder(key: "name", ascending: true))
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.folder == folder else { return }  // navigated elsewhere meanwhile
                 self.reading = false
                 self.items = loaded
-                self.selection = Set(loaded.indices.filter { selected.contains(loaded[$0].url.lastPathComponent) })
+                let wanted = self.pendingSelection.map { Set([$0]) } ?? selected
+                self.pendingSelection = nil
+                self.selection = Set(loaded.indices.filter { wanted.contains(loaded[$0].url.lastPathComponent) })
                 let live = Set(loaded.map(self.thumbnailKey))
                 self.thumbnails = self.thumbnails.filter { live.contains($0.key) }
                 self.requested.formIntersection(live)
@@ -275,6 +322,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
     override func keyDown(with event: NSEvent) {
         switch (event.keyCode, event.modifierFlags.intersection([.command, .shift, .option, .control])) {
         case (36, []), (125, [.command]): openSelected(nil)
+        case (126, [.command]), (51, []): goUp?()
         case (51, [.command]): moveToTrash(nil)
         case (0, [.command]): selection = Set(items.indices)
         case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }
@@ -323,7 +371,15 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
 
     private var selectedURLs: [URL] { selection.sorted().filter(items.indices.contains).map { items[$0].url } }
 
-    func openSelected(_ sender: Any?) { selectedURLs.forEach(AppDelegate.shared.open) }
+    /// A folder opens inside the portal; files (and apps, packages) as usual.
+    func openSelected(_ sender: Any?) {
+        let urls = selectedURLs
+        if urls.count == 1, let url = urls.first, url.isBrowsableDirectory {
+            navigate?(FileCommands.resolved(url))
+            return
+        }
+        urls.forEach(AppDelegate.shared.open)
+    }
     func quickLook(_ sender: Any?) { QuickLook.toggle(for: self) }
     func cut(_ sender: Any?) { FileClipboard.shared.cut(selectedURLs) }
     func copy(_ sender: Any?) { FileClipboard.shared.copy(selectedURLs) }

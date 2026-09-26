@@ -9,7 +9,9 @@ enum SettingsBackup {
 
     /// Never saved or loaded: the restart hand-over, and AppKit's own bookkeeping.
     private static func isInternal(_ key: String) -> Bool {
-        key == "restartSession" || key == "setupWizardStep" || key.hasPrefix("NS") || key.hasPrefix("com.apple")
+        // The desktop's arrangement has its own backup: desktop snapshots
+        key == "restartSession" || key == "setupWizardStep" || key == "desktopLayout" || key == "desktopSnapshotLast"
+            || key.hasPrefix("NS") || key.hasPrefix("com.apple")
     }
 
     /// Kept when loading or resetting: switching "instead of Finder" through a restart could
@@ -33,7 +35,7 @@ enum SettingsBackup {
         // No content type: the extension isn't registered with macOS, and the panel would add it
         // a second time ("….winexsettings.winexsettings")
         panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        panel.message = L("Все настройки WinEx: вид, боковое меню, теги, программы, рабочий стол…")
+        panel.message = L("Все настройки WinEx: вид, боковое меню, теги, программы… (расстановка рабочего стола — в снимках рабочего стола)")
         guard panel.runModal() == .OK, var url = panel.url else { return }
         if url.pathExtension != fileExtension { url.appendPathExtension(fileExtension) }
         do {

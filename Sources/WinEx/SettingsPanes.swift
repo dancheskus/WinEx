@@ -784,6 +784,9 @@ final class FenceSettingsView: NSView {
             .row(nil, SettingsForm.hint(L("⌘ при перетаскивании временно отключает прилипание."))),
             .row(nil, quickHide),
             .gap,
+            .row(L("Снимки рабочего стола:"), snapshotRow()),
+            .row(nil, SettingsForm.hint(L("Где стоят значки (в оградах и вне их), ограды и порталы — чтобы вернуть рабочий стол, если что-то сбилось."))),
+            .gap,
             .row(nil, SettingsForm.hint(L("Ограды работают на рабочем столе WinEx (Настройки ▸ Finder). Создать — правый щелчок по рабочему столу; у каждой ограды можно выбрать свой цвет в её меню."))),
         ])
         form.translatesAutoresizingMaskIntoConstraints = false
@@ -800,6 +803,28 @@ final class FenceSettingsView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    private func snapshotRow() -> NSView {
+        let popup = NSPopUpButton()
+        for interval in DesktopSnapshots.intervals {
+            popup.addItem(withTitle: interval.title)
+            popup.lastItem?.tag = interval.hours
+        }
+        popup.selectItem(withTag: DesktopSnapshots.intervalHours)
+        popup.target = self
+        popup.action = #selector(intervalChanged(_:))
+        let list = NSButton(title: L("Снимки…"), target: self, action: #selector(showSnapshots(_:)))
+        let row = NSStackView(views: [popup, list])
+        row.spacing = 8
+        return row
+    }
+
+    @objc private func intervalChanged(_ sender: NSPopUpButton) { DesktopSnapshots.intervalHours = sender.selectedTag() }
+
+    @objc private func showSnapshots(_ sender: Any?) {
+        guard let window else { return }
+        window.beginSheet(NSWindow(contentViewController: DesktopSnapshotsSheet()))
+    }
 
     private func sync() {
         radiusValue.stringValue = "\(Int(FenceStyle.cornerRadius)) pt"

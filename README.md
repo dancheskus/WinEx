@@ -244,6 +244,15 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
   own colour. Double-click the wallpaper to hide every icon and fence (and again to bring them
   back), on all monitors. Settings ▸ Fences: corner radius, colour, opacity, frosted glass,
   snapping, quick-hide.
+- Portals are named after their folder; double-click a subfolder to go into it inside the portal
+  (“‹” in the title goes back, ⌘↑ or Backspace too); the button at the title's right opens the
+  folder shown in a WinEx window.
+- Desktop snapshots: the whole arrangement — icons in fences and outside them, fences, portals,
+  icon size — saved as files in ~/Library/Application Support/WinEx/Desktop Snapshots,
+  automatically (daily by default: hourly, every 6 hours, weekly or off) and by hand; restore
+  one from the desktop's menu (Desktop Snapshots ▸) or Settings ▸ Fences ▸ Snapshots…; the
+  current arrangement is saved before a restore. Separate from the settings backup, which no
+  longer carries the desktop arrangement.
 - Menu: View ▸ large / medium / small icons, Auto Arrange Icons, Align Icons to Grid, Show Desktop
   Icons; Sort By ▸ name / size / type / date; New ▸ — the new file appears where the menu was opened.
 

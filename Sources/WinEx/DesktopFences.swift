@@ -208,6 +208,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
     var minimumSize = NSSize(width: 140, height: 120)
 
     private let blur = NSVisualEffectView()
+    private let overlay = FenceOverlay()
     private static let edge: CGFloat = 6
 
     init(fence: DesktopFence) {
@@ -223,6 +224,12 @@ final class FenceView: NSView, NSTextFieldDelegate {
         blur.frame = bounds
         blur.autoresizingMask = [.width, .height]
         addSubview(blur, positioned: .below, relativeTo: nil)
+        // Everything the fence draws goes on a layer above the frosted glass (drawn below it, the
+        // glass would dim the title)
+        overlay.owner = self
+        overlay.frame = bounds
+        overlay.autoresizingMask = [.width, .height]
+        addSubview(overlay, positioned: .above, relativeTo: blur)
         updateBlur()
     }
 
@@ -230,6 +237,10 @@ final class FenceView: NSView, NSTextFieldDelegate {
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override var needsDisplay: Bool {
+        didSet { if needsDisplay { overlay.needsDisplay = true } }
+    }
 
     private func updateBlur() {
         blur.isHidden = !FenceStyle.blur
@@ -264,6 +275,16 @@ final class FenceView: NSView, NSTextFieldDelegate {
 
     /// The roll-up chevron at the title's left.
     private var chevronRect: NSRect { NSRect(x: 4, y: 0, width: 26, height: DesktopFence.titleHeight) }
+    /// A portal navigated into a subfolder: "‹" back to where it came from.
+    private var backRect: NSRect? {
+        portalView?.canGoUp == true && !fence.collapsed ? NSRect(x: 30, y: 0, width: 24, height: DesktopFence.titleHeight) : nil
+    }
+    /// A portal: the button opening its (current) folder in WinEx, at the title's right.
+    private var openRect: NSRect? {
+        fence.isPortal ? NSRect(x: bounds.width - 32, y: 0, width: 26, height: DesktopFence.titleHeight) : nil
+    }
+    /// What the title says: a portal's current folder (not renamable), otherwise the fence's name.
+    private var shownTitle: String { portalView.map { $0.currentFolder.displayName } ?? fence.title }
 
     /// The title bar and the edges; the inside belongs to the desktop (icons, rubber band, drops)
     /// — or, for a portal, to the portal.
@@ -291,6 +312,11 @@ final class FenceView: NSView, NSTextFieldDelegate {
         if portalView?.folder.path != path {
             portalView?.removeFromSuperview()
             let portal = PortalView(folder: URL(fileURLWithPath: path), cell: cell, iconSide: iconSide)
+            portal.onNavigate = { [weak self] in
+                guard let self else { return }
+                self.needsDisplay = true
+                self.window?.invalidateCursorRects(for: self)
+            }
             addSubview(portal)
             portalView = portal
         }
@@ -308,7 +334,9 @@ final class FenceView: NSView, NSTextFieldDelegate {
     override func resetCursorRects() {
         let e = Self.edge, c = Self.corner, w = bounds.width, h = bounds.height
         addCursorRect(chevronRect.insetBy(dx: 0, dy: 4), cursor: .pointingHand)
-        addCursorRect(titleTextHitRect.insetBy(dx: 0, dy: 5), cursor: .iBeam)
+        if !fence.isPortal { addCursorRect(titleTextHitRect.insetBy(dx: 0, dy: 5), cursor: .iBeam) }
+        if let backRect { addCursorRect(backRect.insetBy(dx: 0, dy: 4), cursor: .pointingHand) }
+        if let openRect { addCursorRect(openRect.insetBy(dx: 0, dy: 4), cursor: .pointingHand) }
         addCursorRect(NSRect(x: 0, y: c, width: e, height: max(h - 2 * c, 0)), cursor: .frameResize(position: .left, directions: .all))
         addCursorRect(NSRect(x: w - e, y: c, width: e, height: max(h - 2 * c, 0)), cursor: .frameResize(position: .right, directions: .all))
         guard !fence.collapsed else { return }
@@ -328,14 +356,22 @@ final class FenceView: NSView, NSTextFieldDelegate {
             onToggleCollapsed?()
             return
         }
+        if grabbed.isEmpty, let backRect, backRect.contains(start) {
+            portalView?.goUp()
+            return
+        }
+        if grabbed.isEmpty, let openRect, openRect.contains(start), let folder = portalView?.currentFolder {
+            AppDelegate.shared.openWindow(at: folder)
+            return
+        }
         // Double-click on the title bar (not on its text): roll up / down
         if grabbed.isEmpty, event.clickCount == 2, !titleTextHitRect.contains(start) {
             onToggleCollapsed?()
             return
         }
         let moved = track(from: event, edges: grabbed.isEmpty ? [.minX, .maxX, .minY, .maxY] : grabbed)
-        // A click on the title's text (not a drag): rename it at once
-        if !moved, grabbed.isEmpty, titleTextHitRect.contains(start) { beginRename() }
+        // A click on the title's text (not a drag): rename it at once (a portal is named by its folder)
+        if !moved, grabbed.isEmpty, !fence.isPortal, titleTextHitRect.contains(start) { beginRename() }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { onMenu?(event) }
@@ -396,7 +432,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
     /// The title's text itself (as wide as the words, a little padding around them).
     private var titleTextHitRect: NSRect {
         let area = titleTextRect
-        let width = min((fence.title as NSString).size(withAttributes: [.font: Self.titleFont]).width, area.width)
+        let width = min((shownTitle as NSString).size(withAttributes: [.font: Self.titleFont]).width, area.width)
         return NSRect(x: area.midX - width / 2 - 6, y: 0, width: width + 12, height: DesktopFence.titleHeight)
     }
 
@@ -443,7 +479,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
 
     // MARK: Drawing
 
-    override func draw(_ dirtyRect: NSRect) {
+    fileprivate func drawContent(_ dirtyRect: NSRect) {
         let radius = min(FenceStyle.cornerRadius, bounds.height / 2)
         let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
         let tint = FenceStyle.nsColor(fence.color ?? FenceStyle.color) ?? .black
@@ -478,14 +514,14 @@ final class FenceView: NSView, NSTextFieldDelegate {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: Self.titleFont, .foregroundColor: NSColor.white, .paragraphStyle: paragraph, .shadow: shadow,
         ]
-        let text = NSAttributedString(string: fence.title, attributes: attributes)
+        let text = NSAttributedString(string: shownTitle, attributes: attributes)
         if fence.collapsed && !fence.members.isEmpty {
             // How many icons it holds: a small badge at the right, the title stays the same
             let count = NSAttributedString(string: "\(fence.members.count)", attributes: [
                 .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white.withAlphaComponent(0.8),
             ])
             let size = count.size()
-            let badge = NSRect(x: bounds.width - size.width - 22, y: (DesktopFence.titleHeight - 18) / 2, width: size.width + 12, height: 18)
+            let badge = NSRect(x: bounds.width - size.width - 22 - (fence.isPortal ? 28 : 0), y: (DesktopFence.titleHeight - 18) / 2, width: size.width + 12, height: 18)
             NSColor.white.withAlphaComponent(0.14).setFill()
             NSBezierPath(roundedRect: badge, xRadius: 9, yRadius: 9).fill()
             count.draw(at: NSPoint(x: badge.minX + 6, y: badge.midY - size.height / 2))
@@ -503,6 +539,20 @@ final class FenceView: NSView, NSTextFieldDelegate {
             tinted.draw(in: NSRect(x: 12, y: (DesktopFence.titleHeight - chevron.size.height) / 2,
                                    width: chevron.size.width, height: chevron.size.height))
         }
+        // Portal buttons: back (in a subfolder) and "open in WinEx"
+        func symbol(_ name: String, in rect: NSRect) {
+            guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold)) else { return }
+            let white = NSImage(size: image.size, flipped: false) { r in
+                image.draw(in: r)
+                NSColor.white.withAlphaComponent(0.8).set()
+                r.fill(using: .sourceAtop)
+                return true
+            }
+            white.draw(in: NSRect(x: rect.midX - image.size.width / 2, y: rect.midY - image.size.height / 2, width: image.size.width, height: image.size.height))
+        }
+        if let backRect { symbol("chevron.left", in: backRect) }
+        if let openRect { symbol("arrow.up.forward.app", in: openRect) }
         if overflow > 0 && !fence.collapsed {
             let more = NSAttributedString(string: "↓ \(overflow)", attributes: [
                 .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white.withAlphaComponent(0.75),
@@ -511,6 +561,14 @@ final class FenceView: NSView, NSTextFieldDelegate {
             more.draw(at: NSPoint(x: bounds.width - size.width - 10, y: bounds.height - size.height - 5))
         }
     }
+}
+
+/// Draws the fence (panel, title, buttons) above its frosted glass; the mouse goes to the fence.
+private final class FenceOverlay: NSView {
+    weak var owner: FenceView?
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) { owner?.drawContent(dirtyRect) }
 }
 
 /// The accent-coloured lines a fence snaps to, while it's moved or resized.

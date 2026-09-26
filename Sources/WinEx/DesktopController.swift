@@ -23,6 +23,14 @@ final class DesktopController {
         observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.updateScreens() }
     }
 
+    /// The stored arrangement changed underneath (a snapshot restored): every monitor re-reads it.
+    func reloadLayout() {
+        guard shown else { return }
+        let fresh = DesktopLayout(desktop: DesktopView.desktopURL, screens: DesktopView.layoutScreens())
+        layout = fresh
+        for desktop in desktops { desktop.view.resetToFinder(fresh) }
+    }
+
     func resetToFinder() {
         DesktopLayout.forget()
         let fresh = DesktopLayout(desktop: DesktopView.desktopURL, screens: DesktopView.layoutScreens())
@@ -1016,6 +1024,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             add(L("Создать ограду"), #selector(createFence(_:)))
             add(L("Создать портал папки…"), #selector(createPortal(_:)))
         }
+        menu.addItem(snapshotsMenuItem())
         menu.addItem(.separator())
         if let terminal = TerminalLauncher.menuItem(for: [desktopURL]) { menu.addItem(terminal) }
         OpenWithMenu.mainMenuItems(for: [desktopURL]).forEach(menu.addItem)
@@ -1428,8 +1437,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             items.append(item(L("Другая папка…"), #selector(changePortalFolder(_:)), "folder.badge.gearshape"))
             items.append(.separator())
         }
+        if !fence.isPortal { items.append(item(L("Переименовать ограду"), #selector(renameFence(_:)), "pencil")) }
         items += [
-            item(L("Переименовать ограду"), #selector(renameFence(_:)), "pencil"),
             item(fence.collapsed ? L("Развернуть ограду") : L("Свернуть ограду"), #selector(toggleFenceMenu(_:)),
                  fence.collapsed ? "chevron.down" : "chevron.up"),
         ]
@@ -1617,6 +1626,41 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     @objc private func noop(_ sender: Any?) {}
+
+    /// «Снимки рабочего стола ▸»: take one, restore one of the latest, see them all.
+    private func snapshotsMenuItem() -> NSMenuItem {
+        let menu = NSMenu()
+        let take = menu.addItem(withTitle: L("Сделать снимок"), action: #selector(takeSnapshot(_:)), keyEquivalent: "")
+        take.target = self
+        take.image = NSImage(systemSymbolName: "camera", accessibilityDescription: nil)
+        let recent = DesktopSnapshots.all.prefix(5)
+        if !recent.isEmpty {
+            menu.addItem(.separator())
+            for snapshot in recent {
+                let item = menu.addItem(withTitle: L("Вернуть: %@", DesktopSnapshots.describe(snapshot)), action: #selector(restoreSnapshot(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = snapshot.url
+                item.image = NSImage(systemSymbolName: snapshot.automatic ? "clock.arrow.circlepath" : "star", accessibilityDescription: nil)
+            }
+        }
+        menu.addItem(.separator())
+        let all = menu.addItem(withTitle: L("Все снимки…"), action: #selector(showSnapshots(_:)), keyEquivalent: "")
+        all.target = self
+        all.image = NSImage(systemSymbolName: "list.bullet", accessibilityDescription: nil)
+        let item = NSMenuItem(title: L("Снимки рабочего стола"), action: nil, keyEquivalent: "")
+        item.image = NSImage(systemSymbolName: "camera.on.rectangle", accessibilityDescription: nil)
+        item.submenu = menu
+        return item
+    }
+
+    @objc private func takeSnapshot(_ sender: Any?) { DesktopSnapshots.take(automatic: false) }
+
+    @objc private func restoreSnapshot(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL, let snapshot = DesktopSnapshots.all.first(where: { $0.url == url }) else { return }
+        DesktopSnapshots.restore(snapshot)
+    }
+
+    @objc private func showSnapshots(_ sender: Any?) { AppDelegate.shared.showSettings(tab: .fences, snapshots: true) }
 
     @objc private func setFenceColor(_ sender: NSMenuItem) {
         guard let pair = sender.representedObject as? [String], pair.count == 2,

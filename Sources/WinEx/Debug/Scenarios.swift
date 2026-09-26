@@ -769,9 +769,34 @@ enum Scenarios {
             (1.5, "items read", {
                 guard let view = mainView(), let fence = view.layout.fences.last else { return }
                 s.note("  items in the portal: \(view.debugFenceView(fence.id)?.portalView?.itemCount ?? -1)  expect 4")
+                try? "внутри".write(to: folder.appendingPathComponent("Вложенная/файл.txt"), atomically: true, encoding: .utf8)
+                view.debugFenceView(fence.id)?.portalView?.show(folder.appendingPathComponent("Вложенная"))
+            }),
+            (1.0, "inside a subfolder", {
+                guard let view = mainView(), let fence = view.layout.fences.last, let portal = view.debugFenceView(fence.id)?.portalView else { return }
+                s.note("  in \(portal.currentFolder.lastPathComponent), \(portal.itemCount) item(s), can go up: \(portal.canGoUp)  expect Вложенная, 1, true")
+                if let window = view.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
+                }
+                portal.show(URL(fileURLWithPath: "/tmp"))  // outside the portal: refused (opens a window instead)
+                s.note("  outside stays inside: \(portal.currentFolder.lastPathComponent)  expect Вложенная")
+                AppDelegate.shared.windowControllers.last?.window?.close()
+                portal.goUp()
+            }),
+            (1.0, "back up", {
+                guard let view = mainView(), let fence = view.layout.fences.last, let portal = view.debugFenceView(fence.id)?.portalView else { return }
+                s.note("  back in \(portal.currentFolder.lastPathComponent), can go up: \(portal.canGoUp)  expect Портал, false")
+                // Snapshots: take, change, restore
+                DesktopSnapshots.take(automatic: false)
+                let before = view.layout.fences.count
+                view.layout.fences = []
+                if let snapshot = DesktopSnapshots.all.last { DesktopSnapshots.restore(snapshot) }
+                controller.reloadLayout()  // (the app's own desktop is reloaded by the restore; this one is the scenario's)
+                s.note("  snapshots: \(DesktopSnapshots.all.count), fences after restore: \(mainView()?.layout.fences.count ?? -1)  expect 2, \(before)")
             }),
             (1.0, "quick-hide", {
                 guard let view = mainView() else { return }
+                try? FileManager.default.removeItem(at: DesktopSnapshots.folder)
                 view.setQuickHidden(true)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     let fence = view.layout.fences.last.flatMap { view.debugFenceView($0.id) }

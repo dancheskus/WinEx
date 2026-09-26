@@ -246,6 +246,12 @@ final class SettingsWindowController: NSWindowController {
 
     // MARK: - State
 
+    func showSnapshots() {
+        guard let window else { return }
+        let sheet = NSWindow(contentViewController: DesktopSnapshotsSheet())
+        window.beginSheet(sheet)
+    }
+
     func select(_ tab: Tab) {
         tabs.selectedTabViewItemIndex = tab.rawValue
     }
