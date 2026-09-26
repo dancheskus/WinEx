@@ -235,7 +235,7 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
 - Fences, like Stardock Fences: “New Fence” on the desktop (or “Put in a New Fence” on selected
   icons) makes a translucent, titled area; drag icons in and out, drag it by its title, resize it
   by its edges — both snap to the monitor's edges and the other fences (with guide lines; ⌘ turns
-  snapping off); click the title to rename it, the chevron rolls it up; scroll when it holds more than fits;
+  snapping off); click the title's text to rename it; double-click the title bar or click the chevron to roll it up; scroll when it holds more than fits;
   rename or remove it from its menu (its icons stay where they are). Nothing runs in the
   background for them.
 - Menu: View ▸ large / medium / small icons, Auto Arrange Icons, Align Icons to Grid, Show Desktop

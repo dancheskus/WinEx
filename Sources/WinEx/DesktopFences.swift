@@ -108,7 +108,7 @@ enum FenceSnap {
 /// on top of it. Its title bar and edges take the mouse; clicks inside go to the desktop.
 @MainActor
 final class FenceView: NSView, NSTextFieldDelegate {
-    var fence: DesktopFence { didSet { if fence != oldValue { needsDisplay = true; updateBlur() } } }
+    var fence: DesktopFence { didSet { if fence != oldValue { needsDisplay = true; updateBlur(); window?.invalidateCursorRects(for: self) } } }
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Hidden icons below the visible rows (shown as "↓ N").
     var overflow = 0 { didSet { if overflow != oldValue { needsDisplay = true } } }
@@ -184,6 +184,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
     override func resetCursorRects() {
         let e = Self.edge, c = Self.corner, w = bounds.width, h = bounds.height
         addCursorRect(chevronRect.insetBy(dx: 0, dy: 4), cursor: .pointingHand)
+        addCursorRect(titleTextHitRect.insetBy(dx: 0, dy: 5), cursor: .iBeam)
         addCursorRect(NSRect(x: 0, y: c, width: e, height: max(h - 2 * c, 0)), cursor: .frameResize(position: .left, directions: .all))
         addCursorRect(NSRect(x: w - e, y: c, width: e, height: max(h - 2 * c, 0)), cursor: .frameResize(position: .right, directions: .all))
         guard !fence.collapsed else { return }
@@ -203,9 +204,14 @@ final class FenceView: NSView, NSTextFieldDelegate {
             onToggleCollapsed?()
             return
         }
+        // Double-click on the title bar (not on its text): roll up / down
+        if grabbed.isEmpty, event.clickCount == 2, !titleTextHitRect.contains(start) {
+            onToggleCollapsed?()
+            return
+        }
         let moved = track(from: event, edges: grabbed.isEmpty ? [.minX, .maxX, .minY, .maxY] : grabbed)
-        // A click on the title (not a drag): rename it at once. Rolling up is the chevron's job.
-        if !moved, grabbed.isEmpty { beginRename() }
+        // A click on the title's text (not a drag): rename it at once
+        if !moved, grabbed.isEmpty, titleTextHitRect.contains(start) { beginRename() }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { onMenu?(event) }
@@ -261,6 +267,13 @@ final class FenceView: NSView, NSTextFieldDelegate {
     private var titleTextRect: NSRect {
         let height = ceil(Self.titleFont.ascender - Self.titleFont.descender + Self.titleFont.leading)
         return NSRect(x: 26, y: ((DesktopFence.titleHeight - height) / 2).rounded(), width: bounds.width - 52, height: height)
+    }
+
+    /// The title's text itself (as wide as the words, a little padding around them).
+    private var titleTextHitRect: NSRect {
+        let area = titleTextRect
+        let width = min((fence.title as NSString).size(withAttributes: [.font: Self.titleFont]).width, area.width)
+        return NSRect(x: area.midX - width / 2 - 6, y: 0, width: width + 12, height: DesktopFence.titleHeight)
     }
 
     func beginRename() {
