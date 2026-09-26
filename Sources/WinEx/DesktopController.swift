@@ -1317,7 +1317,26 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         view.snap = { [weak self] rect, edges in
             guard let self, let area = self.screens.first?.iconArea else { return (rect, []) }
             let others = self.myFences.filter { $0.id != id }.map { self.visibleFrame(of: $0) } + self.widgetRects
-            return FenceSnap.snap(rect, edges: edges, area: area, others: others)
+            var (snapped, guides) = FenceSnap.snap(rect, edges: edges, area: area, others: others)
+            // Resizing: a light pull towards sizes that hold whole columns and rows of icons
+            // (unless an edge already clings to something)
+            if edges.count < 4 {
+                let pull: CGFloat = 10
+                let columnsWidth = { (n: CGFloat) in n * self.cellSize.width + 2 * DesktopFence.padding }
+                let rowsHeight = { (n: CGFloat) in DesktopFence.titleHeight + self.fenceTopExtra + n * self.cellSize.height + DesktopFence.padding }
+                let widthTarget = columnsWidth(max(1, ((snapped.width - 2 * DesktopFence.padding) / self.cellSize.width).rounded()))
+                let heightTarget = rowsHeight(max(1, ((snapped.height - DesktopFence.titleHeight - self.fenceTopExtra - DesktopFence.padding) / self.cellSize.height).rounded()))
+                let horizontal = guides.contains { $0.vertical }, vertical = guides.contains { !$0.vertical }
+                if !horizontal, abs(snapped.width - widthTarget) <= pull, edges.contains(.minX) || edges.contains(.maxX) {
+                    if edges.contains(.minX) { snapped.origin.x = snapped.maxX - widthTarget }
+                    snapped.size.width = widthTarget
+                }
+                if !vertical, abs(snapped.height - heightTarget) <= pull, edges.contains(.minY) || edges.contains(.maxY) {
+                    if edges.contains(.minY) { snapped.origin.y = snapped.maxY - heightTarget }
+                    snapped.size.height = heightTarget
+                }
+            }
+            return (snapped, guides)
         }
         view.onGuides = { [weak self] guides in self?.guidesView.guides = guides }
         view.onFrame = { [weak self] frame, final in
@@ -1460,16 +1479,23 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         } else {
             layout.setFence(fence)
             relayout()
-            displayIfNeeded()
+            // Transparent before they're drawn at all, then they fade in as the panel unfolds
             let appearing = memberTiles()
             appearing.forEach { $0.alphaValue = 0 }
+            displayIfNeeded()
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.22
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 view.animator().frame = visibleFrame(of: fence)
-                appearing.forEach { $0.animator().alphaValue = 1 }
             } completionHandler: { [weak self] in
                 MainActor.assumeIsolated { self?.animatingFence = nil; self?.needsDisplay = true }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.22
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    appearing.forEach { $0.animator().alphaValue = 1 }
+                }
             }
         }
     }

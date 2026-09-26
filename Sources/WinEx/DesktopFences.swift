@@ -107,7 +107,7 @@ enum FenceSnap {
 /// The fence's panel: a frosted, rounded area with its title; the icons are drawn by the desktop
 /// on top of it. Its title bar and edges take the mouse; clicks inside go to the desktop.
 @MainActor
-final class FenceView: NSView {
+final class FenceView: NSView, NSTextFieldDelegate {
     var fence: DesktopFence { didSet { if fence != oldValue { needsDisplay = true; updateBlur() } } }
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     /// Hidden icons below the visible rows (shown as "↓ N").
@@ -197,6 +197,8 @@ final class FenceView: NSView {
     private var pendingRename: DispatchWorkItem?
 
     override func mouseDown(with event: NSEvent) {
+        // A title being edited (here or on another fence) is kept when the click lands elsewhere
+        if window?.firstResponder is NSTextView { window?.makeFirstResponder(superview) }
         let start = convert(event.locationInWindow, from: nil)
         let grabbed = edges(at: start)
         pendingRename?.cancel()
@@ -266,21 +268,28 @@ final class FenceView: NSView {
 
     private var renameField: NSTextField?
 
+    /// The title's font and where its text sits — the rename field puts its text exactly there.
+    private static let titleFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
+    private var titleTextRect: NSRect {
+        let height = ceil(Self.titleFont.ascender - Self.titleFont.descender + Self.titleFont.leading)
+        return NSRect(x: 26, y: ((DesktopFence.titleHeight - height) / 2).rounded(), width: bounds.width - 52, height: height)
+    }
+
     func beginRename() {
         guard renameField == nil else { return }
-        let field = NSTextField(frame: titleRect.insetBy(dx: 10, dy: 4))
+        // A borderless field over the title's own text (the cell insets its text by 2 pt each side)
+        let field = NSTextField(frame: titleTextRect.insetBy(dx: -2, dy: 0))
         field.stringValue = fence.title
-        field.font = .systemFont(ofSize: 13, weight: .semibold)
+        field.font = Self.titleFont
         field.alignment = .center
         field.focusRingType = .none
         field.isBordered = false
-        field.drawsBackground = true
-        field.backgroundColor = NSColor.black.withAlphaComponent(0.35)
+        field.isBezeled = false
+        field.drawsBackground = false
         field.textColor = .white
-        field.wantsLayer = true
-        field.layer?.cornerRadius = 6
-        field.target = self
-        field.action = #selector(commitRename(_:))
+        field.cell?.usesSingleLineMode = true
+        field.cell?.isScrollable = true
+        field.delegate = self
         addSubview(field)
         renameField = field
         window?.makeKey()
@@ -289,12 +298,22 @@ final class FenceView: NSView {
         needsDisplay = true
     }
 
-    @objc private func commitRename(_ sender: NSTextField) {
-        let title = sender.stringValue.trimmingCharacters(in: .whitespaces)
-        sender.removeFromSuperview()
+    /// Return, or a click anywhere else: the new title is kept. Esc: the old one stays.
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard let field = renameField else { return }
+        let cancelled = (notification.userInfo?["NSTextMovement"] as? Int) == NSTextMovement.cancel.rawValue
+        let title = field.stringValue.trimmingCharacters(in: .whitespaces)
+        field.removeFromSuperview()
         renameField = nil
         needsDisplay = true
-        if !title.isEmpty { onRename?(title) }
+        if !cancelled, !title.isEmpty, title != fence.title { onRename?(title) }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        renameField?.stringValue = fence.title
+        window?.makeFirstResponder(superview)
+        return true
     }
 
     // MARK: Drawing
@@ -316,7 +335,12 @@ final class FenceView: NSView {
             NSRect(x: 0, y: titleRect.maxY - 1, width: bounds.width, height: 1).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
-        guard renameField == nil else { return }
+        if renameField != nil {
+            // Editing: a soft field behind the text (the text itself doesn't move)
+            NSColor.black.withAlphaComponent(0.35).setFill()
+            NSBezierPath(roundedRect: titleTextRect.insetBy(dx: -6, dy: -3), xRadius: 6, yRadius: 6).fill()
+            return
+        }
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.6)
         shadow.shadowOffset = NSSize(width: 0, height: -1)
@@ -325,8 +349,7 @@ final class FenceView: NSView {
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byTruncatingTail
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph, .shadow: shadow,
+            .font: Self.titleFont, .foregroundColor: NSColor.white, .paragraphStyle: paragraph, .shadow: shadow,
         ]
         let text = NSAttributedString(string: fence.title, attributes: attributes)
         if fence.collapsed && !fence.members.isEmpty {
@@ -340,8 +363,7 @@ final class FenceView: NSView {
             NSBezierPath(roundedRect: badge, xRadius: 9, yRadius: 9).fill()
             count.draw(at: NSPoint(x: badge.minX + 6, y: badge.midY - size.height / 2))
         }
-        let height = text.size().height
-        text.draw(in: NSRect(x: 26, y: (DesktopFence.titleHeight - height) / 2, width: bounds.width - 52, height: height))
+        text.draw(in: titleTextRect)
         // Roll-up chevron at the left
         if let chevron = NSImage(systemSymbolName: fence.collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 9, weight: .bold)) {

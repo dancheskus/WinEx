@@ -698,6 +698,15 @@ enum Scenarios {
                 view.needsDisplay = true
                 view.displayIfNeeded()
                 guard let fenceView = view.debugFenceView(id) else { s.note("  (no fence view)"); return }
+                // The title being edited: typed, then a click elsewhere keeps it
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if let field = fenceView.subviews.compactMap({ $0 as? NSTextField }).first {
+                        let textY = field.frame.midY
+                        field.stringValue = "Документы"
+                        view.window?.makeFirstResponder(view)
+                        s.note("  renamed by clicking away: \(view.layout.fences.last?.title ?? "?"), field centred at \(Int(textY))  expect Документы, 15")
+                    } else { s.note("  (no rename field)") }
+                }
                 let inside = names.compactMap { view.debugCenter(of: $0) }.allSatisfy { fenceView.frame.contains($0) }
                 s.note("  fence \(Int(fenceView.frame.width))×\(Int(fenceView.frame.height)); icons inside: \(inside)  expect true")
                 if let window = view.window {
