@@ -585,6 +585,22 @@ private final class FenceOverlay: NSView {
     override func draw(_ dirtyRect: NSRect) { owner?.drawContent(dirtyRect) }
 }
 
+/// Where a zone would go: the empty area just selected, outlined with a dashed line.
+final class FenceAreaOutline: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: FenceStyle.cornerRadius, yRadius: FenceStyle.cornerRadius)
+        NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+        shape.fill()
+        NSColor.controlAccentColor.withAlphaComponent(0.9).setStroke()
+        shape.lineWidth = 1.5
+        shape.setLineDash([6, 4], count: 2, phase: 0)
+        shape.stroke()
+    }
+}
+
 /// The accent-coloured lines a fence snaps to, while it's moved or resized.
 final class FenceGuidesView: NSView {
     var guides: [FenceSnap.Guide] = [] { didSet { if guides != oldValue { needsDisplay = true } } }
@@ -614,12 +630,22 @@ final class FenceGuidesView: NSView {
 final class FenceHintButton: NSView {
     var onClick: (() -> Void)?
     private var hovering = false { didSet { needsDisplay = true } }
-    private let title = NSAttributedString(string: L("Поместить в зону"), attributes: [
-        .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white,
-    ])
-    private let shortcut = NSAttributedString(string: "⌘G", attributes: [
-        .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
-    ])
+    private var title = NSAttributedString()
+    private var shortcut = NSAttributedString()
+
+    /// "Поместить в зону" for selected icons, "Создать зону здесь" for an empty area.
+    func configure(title text: String, tip: String) {
+        guard text != title.string else { return }
+        title = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.white,
+        ])
+        shortcut = NSAttributedString(string: "⌘G", attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.white.withAlphaComponent(0.6),
+        ])
+        toolTip = tip
+        setFrameSize(intrinsicContentSize)
+        needsDisplay = true
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -634,8 +660,7 @@ final class FenceHintButton: NSView {
         blur.autoresizingMask = [.width, .height]
         blur.alphaValue = 0.7
         addSubview(blur)
-        setFrameSize(intrinsicContentSize)
-        toolTip = L("Объединить выделенные значки в зону")
+        configure(title: L("Поместить в зону"), tip: L("Объединить выделенные значки в зону"))
     }
 
     required init?(coder: NSCoder) { fatalError() }

@@ -691,5 +691,7 @@ enum English {
         "Прятать значки двойным щелчком": "Hide icons with a double-click",
         "Свёрнутая": "Rolled up",
         "Снимки расстановки рабочего стола:": "Desktop arrangement snapshots:",
+        "Пустая зона на месте выделенной области": "An empty zone where the area is selected",
+        "Создать зону здесь": "Create a Zone Here",
     ]
 }

@@ -946,6 +946,27 @@ enum Scenarios {
                     s.note("  unrolled shows icons: \(!view.debugIsHidden(name))  expect true")
                 }
             }),
+            (1.0, "select an empty area: «Создать зону здесь»", {
+                guard let view = mainView(), let window = view.window, let spot = view.debugEmptySpot(NSSize(width: 260, height: 170)) else { s.note("  (no empty spot)"); return }
+                // A real drag: down, dragged, up (in view coordinates → window)
+                func event(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {
+                    NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                }
+                let start = NSPoint(x: spot.minX + 10, y: spot.minY + 10), end = NSPoint(x: spot.maxX - 10, y: spot.maxY - 10)
+                if let down = event(.leftMouseDown, start) { view.mouseDown(with: down) }
+                if let drag = event(.leftMouseDragged, end) { view.mouseDragged(with: drag) }
+                if let up = event(.leftMouseUp, end) { view.mouseUp(with: up) }
+                view.layoutSubtreeIfNeeded()
+                view.displayIfNeeded()
+                let before = view.layout.fences.count
+                s.note("  hint: «\(view.debugHintTitle)»  expect «\(L("Пустая зона на месте выделенной области"))»")
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    view.debugClickHint()
+                    s.note("  zones: \(before) → \(view.layout.fences.count), new one empty: \(view.layout.fences.last?.members.isEmpty == true)  expect +1, true")
+                }
+            }),
             (1.5, "style: square red corners", {
                 FenceStyle.cornerRadius = 0
                 FenceStyle.color = "#8B2E2E"
@@ -956,7 +977,7 @@ enum Scenarios {
                 }
                 if let window = mainView()?.window {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
+                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-4"), atomically: true, encoding: .utf8)
                     }
                 }
             }),

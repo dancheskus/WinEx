@@ -221,6 +221,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private var fenceViews: [String: FenceView] = [:]
     private let guidesView = FenceGuidesView()
     private let fenceHint = FenceHintButton()
+    /// An empty area just selected with the mouse: a zone can be made there (the hint offers it).
+    private var emptyArea: NSRect?
+    private let areaOutline = FenceAreaOutline()
     /// First visible row of each fence (scrolled with the wheel).
     private var fenceScroll: [String: Int] = [:]
     /// Icons of collapsed fences and below a fence's visible rows.
@@ -744,6 +747,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private var slowClickIndex: Int?
 
     override func mouseDown(with event: NSEvent) {
+        emptyArea = nil
         slowClick.cancel()
         slowClickIndex = nil
         endRename()
@@ -826,6 +830,13 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         // Right away, like Finder; a second click (double-click) then only hides the icons
         if emptyClickCandidate && rubberBand != nil && SystemDesktop.clickRevealsDesktop {
             SystemDesktop.toggleShowDesktop()
+        }
+        // Nothing caught in a sizeable frame on the bare wallpaper: offer a zone right there
+        if let band = rubberBand, selection.isEmpty, FenceStyle.enabled, iconsVisible,
+           band.width >= fenceCell.width, band.height >= DesktopFence.titleHeight + fenceCell.height * 0.6,
+           let area = screens.first?.iconArea, area.contains(band),
+           !myFences.contains(where: { visibleFrame(of: $0, whole: true).intersects(band) }) {
+            emptyArea = band
         }
         emptyClickCandidate = false
         rubberBand = nil
@@ -957,14 +968,16 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameSelected(nil) }
         case (51, [.command]): trashSelection()
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
-        case (5, [.command]): if FenceStyle.enabled && selection.count >= 1 { fenceFromSelection(nil) }                // ⌘G: into a fence
+        case (5, [.command]):
+            if let area = emptyArea, selection.isEmpty { makeFence(in: area) }
+            else if FenceStyle.enabled && selection.count >= 1 { fenceFromSelection(nil) }                // ⌘G: into a fence
         case (120, []) where Settings.windowsKeys: renameSelected(nil)                  // F2
         case (117, []) where Settings.windowsKeys: trashSelection()                     // Delete
         case (117, [.shift]) where Settings.windowsKeys:                                 // ⇧Delete
             Places.deleteForever(selectedFileURLs, emptying: false)
         case (96, []) where Settings.windowsKeys: reload()                              // F5
         case (125, [.command]): openSelection()                                       // ⌘↓ (Finder)
-        case (53, []): selection = []; needsDisplay = true                           // Esc
+        case (53, []): selection = []; emptyArea = nil; needsDisplay = true          // Esc
         case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }                    // Space
         case (123, []), (124, []), (125, []), (126, []): moveSelection(keyCode: event.keyCode, extend: false)
         case (123, [.shift]), (124, [.shift]), (125, [.shift]), (126, [.shift]): moveSelection(keyCode: event.keyCode, extend: true)
@@ -975,6 +988,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // MARK: - Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        emptyArea = nil
+        needsLayout = true
         let menu = buildMenu(for: event)
         menu.map(MenuStyle.decorate)
         return menu
@@ -1562,29 +1577,49 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func updateFenceHint() {
         let chosen = selection.filter { !hiddenIcons.contains($0) && items.indices.contains($0) }
         let sameFence = Set(chosen.map { fenceOf[$0] ?? "" }).count == 1 && chosen.allSatisfy { fenceOf[$0] != nil }
-        let show = FenceStyle.enabled && chosen.count >= 2 && !sameFence && rubberBand == nil && !dragStarted && iconsVisible && renameField == nil
-        if show {
-            if fenceHint.superview == nil {
-                fenceHint.onClick = { [weak self] in self?.fenceFromSelection(nil) }
+        let ready = FenceStyle.enabled && rubberBand == nil && !dragStarted && iconsVisible && renameField == nil
+        let forSelection = ready && chosen.count >= 2 && !sameFence
+        if !chosen.isEmpty { emptyArea = nil }
+        let area = ready ? emptyArea : nil
+        // The empty area, outlined
+        if let area {
+            areaOutline.frame = area
+            addSubview(areaOutline, positioned: .above, relativeTo: nil)
+        } else if areaOutline.superview != nil {
+            areaOutline.removeFromSuperview()
+        }
+        guard forSelection || area != nil else {
+            if fenceHint.superview != nil {
+                fenceHint.removeFromSuperview()
                 fenceHint.alphaValue = 0
-                addSubview(fenceHint)
             }
-            addSubview(fenceHint, positioned: .above, relativeTo: nil)
+            return
+        }
+        if fenceHint.superview == nil {
+            fenceHint.alphaValue = 0
+            addSubview(fenceHint)
+        }
+        addSubview(fenceHint, positioned: .above, relativeTo: nil)
+        var box: NSRect
+        if let area {
+            fenceHint.configure(title: L("Создать зону здесь"), tip: L("Пустая зона на месте выделенной области"))
+            fenceHint.onClick = { [weak self] in self?.makeFence(in: area) }
+            box = area
+        } else {
+            fenceHint.configure(title: L("Поместить в зону"), tip: L("Объединить выделенные значки в зону"))
+            fenceHint.onClick = { [weak self] in self?.fenceFromSelection(nil) }
             // Under the selection when it's a group; spread out — under its lowest icon
-            var box = chosen.map(hitRect).reduce(NSRect.null) { $0.union($1) }
+            box = chosen.map(hitRect).reduce(NSRect.null) { $0.union($1) }
             if box.width > cellSize.width * 5 || box.height > cellSize.height * 4,
                let lowest = chosen.max(by: { centers[$0].y < centers[$1].y }) { box = hitRect(lowest) }
-            let size = fenceHint.intrinsicContentSize
-            let area = screens.first?.iconArea ?? bounds
-            var origin = NSPoint(x: box.midX - size.width / 2, y: box.maxY + 10)
-            if origin.y + size.height > area.maxY - 8 { origin.y = box.minY - size.height - 10 }
-            origin.x = min(max(origin.x, area.minX + 8), area.maxX - size.width - 8)
-            fenceHint.frame = NSRect(origin: origin, size: size)
-            if fenceHint.alphaValue < 1 { NSAnimationContext.runAnimationGroup { $0.duration = 0.18; fenceHint.animator().alphaValue = 1 } }
-        } else if fenceHint.superview != nil {
-            fenceHint.removeFromSuperview()
-            fenceHint.alphaValue = 0
         }
+        let size = fenceHint.intrinsicContentSize
+        let screenArea = screens.first?.iconArea ?? bounds
+        var origin = NSPoint(x: box.midX - size.width / 2, y: box.maxY + 10)
+        if origin.y + size.height > screenArea.maxY - 8 { origin.y = box.minY - size.height - 10 }
+        origin.x = min(max(origin.x, screenArea.minX + 8), screenArea.maxX - size.width - 8)
+        fenceHint.frame = NSRect(origin: origin, size: size)
+        if fenceHint.alphaValue < 1 { NSAnimationContext.runAnimationGroup { $0.duration = 0.18; fenceHint.animator().alphaValue = 1 } }
     }
 
     // MARK: Quick-hide
@@ -1693,6 +1728,20 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     /// A new fence of a sensible size at `point` (snapped), then its title is edited.
+    /// An empty zone where the area was selected (snapped to the edges and other zones).
+    private func makeFence(in area: NSRect) {
+        guard let screen = screens.first else { return }
+        emptyArea = nil
+        let others = myFences.map { visibleFrame(of: $0) }
+        let rect = FenceSnap.snap(area, edges: [.minX, .maxX, .minY, .maxY], area: screen.iconArea, others: others).0
+        var fence = DesktopFence(title: L("Новая зона"), screenID: screen.id, x: 0, y: 0, width: 0, height: 0)
+        fence.frame = rect.integral
+        layout.setFence(fence)
+        relayout()
+        selection = []
+        DispatchQueue.main.async { [weak self] in self?.fenceViews[fence.id]?.beginRename() }
+    }
+
     private func makeFence(at point: NSPoint, members: [String]) {
         guard let screen = screens.first else { return }
         let columns = max(3, min(4, members.count))
@@ -1812,6 +1861,26 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    /// The hint's title when it's shown ("" when not), and a click on it.
+    var debugHintTitle: String { fenceHint.superview != nil ? (fenceHint.toolTip ?? "") : "" }
+    func debugClickHint() { fenceHint.onClick?() }
+    /// The first empty spot at least `size` big (none of it under icons, zones or widgets).
+    func debugEmptySpot(_ size: NSSize) -> NSRect? {
+        guard let area = screens.first?.iconArea else { return nil }
+        var y = area.minY + 20
+        while y + size.height < area.maxY {
+            var x = area.minX + 20
+            while x + size.width < area.maxX {
+                let rect = NSRect(origin: NSPoint(x: x, y: y), size: size)
+                let taken = items.indices.contains { !hiddenIcons.contains($0) && hitRect($0).insetBy(dx: -8, dy: -8).intersects(rect) }
+                    || blockedRects.contains { $0.intersects(rect) }
+                if !taken { return rect }
+                x += 20
+            }
+            y += 20
+        }
+        return nil
+    }
     /// As if the colour was picked in the fence's menu.
     func debugSetColor(_ id: String, _ hex: String) {
         let item = NSMenuItem()
