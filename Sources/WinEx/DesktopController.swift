@@ -1272,9 +1272,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// Icons sit as far from the fence's top as from its left side (a cell is wider than its icon).
     private var fenceTopExtra: CGFloat { max(0, (fenceCell.width - iconSide) / 2 + DesktopFence.padding - 8) }
 
-    /// A fence's cells are compact: half the desktop's room beside the icon, a little less below.
+    /// A fence's cells are a bit tighter than the desktop's (three quarters of the room beside the
+    /// icon), leaving the labels room to breathe.
     private var fenceCell: NSSize {
-        NSSize(width: (iconSide + (cellSize.width - iconSide) / 2).rounded(), height: cellSize.height - 6)
+        NSSize(width: (iconSide + (cellSize.width - iconSide) * 0.75).rounded(), height: cellSize.height - 4)
     }
 
     /// Puts the icons of this monitor's fences into their fences (in their order, row by row).

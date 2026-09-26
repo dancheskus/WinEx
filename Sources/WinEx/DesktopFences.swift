@@ -19,7 +19,7 @@ struct DesktopFence: Codable, Equatable {
     }
 
     static let titleHeight: CGFloat = 30
-    static let padding: CGFloat = 3
+    static let padding: CGFloat = 8
 }
 
 /// Magnetic edges: a moved or resized rectangle clings to the lines near it.
