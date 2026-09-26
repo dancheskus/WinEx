@@ -416,3 +416,15 @@ struct FenceSnapTests {
         #expect(rect.minX == FenceSnap.gap)
     }
 }
+
+struct FenceGapTests {
+    /// Two fences 24 pt apart: a third one brought near keeps the same 24 pt.
+    @Test func newFenceTakesTheGapInUse() {
+        let area = NSRect(x: 0, y: 30, width: 2000, height: 1000)
+        let a = NSRect(x: 100, y: 100, width: 300, height: 200)
+        let b = NSRect(x: 424, y: 100, width: 300, height: 200)
+        let (rect, _) = FenceSnap.snap(NSRect(x: 745, y: 103, width: 300, height: 200), edges: [.minX, .maxX, .minY, .maxY], area: area, others: [a, b])
+        #expect(rect.minX == 748)
+        #expect(rect.minY == 100)
+    }
+}

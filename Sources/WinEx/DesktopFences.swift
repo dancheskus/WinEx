@@ -34,16 +34,38 @@ enum FenceSnap {
     static let threshold: CGFloat = 12
     static let gap: CGFloat = 8
 
+    /// The default gap plus the gaps between neighbouring rects (side by side: horizontal gaps;
+    /// one above the other: vertical ones), up to 120 pt.
+    static func gaps(between rects: [NSRect]) -> (horizontal: [CGFloat], vertical: [CGFloat]) {
+        var horizontal: Set<CGFloat> = [gap], vertical: Set<CGFloat> = [gap]
+        for (i, a) in rects.enumerated() {
+            for b in rects[(i + 1)...] {
+                let overlapY = min(a.maxY, b.maxY) - max(a.minY, b.minY)
+                let overlapX = min(a.maxX, b.maxX) - max(a.minX, b.minX)
+                let dx = max(b.minX - a.maxX, a.minX - b.maxX)
+                let dy = max(b.minY - a.maxY, a.minY - b.maxY)
+                if overlapY > 0, dx > 0, dx <= 120 { horizontal.insert(dx.rounded()) }
+                if overlapX > 0, dy > 0, dy <= 120 { vertical.insert(dy.rounded()) }
+            }
+        }
+        return (horizontal.sorted(), vertical.sorted())
+    }
+
     /// `rect` with its moving edges pulled onto the nearest target lines (within the threshold).
     /// `edges`: which sides move (all four when the whole rect moves). Targets: the area's edges,
     /// the other rects' edges (lined up with them, or `gap` away from them side by side).
     static func snap(_ rect: NSRect, edges: Set<NSRectEdge>, area: NSRect, others: [NSRect]) -> (NSRect, [Guide]) {
         let moving = edges.count == 4
+        // The spacing already used between the other fences is offered too, so a new fence can
+        // keep the same rhythm
+        let (xGaps, yGaps) = gaps(between: others)
         var xs: [CGFloat] = [area.minX + gap, area.maxX - gap]
         var ys: [CGFloat] = [area.minY + gap, area.maxY - gap]
         for other in others {
-            xs += [other.minX, other.maxX, other.maxX + gap, other.minX - gap]
-            ys += [other.minY, other.maxY, other.maxY + gap, other.minY - gap]
+            xs += [other.minX, other.maxX]
+            ys += [other.minY, other.maxY]
+            for g in xGaps { xs += [other.maxX + g, other.minX - g] }
+            for g in yGaps { ys += [other.maxY + g, other.minY - g] }
         }
         func nearest(_ value: CGFloat, in lines: [CGFloat]) -> CGFloat? {
             lines.filter { abs($0 - value) <= threshold }.min { abs($0 - value) < abs($1 - value) }
@@ -88,8 +110,8 @@ enum FenceSnap {
         guides = guides.map { guide in
             var g = guide
             let related = others.filter { other in
-                guide.vertical ? [other.minX, other.maxX, other.maxX + gap, other.minX - gap].contains(guide.position)
-                               : [other.minY, other.maxY, other.maxY + gap, other.minY - gap].contains(guide.position)
+                guide.vertical ? ([other.minX, other.maxX] + xGaps.flatMap { [other.maxX + $0, other.minX - $0] }).contains(guide.position)
+                               : ([other.minY, other.maxY] + yGaps.flatMap { [other.maxY + $0, other.minY - $0] }).contains(guide.position)
             } + [result]
             g.from = related.map { guide.vertical ? $0.minY : $0.minX }.min() ?? 0
             g.to = related.map { guide.vertical ? $0.maxY : $0.maxX }.max() ?? 0
