@@ -225,7 +225,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private var emptyArea: NSRect?
     private let areaOutline = FenceAreaOutline()
     /// First visible row of each fence (scrolled with the wheel).
-    private var fenceScroll: [String: Int] = [:]
+    /// How far each fence's icons are scrolled, in points (like a scroll view).
+    private var fenceScroll: [String: CGFloat] = [:]
+    /// The part of the fence a member icon may show in (its icon is cut off beyond it).
+    private var fenceClip: [Int: NSRect] = [:]
     /// Icons of collapsed fences and below a fence's visible rows.
     private var hiddenIcons = Set<Int>()
     /// Icon index → the fence it's in (on this monitor).
@@ -467,7 +470,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard iconsVisible else { return nil }
         // Topmost (last drawn) first
         guard !quickHidden else { return nil }
-        return items.indices.reversed().first { !hiddenIcons.contains($0) && hitRect($0).contains(point) }
+        return items.indices.reversed().first {
+            !hiddenIcons.contains($0) && hitRect($0).contains(point) && fenceClip[$0].map { $0.contains(point) } != false
+        }
     }
 
     /// Keeps an icon (and its label) inside the visible area of its monitor.
@@ -649,6 +654,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for (i, tile) in tiles.enumerated() {
             tile.frame = hitRect(i).insetBy(dx: -6, dy: -6)
             tile.isHidden = hiddenIcons.contains(i)
+            tile.clip(to: fenceClip[i])
             tile.needsDisplay = true
         }
         if guidesView.superview == nil { addSubview(guidesView) }
@@ -953,20 +959,25 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     override func scrollWheel(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard let fence = fence(at: point), !fence.collapsed else { return super.scrollWheel(with: event) }
-        scrollAccumulator += event.scrollingDeltaY
-        let step: CGFloat = event.hasPreciseScrollingDeltas ? 30 : 1
-        guard abs(scrollAccumulator) >= step else { return }
-        let rows = scrollAccumulator > 0 ? -1 : 1
-        scrollAccumulator = 0
-        let geometry = fenceGrid(fence)
-        let total = Int(ceil(Double(fence.members.filter { index(named: $0) != nil }.count) / Double(geometry.columns)))
-        let first = min(max((fenceScroll[fence.id] ?? 0) + rows, 0), max(total - geometry.rows, 0))
-        guard first != fenceScroll[fence.id] ?? 0 else { return }
-        fenceScroll[fence.id] = first
-        relayout()
+        // Smoothly, point by point, like the portals' scroll views (a mouse wheel: a line at a time)
+        let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 16
+        let offset = min(max((fenceScroll[fence.id] ?? 0) - delta, 0), maxScroll(fence))
+        guard offset != fenceScroll[fence.id] ?? 0 else { return }
+        fenceScroll[fence.id] = offset
+        // Only the fences' icons move: no need to place everything again
+        layoutFences()
+        syncFenceViews()
+        needsDisplay = true
     }
 
-    private var scrollAccumulator: CGFloat = 0
+    /// How far a fence's icons can scroll: all their rows minus what the fence shows.
+    private func maxScroll(_ fence: DesktopFence) -> CGFloat {
+        let grid = fenceGrid(fence)
+        let count = fence.members.filter { index(named: $0) != nil }.count
+        let rows = CGFloat(Int(ceil(Double(count) / Double(grid.columns))))
+        return max(0, fenceTopExtra + rows * fenceCell.height + 4 - grid.content.height)
+    }
+
 
     // MARK: - Keyboard
 
@@ -1419,19 +1430,23 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func layoutFences() {
         hiddenIcons = []
         fenceOf = [:]
+        fenceClip = [:]
         placeDisplacedFences()
         for fence in myFences where !fence.isPortal {
             let grid = fenceGrid(fence)
             let members = fence.members.compactMap(index(named:))
-            let total = Int(ceil(Double(members.count) / Double(grid.columns)))
-            let first = min(fenceScroll[fence.id] ?? 0, max(total - grid.rows, 0))
-            fenceScroll[fence.id] = first
+            let offset = min(fenceScroll[fence.id] ?? 0, maxScroll(fence))
+            fenceScroll[fence.id] = offset
+            // Icons show under the title bar, down to the fence's bottom edge
+            let frame = visibleFrame(of: fence)
+            let clip = NSRect(x: frame.minX, y: frame.minY + DesktopFence.titleHeight, width: frame.width,
+                              height: max(0, frame.height - DesktopFence.titleHeight - 1))
             for (k, i) in members.enumerated() {
                 fenceOf[i] = fence.id
-                let row = k / grid.columns - first, column = k % grid.columns
+                let row = k / grid.columns, column = k % grid.columns
                 centers[i] = CGPoint(x: grid.content.minX + fenceCell.width * (CGFloat(column) + 0.5),
-                                     y: grid.content.minY + fenceTopExtra + iconSide / 2 + 8 + fenceCell.height * CGFloat(row))
-                if fence.collapsed || row < 0 || row >= grid.rows { hiddenIcons.insert(i) }
+                                     y: grid.content.minY + fenceTopExtra + iconSide / 2 + 8 + fenceCell.height * CGFloat(row) - offset)
+                if fence.collapsed || !hitRect(i).intersects(clip) { hiddenIcons.insert(i) } else { fenceClip[i] = clip }
             }
         }
     }
@@ -1456,7 +1471,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             if view.window == nil || (!isDraggingFence(fence.id) && animatingFence != fence.id) { view.frame = visibleFrame(of: fence) }
             let grid = fenceGrid(fence)
             let count = fence.members.filter { index(named: $0) != nil }.count
-            view.overflow = fence.collapsed ? 0 : max(0, count - (fenceScroll[fence.id] ?? 0) * grid.columns - grid.rows * grid.columns)
+            let most = maxScroll(fence)
+            view.scroller = fence.collapsed || most <= 0 ? nil
+                : (offset: fenceScroll[fence.id] ?? 0, content: grid.content.height + most, visible: grid.content.height)
             view.configurePortal(cell: fenceCell, iconSide: iconSide)
             view.minimumSize = NSSize(width: fenceCell.width + 2 * DesktopFence.padding,
                                       height: DesktopFence.titleHeight + fenceTopExtra + fenceCell.height + DesktopFence.padding)
@@ -1664,7 +1681,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         if let point, !fences[target].collapsed {
             let grid = fenceGrid(fences[target])
             let column = min(max(Int((point.x - grid.content.minX) / fenceCell.width), 0), grid.columns - 1)
-            let row = max(Int((point.y - grid.content.minY - fenceTopExtra) / fenceCell.height), 0) + (fenceScroll[id] ?? 0)
+            let row = max(Int((point.y - grid.content.minY - fenceTopExtra + (fenceScroll[id] ?? 0)) / fenceCell.height), 0)
             position = min(row * grid.columns + column, fences[target].members.count)
         }
         fences[target].members.insert(contentsOf: names, at: position)
@@ -1870,6 +1887,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    func debugSetFenceFrame(_ id: String, _ frame: NSRect) {
+        guard var fence = layout.fences.first(where: { $0.id == id }) else { return }
+        fence.frame = frame
+        layout.setFence(fence)
+        relayout()
+    }
+    func debugScroll(_ id: String) -> CGFloat { fenceScroll[id] ?? 0 }
+    var debugCellHeight: CGFloat { fenceCell.height }
     /// The hint's title when it's shown ("" when not), and a click on it.
     var debugHintTitle: String { fenceHint.superview != nil ? (fenceHint.toolTip ?? "") : "" }
     func debugClickHint() { fenceHint.onClick?() }
@@ -1982,6 +2007,25 @@ private final class DesktopIconTile: NSView {
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Only the part inside `rect` (in the desktop's coordinates) shows: an icon scrolled halfway out
+    /// of its fence is cut off at the fence's edge.
+    func clip(to rect: NSRect?) {
+        guard let rect, !rect.contains(frame) else {
+            layer?.mask = nil
+            return
+        }
+        wantsLayer = true
+        var visible = rect.intersection(frame).offsetBy(dx: -frame.minX, dy: -frame.minY)
+        if layer?.contentsAreFlipped() == false { visible.origin.y = bounds.height - visible.maxY }
+        let mask = (layer?.mask) ?? CALayer()
+        mask.backgroundColor = NSColor.black.cgColor
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        mask.frame = visible
+        CATransaction.commit()
+        layer?.mask = mask
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let shift = NSAffineTransform()

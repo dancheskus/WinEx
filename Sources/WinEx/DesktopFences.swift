@@ -202,8 +202,10 @@ enum FenceSnap {
 final class FenceView: NSView, NSTextFieldDelegate {
     var fence: DesktopFence { didSet { if fence != oldValue { redraw(); updateBlur(); window?.invalidateCursorRects(for: self) } } }
     var isDropTarget = false { didSet { if isDropTarget != oldValue { redraw() } } }
-    /// Hidden icons below the visible rows (shown as "↓ N").
-    var overflow = 0 { didSet { if overflow != oldValue { redraw() } } }
+    /// Its icons scroll: where they are (a thin bar at the right edge, like an overlay scroller).
+    var scroller: (offset: CGFloat, content: CGFloat, visible: CGFloat)? {
+        didSet { if scroller.map({ "\($0)" }) != oldValue.map({ "\($0)" }) { redraw() } }
+    }
 
     /// Live frame while moving / resizing (with the snapping guides), then the final one.
     var onFrame: ((NSRect, _ final: Bool) -> Void)?
@@ -567,12 +569,12 @@ final class FenceView: NSView, NSTextFieldDelegate {
         }
         if let backRect { symbol("chevron.left", in: backRect) }
         if let openRect { symbol("arrow.up.forward.app", in: openRect) }
-        if overflow > 0 && !fence.collapsed {
-            let more = NSAttributedString(string: "↓ \(overflow)", attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.white.withAlphaComponent(0.75),
-            ])
-            let size = more.size()
-            more.draw(at: NSPoint(x: bounds.width - size.width - 10, y: bounds.height - size.height - 5))
+        if let scroller, !fence.collapsed, scroller.content > scroller.visible {
+            let track = NSRect(x: bounds.width - 7, y: DesktopFence.titleHeight + 4, width: 4, height: bounds.height - DesktopFence.titleHeight - 8)
+            let length = max(18, track.height * scroller.visible / scroller.content)
+            let position = (track.height - length) * scroller.offset / max(scroller.content - scroller.visible, 1)
+            NSColor.white.withAlphaComponent(0.45).setFill()
+            NSBezierPath(roundedRect: NSRect(x: track.minX, y: track.minY + position, width: track.width, height: length), xRadius: 2, yRadius: 2).fill()
         }
     }
 }

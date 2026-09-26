@@ -1017,6 +1017,23 @@ enum Scenarios {
                     s.note("  unrolled shows icons: \(!view.debugIsHidden(name))  expect true")
                 }
             }),
+            (1.0, "a zone too small for its icons scrolls smoothly", {
+                guard let view = mainView(), let window = view.window, let fence = view.layout.fences.first(where: { !$0.members.isEmpty }) else { return }
+                // Wide enough for two icons a row, tall enough for one and a half rows
+                let frame = NSRect(x: fence.x, y: fence.y, width: 240, height: DesktopFence.titleHeight + view.debugCellHeight * 1.5)
+                view.debugSetFenceFrame(fence.id, frame)
+                // A trackpad scroll of 40 pt over the zone, as the system sends it
+                let point = view.convert(NSPoint(x: frame.midX, y: frame.midY), to: nil)
+                let onScreen = window.convertPoint(toScreen: point)
+                let height = NSScreen.screens.first?.frame.height ?? 0
+                if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -40, wheel2: 0, wheel3: 0) {
+                    cg.location = CGPoint(x: onScreen.x, y: height - onScreen.y)
+                    if let event = NSEvent(cgEvent: cg) { view.scrollWheel(with: event) }
+                }
+                s.note("  scrolled: \(Int(view.debugScroll(fence.id))) pt  expect 40")
+                view.displayIfNeeded()
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
+            }),
             (1.0, "an icon put on another's place stays where it went", {
                 guard let view = mainView() else { return }
                 // Two loose icons (not in a zone): the later one alphabetically gives way
@@ -1056,7 +1073,7 @@ enum Scenarios {
                 view.displayIfNeeded()
                 let before = view.layout.fences.count
                 s.note("  hint: «\(view.debugHintTitle)»  expect «\(L("Пустая зона на месте выделенной области"))»")
-                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-4"), atomically: true, encoding: .utf8)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     view.debugClickHint()
                     s.note("  zones: \(before) → \(view.layout.fences.count), new one empty: \(view.layout.fences.last?.members.isEmpty == true)  expect +1, true")
@@ -1072,7 +1089,7 @@ enum Scenarios {
                 }
                 if let window = mainView()?.window {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-4"), atomically: true, encoding: .utf8)
+                        try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-5"), atomically: true, encoding: .utf8)
                     }
                 }
             }),
