@@ -1068,6 +1068,10 @@ final class ExplorerWindow: NSWindow {
 
     private func titleBarTarget(for event: NSEvent) -> NSView? {
         let point = event.locationInWindow
+        // The window's edges resize it: leave them to AppKit (the strip under the window buttons
+        // reaches the top-left corner, which then only moved the window)
+        let edge: CGFloat = 6
+        if point.x < edge || point.x > frame.width - edge || point.y > frame.height - edge { return nil }
         // Leave the close / minimize / zoom buttons alone
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             if let button = standardWindowButton(kind), !button.isHidden,
