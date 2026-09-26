@@ -274,13 +274,25 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
             accessStatus = status
             let row = NSStackView(views: [icon, status])
             row.spacing = 8
+            // A stack in a centred column spreads its views out: keep this row as narrow as its content
+            row.distribution = .fill
+            row.setHuggingPriority(.required, for: .horizontal)
+            let centred = NSView()
+            row.translatesAutoresizingMaskIntoConstraints = false
+            centred.addSubview(row)
+            NSLayoutConstraint.activate([
+                row.centerXAnchor.constraint(equalTo: centred.centerXAnchor),
+                row.topAnchor.constraint(equalTo: centred.topAnchor),
+                row.bottomAnchor.constraint(equalTo: centred.bottomAnchor),
+                centred.widthAnchor.constraint(equalToConstant: 520),
+            ])
             let open = NSButton(title: L("Открыть настройки «Полный доступ к диску»…"), target: self, action: #selector(openAccess(_:)))
             open.controlSize = .large
-            let steps = WizardPage.note(L("В списке включите WinEx. Если macOS предложит «Закрыть и открыть снова» — согласитесь: мастер продолжит с этого шага."))
+            let steps = WizardPage.note(L("Включите WinEx в списке. Если его там нет — перетащите значок ниже прямо в список (или нажмите «+» и выберите WinEx). Если macOS предложит «Закрыть и открыть снова» — согласитесь: мастер продолжит с этого шага."))
             updateAccess()
             return WizardPage(symbol: "lock.shield.fill", colors: [.systemGreen, .systemTeal], title: L("Доступ к файлам"),
                               text: L("С «Полным доступом к диску» открывается Корзина, а macOS не спрашивает отдельно про Рабочий стол, Документы, Загрузки и каждый сетевой диск."),
-                              content: [row, open, steps])
+                              content: [centred, open, WizardAppDrag(), steps])
         case .finder:
             let group = WizardChoiceGroup(options: [
                 ("macwindow", L("Только окна"), L("Finder остаётся; WinEx — обычная программа со своими окнами.")),
@@ -344,6 +356,10 @@ final class SetupWizard: NSWindowController, NSWindowDelegate {
 
     @objc private func openAccess(_ sender: Any?) {
         AppDefaults.store.set(Step.access.rawValue, forKey: Self.resumeKey)  // if macOS restarts WinEx
+        // Knock on protected places first: macOS then lists WinEx under Full Disk Access (switched off)
+        for path in [Places.trashURL.path, NSHomeDirectory() + "/Library/Safari", NSHomeDirectory() + "/Library/Mail"] {
+            _ = try? FileManager.default.contentsOfDirectory(atPath: path)
+        }
         Places.openFullDiskAccessSettings()
     }
 }
@@ -697,5 +713,64 @@ private final class WizardDots: NSView {
             NSBezierPath(roundedRect: rect, xRadius: Self.dot / 2, yRadius: Self.dot / 2).fill()
             x += width + Self.gap
         }
+    }
+}
+
+/// WinEx's icon and name to drag into System Settings' Full Disk Access list (when it's not there).
+private final class WizardAppDrag: NSView, NSDraggingSource {
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.borderWidth = 1
+        let icon = NSImageView(image: NSApp.applicationIconImage ?? NSImage())
+        icon.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        let name = NSTextField(labelWithString: "WinEx")
+        name.font = .systemFont(ofSize: 14, weight: .semibold)
+        let hint = NSTextField(labelWithString: L("перетащите в список"))
+        hint.font = .systemFont(ofSize: 12)
+        hint.textColor = .secondaryLabelColor
+        let texts = NSStackView(views: [name, hint])
+        texts.orientation = .vertical
+        texts.alignment = .leading
+        texts.spacing = 1
+        let hand = NSImageView(image: NSImage(systemSymbolName: "hand.draw", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 16, weight: .regular)) ?? NSImage())
+        hand.contentTintColor = .secondaryLabelColor
+        let row = NSStackView(views: [icon, texts, hand])
+        row.spacing = 12
+        row.alignment = .centerY
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            row.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+        ])
+        toolTip = Bundle.main.bundleURL.path
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() {
+        layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.06).cgColor
+        layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.15).cgColor
+    }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+
+    override func mouseDown(with event: NSEvent) {
+        let item = NSDraggingItem(pasteboardWriter: Bundle.main.bundleURL as NSURL)
+        let icon = NSApp.applicationIconImage ?? NSImage()
+        let point = convert(event.locationInWindow, from: nil)
+        item.setDraggingFrame(NSRect(x: point.x - 24, y: point.y - 24, width: 48, height: 48), contents: icon)
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? [.copy, .link, .generic] : []
     }
 }

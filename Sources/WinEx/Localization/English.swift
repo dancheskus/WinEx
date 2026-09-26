@@ -581,7 +581,6 @@ enum English {
         "WinEx вместо Finder?": "WinEx instead of Finder?",
         "«Выйти» в строке меню всегда возвращает всё Finder.": "“Quit” in the menu bar always gives everything back to Finder.",
         "Без окна: значок в строке меню": "No window: an icon in the menu bar",
-        "В списке включите WinEx. Если macOS предложит «Закрыть и открыть снова» — согласитесь: мастер продолжит с этого шага.": "Turn WinEx on in the list. If macOS offers “Quit & Reopen”, accept — the assistant goes on from this step.",
         "Вид запоминается для каждой папки; это — вид по умолчанию.": "Each folder remembers its view; this is the default one.",
         "Вид папок": "Folder View",
         "Вид папок по умолчанию:": "Default folder view:",
@@ -620,5 +619,7 @@ enum English {
         "Язык": "Language",
         "Запустить в Терминале": "Run in Terminal",
         "Запустить в %@": "Run in %@",
+        "Включите WinEx в списке. Если его там нет — перетащите значок ниже прямо в список (или нажмите «+» и выберите WinEx). Если macOS предложит «Закрыть и открыть снова» — согласитесь: мастер продолжит с этого шага.": "Turn WinEx on in the list. If it isn’t there, drag the icon below into the list (or click “+” and choose WinEx). If macOS offers “Quit & Reopen”, accept — the assistant goes on from this step.",
+        "перетащите в список": "drag into the list",
     ]
 }
