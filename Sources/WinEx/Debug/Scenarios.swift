@@ -624,6 +624,12 @@ enum Scenarios {
         @MainActor func step(_ index: Int) {
             guard let window = window() else { s.note("  (no wizard)"); return s.run([]) }
             try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+            if index == 3, let content = window.contentView,
+               let label = s.findAll(NSTextField.self, in: content).first(where: { $0.stringValue.hasPrefix(L("Finder остаётся")) }) {
+                // A click on a card's text lands on the card, not on a selectable label
+                let hit = content.hitTest(content.convert(NSPoint(x: label.bounds.midX, y: label.bounds.midY), from: label))
+                s.note("  card text under the mouse: \(hit.map { String(describing: type(of: $0)) } ?? "nil")  expect WizardCard")
+            }
             @MainActor func wait(_ tries: Int) {
                 if FileManager.default.fileExists(atPath: s.output.appendingPathComponent("shot-\(index)").path) || tries == 0 {
                     guard index < 7 else { window.close(); return s.run([]) }
@@ -637,7 +643,9 @@ enum Scenarios {
             }
             wait(50)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { step(0) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            step(0)
+        }
     }
 
     /// A drag that isn't one: its pasteboard carries files or a sidebar favourite.

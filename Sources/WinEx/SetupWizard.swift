@@ -608,6 +608,13 @@ private final class WizardCard: NSView {
     override func mouseExited(with event: NSEvent) { hovering = false }
     override func mouseDown(with event: NSEvent) { onClick?() }
 
+    /// The whole card is one button: its texts don't take clicks (or show a text cursor)
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        frame.contains(point) ? self : nil
+    }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+
     private func animateLook() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             let accent = NSColor.controlAccentColor
@@ -676,6 +683,20 @@ private final class WizardToggle: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     @objc private func changed(_ sender: Any?) { onChange(toggle.state == .on) }
+
+    /// A click anywhere on the card flips the switch (the switch itself handles its own clicks)
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard frame.contains(point) else { return nil }
+        let local = convert(point, from: superview)
+        return toggle.frame.insetBy(dx: -4, dy: -4).contains(toggle.superview.map { $0.convert(local, from: self) } ?? local) ? toggle : self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        toggle.animator().state = toggle.state == .on ? .off : .on
+        changed(nil)
+    }
+
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
 }
 
 /// The steps as dots; the current one is a wider capsule (animated).
