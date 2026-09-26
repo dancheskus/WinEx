@@ -1316,7 +1316,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let id = fence.id
         view.snap = { [weak self] rect, edges in
             guard let self, let area = self.screens.first?.iconArea else { return (rect, []) }
-            let others = self.myFences.filter { $0.id != id }.map { self.visibleFrame(of: $0) } + self.widgetRects
+            // Snapping targets: this monitor's edges and its other fences only (not icons or widgets)
+            let others = self.myFences.filter { $0.id != id }.map { self.visibleFrame(of: $0) }
             var (snapped, guides) = FenceSnap.snap(rect, edges: edges, area: area, others: others)
             // Resizing: a light pull towards sizes that hold whole columns and rows of icons
             // (unless an edge already clings to something)
@@ -1508,7 +1509,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let size = NSSize(width: CGFloat(columns) * cellSize.width + 2 * DesktopFence.padding,
                           height: DesktopFence.titleHeight + fenceTopExtra + CGFloat(rows) * cellSize.height + DesktopFence.padding)
         var rect = NSRect(origin: NSPoint(x: point.x - 20, y: point.y - 10), size: size)
-        let others = myFences.map { visibleFrame(of: $0) } + widgetRects
+        let others = myFences.map { visibleFrame(of: $0) }
         rect.origin.x = min(max(rect.minX, screen.iconArea.minX + FenceSnap.gap), screen.iconArea.maxX - rect.width - FenceSnap.gap)
         rect.origin.y = min(max(rect.minY, screen.iconArea.minY + FenceSnap.gap), screen.iconArea.maxY - rect.height - FenceSnap.gap)
         rect = FenceSnap.snap(rect, edges: [.minX, .maxX, .minY, .maxY], area: screen.iconArea, others: others).0
