@@ -56,6 +56,27 @@ import Testing
         #expect(ScreenAnchoring.offsets(for: zones, from: laptop, to: laptop).allSatisfy { $0 == .zero })
     }
 
+    @Test func aGroupInTheRightThirdKeepsToTheRight() {
+        // At 70 % of the width, 250 pt from the right edge — not at the edge, but on the right
+        let icon = CGRect(x: laptop.width - 250 - 120, y: 500, width: 120, height: 114)
+        let after = ScreenAnchoring.anchor(icon, from: laptop, to: external)
+        #expect(abs((external.width - after.maxX) - 250) < 0.5)
+        let left = CGRect(x: 380, y: 500, width: 120, height: 114)  // in the left third
+        #expect(ScreenAnchoring.anchor(left, from: laptop, to: external).minX == 380)
+    }
+
+    @Test func toASmallerMonitorNothingOverlaps() {
+        // Set up on the big monitor: the row in the middle, the zones at the right edge
+        let bigRow = (0..<6).map { CGRect(x: 920 + CGFloat($0) * 120, y: 50, width: 120, height: 114) }
+        let bigZones = zones.map { $0.offsetBy(dx: external.width - laptop.width, dy: 0) }
+        let result = moved(bigRow + bigZones, from: external, to: laptop)
+        let row = result[0..<6].reduce(CGRect.null) { $0.union($1) }
+        for zone in result[6...] {
+            #expect(!zone.intersects(row))
+            #expect(zone.maxX <= laptop.width)
+        }
+    }
+
     @Test func keptInsideASmallerMonitor() {
         let wide = CGRect(x: 1800, y: 900, width: 700, height: 400)
         let after = ScreenAnchoring.anchor(wide, from: external, to: laptop)

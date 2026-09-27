@@ -20,17 +20,23 @@ enum ScreenAnchoring {
         return offsets
     }
 
-    /// Where `rect` goes on the new monitor. On each axis: close to an edge (within a fifth of the
-    /// monitor) — it keeps its distance to the nearer edge; otherwise its middle stays at the same
-    /// fraction of the monitor. Kept inside the monitor.
+    /// Where `rect` goes on the new monitor. On each axis the monitor is three bands: close to an
+    /// edge (within a fifth of the monitor) it keeps its distance to the nearer edge; otherwise its
+    /// middle decides — in the first third it keeps its distance to that edge, in the last third
+    /// to the far edge, in the middle third its middle stays at the same fraction of the monitor.
+    /// Kept inside the monitor.
     static func anchor(_ rect: CGRect, from: CGSize, to: CGSize) -> CGRect {
         func axis(_ start: CGFloat, _ length: CGFloat, _ old: CGFloat, _ new: CGFloat) -> CGFloat {
-            let lead = start, trail = old - (start + length)
+            let lead = start, trail = old - (start + length), middle = start + length / 2
             let placed: CGFloat
             if min(lead, trail) <= old / 5 {
                 placed = lead <= trail ? start : new - trail - length
+            } else if middle < old / 3 {
+                placed = start
+            } else if middle > old * 2 / 3 {
+                placed = new - trail - length
             } else {
-                placed = (start + length / 2) / old * new - length / 2
+                placed = middle / old * new - length / 2
             }
             return min(max(placed, 0), max(new - length, 0))
         }
