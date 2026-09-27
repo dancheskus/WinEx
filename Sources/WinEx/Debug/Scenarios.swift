@@ -70,6 +70,24 @@ enum Scenarios {
                     s.note("  «\(fence.title)» at \(Int(frame.minX)),\(Int(frame.minY)): \(Int(size.width - frame.maxX)) pt from the right edge")
                 }
                 try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                // The same arrangement moved to another size (WINEX_TARGET_SIZE, e.g. 1710x1107)
+                if let target = ProcessInfo.processInfo.environment["WINEX_TARGET_SIZE"]?.split(separator: "x").compactMap({ Double($0) }), target.count == 2 {
+                    let to = CGSize(width: target[0], height: target[1])
+                    let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                        .filter { name in !name.hasPrefix(".") && !view.layout.fences.contains { $0.members.contains(name) } && view.debugCenter(of: name) != nil }
+                    let iconRects = names.compactMap { view.debugCenter(of: $0).map { DesktopLayout.cell(around: $0) } }
+                    let fenceRects = view.layout.fences.compactMap { view.debugFenceView($0.id)?.frame }
+                    let offsets = ScreenAnchoring.offsets(for: iconRects + fenceRects, from: size, to: to)
+                    s.note("  on \(Int(to.width))×\(Int(to.height)):")
+                    for (n, name) in names.enumerated() {
+                        let r = iconRects[n].offsetBy(dx: offsets[n].dx, dy: offsets[n].dy)
+                        s.note("    \(name): centre \(Int(r.midX)),\(Int(r.midY))  (right edge \(Int(to.width - r.maxX)), bottom \(Int(to.height - r.maxY)))")
+                    }
+                    for (k, fence) in view.layout.fences.enumerated() where k < fenceRects.count {
+                        let r = fenceRects[k].offsetBy(dx: offsets[names.count + k].dx, dy: offsets[names.count + k].dy)
+                        s.note("    «\(fence.title)»: \(Int(r.minX)),\(Int(r.minY)) \(Int(r.width))×\(Int(r.height))  (right edge \(Int(to.width - r.maxX)))")
+                    }
+                }
             }),
             (2.0, "done", {
                 controller.hide()
@@ -1946,6 +1964,13 @@ enum Scenarios {
                 let under = main.debugIconsUnder(frame)
                 s.note("  zone: \(Int(frame.width))×\(Int(frame.height)), \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top, icons under it: \(under.count)  expect 300×200, 10 (or beside what's there), 60, 0")
                 s.note("  icons: \(Int(cb.x - ca.x)) pt apart, \(Int(cb.y - ca.y)) pt higher/lower  expect 120, 0 (still side by side)")
+                // Something moved here: the arrangement as shown here is the one to go by from now on
+                let shownZone = main.debugFenceView(zone.id)?.frame ?? .zero
+                let shownA = main.debugCenter(of: a) ?? .zero
+                main.debugDrop(a, at: shownA)
+                let thisMonitor = NSScreen.screens.first?.displayUUID ?? "?"
+                let storedZone = main.layout.fences.first { $0.id == zone.id }
+                s.note("  after a change here: zone on \(storedZone?.screenID == thisMonitor ? "this monitor" : storedZone?.screenID ?? "-") at its shown place: \(storedZone.map { abs($0.x - shownZone.minX) < 1 && abs($0.y - shownZone.minY) < 1 } ?? false); icons on \(main.layout.place(for: b)?.screenID == thisMonitor ? "this monitor" : main.layout.place(for: b)?.screenID ?? "-")  expect this monitor, true, this monitor")
                 // Put things back
                 var fences = main.layout.fences
                 fences.removeAll { $0.id == zone.id }

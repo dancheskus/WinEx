@@ -227,14 +227,15 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
   its middle on the second line so the extension stays visible; the tag dot stays in front of the
   name.
 - Several monitors: each has its own desktop with its own icons; icons can be dragged between
-  them. WinEx remembers each monitor's size. When a monitor goes away (a laptop closed on its
-  monitors, or monitors unplugged), its icons and zones are shown on the remaining one the way they
-  were set up: things that sit together move together, and each group keeps its distance to the
-  edge it's nearer to (left or right, top or bottom) — so icons set up next to zones at the right
-  edge stay next to them. A group that doesn't fit on a smaller monitor moves, whole, to the
-  nearest free spot beside what's in the way, for the time being — never on top of what lives
-  there — and everything goes back when the monitor returns. The same happens when a monitor changes resolution. The size of a monitor
-  WinEx never saw (a laptop's screen while it's closed) comes from what macOS remembers of it.
+  them. The arrangement is one, kept in sync: WinEx remembers exactly where things are on the
+  monitor where you last changed something (moving an icon or a zone makes everything shown there
+  live there), and any other monitor shows it adapted from that. Things up to a cell apart move
+  together (an icon a cell left of a zone stays a cell left of it); a group within a quarter of the
+  monitor from an edge keeps its distance to that edge (a folder in the bottom-left corner stays
+  there, a row at the top stays at the top); one out in the open keeps its place in proportion.
+  What finds no room — the monitor's own icons, zones, widgets — moves, whole, beside it for the
+  time being. The same happens when a monitor changes resolution. The size of a monitor WinEx
+  never saw (a laptop's screen while it's closed) comes from what macOS remembers of it.
 - On first launch it takes the icon layout from Finder (`~/Desktop/.DS_Store`, `dilc` records:
   bytes 0…3 — the monitor), then keeps its own. Icons avoid desktop widgets, as in Finder.
 - Icons can be dragged with the mouse (they glide from where they're let go into their cell),

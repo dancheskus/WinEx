@@ -78,6 +78,28 @@ import Testing
         }
     }
 
+    /// The arrangement made on the 2560 × 1440 monitor (from the screenshot), shown on the laptop.
+    @Test func setUpOnTheBigMonitorShownOnTheLaptop() {
+        func cell(_ x: CGFloat, _ y: CGFloat) -> CGRect { CGRect(x: x - 50, y: y - 50, width: 100, height: 100) }
+        let bigZones = [CGRect(x: 2112, y: 42, width: 440, height: 278),
+                        CGRect(x: 2112, y: 341, width: 440, height: 171),
+                        CGRect(x: 2111, y: 532, width: 441, height: 170)]
+        let row = [1570, 1690, 1810, 1930].map { cell(CGFloat($0), 90) }   // Lasertag … CV
+        let tabletop = cell(804, 90), nick = cell(320, 1180)
+        let result = moved(row + bigZones + [tabletop, nick], from: external, to: laptop)
+        // CV stays one cell left of the zones, at the top
+        #expect(abs((result[4].minX - result[3].maxX) - (bigZones[0].minX - row[3].maxX)) < 0.5)
+        #expect(result[3].minY == row[3].minY)
+        #expect(abs((laptop.width - result[4].maxX) - (external.width - bigZones[0].maxX)) < 0.5)  // zones at the right edge
+        // Tabletop Simulator: left, in proportion, at the top
+        #expect(abs(result[7].midX / laptop.width - tabletop.midX / external.width) < 0.01)
+        #expect(result[7].minY == tabletop.minY)
+        #expect(result[7].maxX < result[0].minX)                                                     // left of the row
+        // nick: the bottom-left corner
+        #expect(result[8].minX == nick.minX)
+        #expect(abs((laptop.height - result[8].maxY) - (external.height - nick.maxY)) < 0.5)
+    }
+
     @Test func keptInsideASmallerMonitor() {
         let wide = CGRect(x: 1800, y: 900, width: 700, height: 400)
         let after = ScreenAnchoring.anchor(wide, from: external, to: laptop)

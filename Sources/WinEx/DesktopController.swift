@@ -455,8 +455,33 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     private func storeAllPositions() {
         items.indices.forEach(storePosition)
+        adoptArrangementHere()
         layout.save()
         needsDisplay = true
+    }
+
+    /// Something was changed on this monitor: the arrangement as it's shown here becomes the one to
+    /// go by — icons and zones of a monitor that isn't connected, shown here, now live here where
+    /// they're shown. Other monitors then show it adapted from here (see `ScreenAnchoring`), so the
+    /// whole arrangement moves together, relations kept (an icon a cell left of a zone stays so).
+    private func adoptArrangementHere() {
+        guard let here = screens.first?.id, !here.isEmpty, isMain else { return }
+        for i in items.indices where fenceOf[i] == nil && !isVolume(i) && !hiddenIcons.contains(i) {
+            if let id = layout.place(for: name(of: i))?.screenID, id == here || connectedScreenIDs.contains(id) { continue }
+            storePosition(of: i)
+        }
+        var fences = layout.fences
+        var changed = false
+        for n in fences.indices where !connectedScreenIDs.contains(fences[n].screenID) {
+            let shown = visibleFrame(of: fences[n], whole: true)
+            fences[n].screenID = here
+            fences[n].frame = shown
+            changed = true
+        }
+        guard changed else { return }
+        displacedFrames = [:]
+        guestShift = [:]
+        layout.fences = fences
     }
 
     // MARK: Geometry
@@ -1631,13 +1656,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             guard let self, var fence = self.layout.fences.first(where: { $0.id == id }) else { return }
             self.draggingFence = final ? nil : id
             // Moved by hand: it belongs to this monitor now, where it was put
-            if self.displacedFrames[id] != nil, let here = self.screens.first?.id { fence.screenID = here; self.displacedFrames[id] = nil }
+            if let here = self.screens.first?.id, fence.screenID != here { fence.screenID = here; self.displacedFrames[id] = nil; self.guestShift["fence:" + id] = nil }
             if fence.collapsed {
                 fence.frame = NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: fence.height)
             } else {
                 fence.frame = frame
             }
             self.layout.setFence(fence, save: final)
+            if final { self.adoptArrangementHere(); self.layout.save() }
             self.relayout()
         }
         view.onToggleCollapsed = { [weak self] in self?.toggleCollapsed(id) }
@@ -1878,6 +1904,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         var fence = DesktopFence(title: L("Новая зона"), screenID: screen.id, x: 0, y: 0, width: 0, height: 0)
         fence.frame = rect.integral
         layout.setFence(fence)
+        adoptArrangementHere()
+        layout.save()
         relayout()
         selection = []
         DispatchQueue.main.async { [weak self] in self?.fenceViews[fence.id]?.beginRename() }
@@ -1897,6 +1925,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         var fence = DesktopFence(title: L("Новая зона"), screenID: screen.id, x: 0, y: 0, width: 0, height: 0)
         fence.frame = rect.integral
         layout.setFence(fence)
+        adoptArrangementHere()
+        layout.save()
         if !members.isEmpty { addToFence(fence.id, names: members) } else { relayout() }
         selection = []
         DispatchQueue.main.async { [weak self] in self?.fenceViews[fence.id]?.beginRename() }
@@ -1927,6 +1957,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             fence.frame = rect.integral
             fence.portalPath = folder.path
             self.layout.setFence(fence)
+            self.adoptArrangementHere()
+            self.layout.save()
             self.relayout()
         }
     }

@@ -2,13 +2,16 @@ import Foundation
 import CoreGraphics
 
 /// Moves a desktop arrangement to a monitor of another size (another monitor, or the same one at
-/// another resolution) so it looks the way it was set up: things that sit together move together,
-/// and each group keeps its distance to the nearer edge on each axis. Nothing is resized.
+/// another resolution) so it looks the way it was set up. Things up to a cell apart are one group
+/// and move together (an icon a cell left of a zone stays a cell left of it). On each axis a group
+/// near an edge — within a quarter of the monitor — keeps its distance to that edge (a folder in
+/// the bottom-left corner stays there, a row at the top stays at the top); one out in the open keeps
+/// its place in proportion. Nothing is resized; what finds no room moves, whole, beside what's there.
 enum ScreenAnchoring {
     /// How far each rect moves (icons' cells and zones, in points from the monitor's top-left),
     /// going from a monitor of size `from` to one of size `to`. Rects closer than `gap` form a group.
     /// `obstacles`: what's already on the new monitor (in its points) — a group doesn't land on it.
-    static func offsets(for rects: [CGRect], from: CGSize, to: CGSize, obstacles: [CGRect] = [], gap: CGFloat = 24) -> [CGVector] {
+    static func offsets(for rects: [CGRect], from: CGSize, to: CGSize, obstacles: [CGRect] = [], gap: CGFloat = 150) -> [CGVector] {
         guard from.width > 0, from.height > 0, from != to || !obstacles.isEmpty else { return rects.map { _ in .zero } }
         var offsets = rects.map { _ in CGVector.zero }
         // Groups at the edges first; one that then lands on another (not enough room) moves, whole,
@@ -19,7 +22,7 @@ enum ScreenAnchoring {
         }
         var placed = obstacles
         for (group, box) in boxes.sorted(by: { edgeDistance($0.1) < edgeDistance($1.1) }) {
-            let moved = free(anchor(box, from: from, to: to), among: placed, in: to, gap: gap)
+            let moved = free(anchor(box, from: from, to: to), among: placed, in: to, gap: 12)
             placed.append(moved)
             let shift = CGVector(dx: moved.minX - box.minX, dy: moved.minY - box.minY)
             for index in group { offsets[index] = shift }
@@ -27,13 +30,18 @@ enum ScreenAnchoring {
         return offsets
     }
 
-    /// Where `rect` goes on the new monitor: the monitor is two halves on each axis — it keeps its
-    /// distance to the edge it's nearer to (left or right, top or bottom), so things set up
-    /// against an edge, or next to things that are, stay there. Kept inside the monitor.
+    /// Where `rect` goes on the new monitor. On each axis: within a quarter of the monitor from an
+    /// edge it keeps its distance to the nearer edge; farther out, its middle keeps its fraction of
+    /// the monitor. Kept inside the monitor.
     static func anchor(_ rect: CGRect, from: CGSize, to: CGSize) -> CGRect {
         func axis(_ start: CGFloat, _ length: CGFloat, _ old: CGFloat, _ new: CGFloat) -> CGFloat {
             let lead = start, trail = old - (start + length)
-            let placed = lead <= trail ? start : new - trail - length
+            let placed: CGFloat
+            if min(lead, trail) <= old / 4 {
+                placed = lead <= trail ? start : new - trail - length
+            } else {
+                placed = (start + length / 2) / old * new - length / 2
+            }
             return min(max(placed, 0), max(new - length, 0))
         }
         return CGRect(x: axis(rect.minX, rect.width, from.width, to.width),
