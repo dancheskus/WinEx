@@ -1089,6 +1089,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             // Out of their fences, onto the desktop where they were dropped
             removeFromFences(draggedNames)
             moveIcons(named: draggedNames, by: delta)
+            // Placed again: they're no longer in a fence (nor cut off at its edges)
+            relayout()
         }
         glide(from: dropped)
     }
@@ -2162,6 +2164,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
     func debugScroll(_ id: String) -> CGFloat { fenceScroll[id] ?? 0 }
     func debugOnGrid(_ name: String) -> Bool { debugCenter(of: name).map(isOnGrid) ?? false }
+    /// Drawn and not cut away: its tile shows and its fence (if any) doesn't hide it.
+    func debugIconShown(_ name: String) -> Bool {
+        guard let i = index(named: name), tiles.indices.contains(i), !tiles[i].isHidden else { return false }
+        return fenceClip[i].map { $0.intersects(hitRect(i)) } ?? true
+    }
     /// Shown icons (not in fences) whose place meets `rect`.
     func debugIconsUnder(_ rect: NSRect) -> [String] {
         items.indices.filter { fenceOf[$0] == nil && !hiddenIcons.contains($0) && hitRect($0).intersects(rect) }.map(name(of:))

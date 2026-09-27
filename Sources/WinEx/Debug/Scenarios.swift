@@ -1150,6 +1150,13 @@ enum Scenarios {
                     }
                 }
             }),
+            (1.0, "an icon dragged out of a zone onto the desktop", {
+                guard let view = mainView(), let fence = view.layout.fences.first(where: { !$0.members.isEmpty }),
+                      let name = fence.members.first, let spot = view.debugEmptySpot(NSSize(width: 200, height: 200)) else { s.note("  (no zone with icons)"); return }
+                view.debugDrop(name, at: NSPoint(x: spot.midX, y: spot.midY))
+                view.displayIfNeeded()
+                s.note("  out of the zone: \(!(view.layout.fences.first { $0.id == fence.id }?.members.contains(name) ?? true)), shown: \(view.debugIconShown(name))  expect true, true")
+            }),
             (1.0, "an icon put on another's place stays where it went", {
                 guard let view = mainView() else { return }
                 // Two loose icons (not in a zone): the later one alphabetically gives way
