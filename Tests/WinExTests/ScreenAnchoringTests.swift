@@ -28,14 +28,15 @@ import Testing
         }
     }
 
-    @Test func aRowInTheMiddleMovesAsOneAndStaysCentred() {
-        let result = Array(moved(row + zones + [corner], from: laptop, to: external)[0..<6])
-        // Still a row with the same spacing
-        for (a, b) in zip(result, result.dropFirst()) { #expect(b.minX - a.maxX == 0) }
-        // Its middle at the same fraction of the width, at the same distance from the top
-        let before = row.reduce(CGRect.null) { $0.union($1) }, after = result.reduce(CGRect.null) { $0.union($1) }
-        #expect(abs(after.midX / external.width - before.midX / laptop.width) < 0.001)
-        #expect(after.minY == before.minY)
+    @Test func aRowNearerTheRightKeepsNextToTheZones() {
+        // The row is a little nearer the right edge (480 pt) than the left (510 pt): it keeps to the
+        // right, so it stays next to the zones with the same gap, as on the laptop
+        let result = moved(row + zones + [corner], from: laptop, to: external)
+        let movedRow = Array(result[0..<6])
+        for (a, b) in zip(movedRow, movedRow.dropFirst()) { #expect(b.minX - a.maxX == 0) }  // still one row
+        let gapBefore = zones[0].minX - row[5].maxX, gapAfter = result[6].minX - movedRow[5].maxX
+        #expect(abs(gapAfter - gapBefore) < 0.5)
+        #expect(movedRow[0].minY == row[0].minY)
     }
 
     @Test func aCornerIconKeepsItsCorner() {
@@ -56,12 +57,12 @@ import Testing
         #expect(ScreenAnchoring.offsets(for: zones, from: laptop, to: laptop).allSatisfy { $0 == .zero })
     }
 
-    @Test func aGroupInTheRightThirdKeepsToTheRight() {
+    @Test func aGroupInTheRightHalfKeepsToTheRight() {
         // At 70 % of the width, 250 pt from the right edge — not at the edge, but on the right
         let icon = CGRect(x: laptop.width - 250 - 120, y: 500, width: 120, height: 114)
         let after = ScreenAnchoring.anchor(icon, from: laptop, to: external)
         #expect(abs((external.width - after.maxX) - 250) < 0.5)
-        let left = CGRect(x: 380, y: 500, width: 120, height: 114)  // in the left third
+        let left = CGRect(x: 380, y: 500, width: 120, height: 114)  // in the left half
         #expect(ScreenAnchoring.anchor(left, from: laptop, to: external).minX == 380)
     }
 

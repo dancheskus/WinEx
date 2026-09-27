@@ -229,11 +229,11 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
 - Several monitors: each has its own desktop with its own icons; icons can be dragged between
   them. WinEx remembers each monitor's size. When a monitor goes away (a laptop closed on its
   monitors, or monitors unplugged), its icons and zones are shown on the remaining one the way they
-  were set up: things that sit together move together; the monitor is read as three bands — a
-  group at an edge or in the left / right third keeps its distance to that edge, one in the middle
-  stays centred (the same top to bottom). What doesn't fit on a smaller monitor goes to the nearest
-  free spot for the time being — never on top of what lives there — and everything goes back when
-  the monitor returns. The same happens when a monitor changes resolution. The size of a monitor
+  were set up: things that sit together move together, and each group keeps its distance to the
+  edge it's nearer to (left or right, top or bottom) — so icons set up next to zones at the right
+  edge stay next to them. A group that doesn't fit on a smaller monitor moves, whole, to the
+  nearest free spot beside what's in the way, for the time being — never on top of what lives
+  there — and everything goes back when the monitor returns. The same happens when a monitor changes resolution. The size of a monitor
   WinEx never saw (a laptop's screen while it's closed) comes from what macOS remembers of it.
 - On first launch it takes the icon layout from Finder (`~/Desktop/.DS_Store`, `dilc` records:
   bytes 0…3 — the monitor), then keeps its own. Icons avoid desktop widgets, as in Finder.

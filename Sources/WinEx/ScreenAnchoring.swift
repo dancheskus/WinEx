@@ -3,46 +3,60 @@ import CoreGraphics
 
 /// Moves a desktop arrangement to a monitor of another size (another monitor, or the same one at
 /// another resolution) so it looks the way it was set up: things that sit together move together,
-/// a group near an edge or a corner keeps its distance to that edge, one in the middle keeps its
-/// place relative to the centre. Nothing is resized.
+/// and each group keeps its distance to the nearer edge on each axis. Nothing is resized.
 enum ScreenAnchoring {
     /// How far each rect moves (icons' cells and zones, in points from the monitor's top-left),
     /// going from a monitor of size `from` to one of size `to`. Rects closer than `gap` form a group.
     static func offsets(for rects: [CGRect], from: CGSize, to: CGSize, gap: CGFloat = 24) -> [CGVector] {
         guard from.width > 0, from.height > 0, from != to else { return rects.map { _ in .zero } }
         var offsets = rects.map { _ in CGVector.zero }
-        for group in groups(rects, gap: gap) {
-            let box = group.map { rects[$0] }.reduce(CGRect.null) { $0.union($1) }
-            let moved = anchor(box, from: from, to: to)
+        // Groups at the edges first; one that then lands on another (not enough room) moves, whole,
+        // to the nearest free spot beside it
+        let boxes = groups(rects, gap: gap).map { group in (group, group.map { rects[$0] }.reduce(CGRect.null) { $0.union($1) }) }
+        func edgeDistance(_ box: CGRect) -> CGFloat {
+            min(box.minX, from.width - box.maxX, box.minY, from.height - box.maxY)
+        }
+        var placed: [CGRect] = []
+        for (group, box) in boxes.sorted(by: { edgeDistance($0.1) < edgeDistance($1.1) }) {
+            let moved = free(anchor(box, from: from, to: to), among: placed, in: to, gap: gap)
+            placed.append(moved)
             let shift = CGVector(dx: moved.minX - box.minX, dy: moved.minY - box.minY)
             for index in group { offsets[index] = shift }
         }
         return offsets
     }
 
-    /// Where `rect` goes on the new monitor. On each axis the monitor is three bands: close to an
-    /// edge (within a fifth of the monitor) it keeps its distance to the nearer edge; otherwise its
-    /// middle decides — in the first third it keeps its distance to that edge, in the last third
-    /// to the far edge, in the middle third its middle stays at the same fraction of the monitor.
-    /// Kept inside the monitor.
+    /// Where `rect` goes on the new monitor: the monitor is two halves on each axis — it keeps its
+    /// distance to the edge it's nearer to (left or right, top or bottom), so things set up
+    /// against an edge, or next to things that are, stay there. Kept inside the monitor.
     static func anchor(_ rect: CGRect, from: CGSize, to: CGSize) -> CGRect {
         func axis(_ start: CGFloat, _ length: CGFloat, _ old: CGFloat, _ new: CGFloat) -> CGFloat {
-            let lead = start, trail = old - (start + length), middle = start + length / 2
-            let placed: CGFloat
-            if min(lead, trail) <= old / 5 {
-                placed = lead <= trail ? start : new - trail - length
-            } else if middle < old / 3 {
-                placed = start
-            } else if middle > old * 2 / 3 {
-                placed = new - trail - length
-            } else {
-                placed = middle / old * new - length / 2
-            }
+            let lead = start, trail = old - (start + length)
+            let placed = lead <= trail ? start : new - trail - length
             return min(max(placed, 0), max(new - length, 0))
         }
         return CGRect(x: axis(rect.minX, rect.width, from.width, to.width),
                       y: axis(rect.minY, rect.height, from.height, to.height),
                       width: rect.width, height: rect.height)
+    }
+
+    /// `rect` where it is if nothing's there; otherwise the nearest spot beside what's in the way
+    /// (left, right, above, below) that's free and on the monitor — or where it is, if there's none.
+    static func free(_ rect: CGRect, among placed: [CGRect], in size: CGSize, gap: CGFloat) -> CGRect {
+        func clear(_ r: CGRect) -> Bool {
+            r.minX >= 0 && r.minY >= 0 && r.maxX <= size.width && r.maxY <= size.height
+                && !placed.contains { $0.insetBy(dx: -gap / 2, dy: -gap / 2).intersects(r.insetBy(dx: -gap / 2, dy: -gap / 2)) }
+        }
+        guard !clear(rect) else { return rect }
+        guard placed.contains(where: { $0.intersects(rect.insetBy(dx: -gap / 2, dy: -gap / 2)) }) else { return rect }
+        var candidates: [CGRect] = []
+        for other in placed {
+            candidates.append(CGRect(x: other.minX - gap - rect.width, y: rect.minY, width: rect.width, height: rect.height))
+            candidates.append(CGRect(x: other.maxX + gap, y: rect.minY, width: rect.width, height: rect.height))
+            candidates.append(CGRect(x: rect.minX, y: other.minY - gap - rect.height, width: rect.width, height: rect.height))
+            candidates.append(CGRect(x: rect.minX, y: other.maxY + gap, width: rect.width, height: rect.height))
+        }
+        return candidates.filter(clear).min { hypot($0.minX - rect.minX, $0.minY - rect.minY) < hypot($1.minX - rect.minX, $1.minY - rect.minY) } ?? rect
     }
 
     /// Indices of rects that touch (within `gap`), directly or through others.

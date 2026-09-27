@@ -1938,7 +1938,7 @@ enum Scenarios {
                 let (ca, cb) = (main.debugCenter(of: a) ?? .zero, main.debugCenter(of: b) ?? .zero)
                 let frame = main.debugFenceView(zone.id)?.frame ?? .zero
                 s.note("  zone: \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top  expect 10, 60")
-                s.note("  icons: \(Int(cb.x - ca.x)) pt apart, their middle at \(String(format: "%.2f", (ca.x + cb.x) / 2 / here.width)) of the width, \(Int(ca.y)) from the top  expect 120, 0.50, 110")
+                s.note("  icons: \(Int(cb.x - ca.x)) pt apart, the right one \(Int(here.width - cb.x)) pt from the right edge, \(Int(ca.y)) from the top  expect 120, \(Int(laptop.width - 660)), 110")
                 // Put things back
                 var fences = main.layout.fences
                 fences.removeAll { $0.id == zone.id }
