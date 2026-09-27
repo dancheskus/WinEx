@@ -314,7 +314,9 @@ folders in WinEx” adds a small `open` function to `~/.zshrc` (and `~/.bash_pro
 that sends folders to WinEx and everything else — files, apps, packages, URLs, options — to the real
 `open`; unchecking it removes those lines.
 
-Quitting WinEx undoes all of it. If WinEx crashes or is killed, a watchdog — a separate process
+Quitting WinEx undoes all of it — except when the session ends (log out, restart, shut down)
+while WinEx opens at login: then Finder's desktop stays hidden, so after the next login WinEx's
+desktop is the first one seen (Finder isn't restarted either, so nothing flashes). If WinEx crashes or is killed, a watchdog — a separate process
 waiting for WinEx to go away — gives the desktop back to Finder. If the desktop is gone anyway:
 
 ```sh

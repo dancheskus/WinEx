@@ -26,6 +26,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         SetupWizard.markExistingUser()
         setupStatusItem()
+        // Logging out / restarting / shutting down (sent before the apps are asked to quit)
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sessionEnding = true }
+            // Still here a minute later: the log out was cancelled (an app refused to quit)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { self?.sessionEnding = false }
+        }
 
         #if DEBUG
         Scenario.startIfRequested()
@@ -101,12 +107,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let front = frontExplorerWindow { WindowPlacement.remember(front) }
         // Restarting into an update: the new version keeps the desktop, no Finder in between
         guard FinderReplacement.isApplied, !Updater.shared.isRelaunching else { return }
+        // The session ending (log out, restart, shut down) with WinEx opening at login: Finder's
+        // desktop stays hidden, so WinEx's is the first one seen after the next login
+        if sessionEnding, LoginItem.isEnabled {
+            FinderReplacement.keepForNextLogin()
+            return
+        }
         desktop?.hide()
         FinderReplacement.restore()
     }
 
     /// Windows closing because the app quits don't count as "closed last".
     private(set) var isTerminating = false
+    /// macOS is logging out, restarting or shutting down.
+    private var sessionEnding = false
 
     /// The frontmost visible folder window.
     private var frontExplorerWindow: NSWindow? {

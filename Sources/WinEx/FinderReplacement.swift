@@ -20,11 +20,29 @@ enum FinderReplacement {
             NSLog("WinEx: no bundle identifier — run the packaged WinEx.app, not the bare binary")
             return
         }
+        // Kept hidden over a restart (see `keepForNextLogin`): Finder started without its desktop —
+        // nothing to restart, so the desktop doesn't flash
+        let alreadyHidden = finderDesktopHidden
         run("/usr/bin/defaults", "write", "-g", "NSFileViewer", "-string", bundleID)
         run("/usr/bin/defaults", "write", "com.apple.finder", "CreateDesktop", "-bool", "false")
-        restartFinder()
+        if !alreadyHidden { restartFinder() }
         isApplied = true
         startGuard()
+    }
+
+    /// Whether Finder is set not to draw the desktop.
+    static var finderDesktopHidden: Bool {
+        CFPreferencesAppSynchronize("com.apple.finder" as CFString)
+        return (CFPreferencesCopyAppValue("CreateDesktop" as CFString, "com.apple.finder" as CFString) as? Bool) == false
+    }
+
+    /// Logging out, restarting or shutting down with WinEx opening at login: Finder's desktop stays
+    /// hidden, so after the next login WinEx's comes up without Finder's showing first. The guard is
+    /// told to leave it (WinEx isn't crashing, it's the session ending).
+    static func keepForNextLogin() {
+        FileManager.default.createFile(atPath: updateMarker(for: ProcessInfo.processInfo.processIdentifier), contents: nil)
+        stopGuard()
+        isApplied = false
     }
 
     static func restore() {
@@ -39,7 +57,8 @@ enum FinderReplacement {
 
     private static var guardProcess: Process?
 
-    /// Exists while WinEx quits to install an update: the guard leaves Finder alone then.
+    /// Exists while WinEx quits to install an update (or with the session ending, see
+    /// `keepForNextLogin`): the guard leaves Finder alone then.
     static func updateMarker(for pid: Int32) -> String {
         FileManager.default.temporaryDirectory.appendingPathComponent("winex-updating-\(pid)").path
     }
