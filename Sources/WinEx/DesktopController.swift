@@ -1473,7 +1473,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         thumbnails = [:]
         requestedThumbnails = []
         if layout.autoArrange { arrange(by: layout.sortKey) } else if layout.alignToGrid { snapAllToGrid() }
-        needsDisplay = true
+        // Fences' cells (and portals') come from the icon size: everything placed again
+        relayout()
         sharedChange?(self)
     }
 
@@ -2136,6 +2137,13 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    func debugSetIconSize(_ size: DesktopIconSize) {
+        let item = NSMenuItem()
+        item.tag = size.rawValue
+        setIconSize(item)
+    }
+    var debugFenceCellWidth: CGFloat { fenceCell.width }
+    var debugFenceCellHeight: CGFloat { fenceCell.height }
     /// As if `name` was dragged from its place and let go at `point` (the icon glides to its place).
     func debugDrop(_ name: String, at point: NSPoint) {
         guard let i = index(named: name) else { return }

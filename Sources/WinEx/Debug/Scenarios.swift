@@ -1150,6 +1150,17 @@ enum Scenarios {
                     }
                 }
             }),
+            (1.0, "another icon size: the zones' icons spread out at once", {
+                guard let view = mainView(), let fence = view.layout.fences.first(where: { $0.members.count >= 2 && !$0.collapsed }) else { s.note("  (no zone with 2 icons)"); return }
+                let before = view.layout.iconSize
+                let other: DesktopIconSize = before == .large ? .medium : .large
+                view.debugSetIconSize(other)
+                let a = view.debugCenter(of: fence.members[0]) ?? .zero, b = view.debugCenter(of: fence.members[1]) ?? .zero
+                let apart = abs(b.x - a.x) > 1 ? abs(b.x - a.x) : abs(b.y - a.y)
+                let cell = abs(b.x - a.x) > 1 ? view.debugFenceCellWidth : view.debugFenceCellHeight
+                s.note("  \(other): icons in the zone \(Int(apart)) pt apart, a cell is \(Int(cell))  expect the same")
+                view.debugSetIconSize(before)
+            }),
             (1.0, "an icon dragged out of a zone onto the desktop", {
                 guard let view = mainView(), let fence = view.layout.fences.first(where: { !$0.members.isEmpty }),
                       let name = fence.members.first, let spot = view.debugEmptySpot(NSSize(width: 200, height: 200)) else { s.note("  (no zone with icons)"); return }
