@@ -150,39 +150,27 @@ final class DesktopLayout {
             stored.screens = ids
             changed = true
         }
-        for screen in screens where !screen.id.isEmpty {
-            // (Only a size WinEx saw itself: what macOS keeps is already the new one)
-            let seen = stored.screenSizes?[screen.id].flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
-            if let old = seen, old != screen.size {
-                adapt(screen: screen.id, from: old, to: screen.size)
-            }
-            if seen != screen.size {
-                stored.screenSizes?[screen.id] = [screen.size.width, screen.size.height]
-                changed = true
-            }
+        // A monitor seen for the first time: the size its places are measured on. One at another
+        // size than that (another resolution — even for a moment, as while waking up) keeps its
+        // stored places: they're shown adapted (see `DesktopView`), and taken as they're shown only
+        // when something is changed there
+        for screen in screens where !screen.id.isEmpty && recordedSize(ofScreen: screen.id) == nil {
+            stored.screenSizes?[screen.id] = [screen.size.width, screen.size.height]
+            changed = true
         }
         if changed { save() }
     }
 
-    /// Moves a monitor's icons and fences from its old size to its new one.
-    private func adapt(screen id: String, from old: CGSize, to new: CGSize) {
-        let names = stored.positions.keys.filter { stored.screens?[$0] == id }.sorted()
-        let fenceIndices = (stored.fences ?? []).indices.filter { stored.fences?[$0].screenID == id }
-        let rects = names.compactMap { name -> CGRect? in
-            guard let value = stored.positions[name], value.count == 2 else { return nil }
-            return Self.cell(around: CGPoint(x: value[0] * old.width, y: value[1] * old.height))
-        } + fenceIndices.compactMap { stored.fences?[$0].frame }
-        let offsets = ScreenAnchoring.offsets(for: rects, from: old, to: new)
-        for (n, name) in names.enumerated() {
-            guard let value = stored.positions[name], value.count == 2 else { continue }
-            stored.positions[name] = [(value[0] * old.width + offsets[n].dx) / new.width,
-                                      (value[1] * old.height + offsets[n].dy) / new.height]
-        }
-        var fences = stored.fences ?? []
-        for (k, index) in fenceIndices.enumerated() {
-            fences[index].frame = fences[index].frame.offsetBy(dx: offsets[names.count + k].dx, dy: offsets[names.count + k].dy)
-        }
-        if !fenceIndices.isEmpty { stored.fences = fences }
+    /// The size a monitor's stored places are measured on (nil: none recorded).
+    func recordedSize(ofScreen id: String) -> CGSize? {
+        guard let value = stored.screenSizes?[id], value.count == 2 else { return nil }
+        return CGSize(width: value[0], height: value[1])
+    }
+
+    /// The monitor's places are measured on `size` from now on (they were all just stored so).
+    func setRecordedSize(_ size: CGSize, ofScreen id: String) {
+        stored.screenSizes = stored.screenSizes ?? [:]
+        stored.screenSizes?[id] = [size.width, size.height]
     }
 
     #if DEBUG

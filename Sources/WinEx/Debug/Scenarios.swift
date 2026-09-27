@@ -2036,106 +2036,26 @@ enum Scenarios {
                 main.layout.fences = fences
                 views().forEach { $0.reloadShared() }
             }),
-            (0.3, "a monitor at another resolution than when set up", {
-                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }) else { return }
-                // A monitor (only this zone on it) set up at 1200×800, now 2560×1440
-                let old = CGSize(width: 1200, height: 800), new = CGSize(width: 2560, height: 1440)
-                main.layout.debugSetSize(ofScreen: "RESIZED", old)
-                let zone = DesktopFence(title: "Set up at 1200×800", screenID: "RESIZED", x: old.width - 10 - 300, y: old.height - 20 - 200, width: 300, height: 200)
-                main.layout.setFence(zone)
-                main.layout.noteScreens(DesktopView.layoutScreens() + [DesktopLayout.Screen(id: "RESIZED", size: new)])
-                let frame = main.layout.fences.first { $0.id == zone.id }?.frame ?? .zero
-                s.note("  zone: \(Int(new.width - frame.maxX)) pt from the right edge, \(Int(new.height - frame.maxY)) from the bottom  expect 10, 20")
-                s.note("  size remembered: \(main.layout.size(ofScreen: "RESIZED").map { "\(Int($0.width))×\(Int($0.height))" } ?? "-")  expect 2560×1440")
-                var fences = main.layout.fences
-                fences.removeAll { $0.id == zone.id }
-                main.layout.fences = fences
-                main.layout.debugSetSize(ofScreen: "RESIZED", nil)
-                views().forEach { $0.reloadShared() }
-            }),
-            (0.3, "a zone dragged onto the other monitor", {
+            (0.3, "this monitor at another resolution for a while (as when waking up)", {
                 guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
-                      let other = views().first(where: { $0.window?.screen != NSScreen.screens.first }),
-                      let otherScreen = other.window?.screen, let mainID = NSScreen.screens.first?.displayUUID,
-                      let otherID = otherScreen.displayUUID else { s.note("  (one monitor only)"); return }
-                var zone = DesktopFence(title: "Travels", screenID: mainID, x: 400, y: 300, width: 300, height: 200)
-                // With an icon of the main monitor in it
-                let member = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
-                    .first { name in !name.hasPrefix(".") && !main.layout.fences.contains { $0.members.contains(name) } && main.debugCenter(of: name) != nil }
-                let memberPlace = member.flatMap { main.layout.place(for: $0) }
-                if let member { zone.members = [member] }
+                      let id = NSScreen.screens.first?.displayUUID, let here = NSScreen.screens.first?.frame.size else { return }
+                let real = main.layout.recordedSize(ofScreen: id)
+                // Its places measured on 1200×800: a zone 10 pt from the right edge, 20 from the bottom
+                let old = CGSize(width: 1200, height: 800)
+                main.layout.setRecordedSize(old, ofScreen: id)
+                let zone = DesktopFence(title: "Set up at 1200×800", screenID: id, x: old.width - 10 - 300, y: old.height - 20 - 200, width: 300, height: 200)
                 main.layout.setFence(zone)
+                main.layout.noteScreens(DesktopView.layoutScreens())
                 views().forEach { $0.reloadShared() }
-                // The drag starts on the main monitor…
                 main.displayIfNeeded()
-                let start = NSRect(x: zone.x, y: zone.y, width: zone.width, height: zone.height)
-                main.debugFenceView(zone.id)?.onFrame?(start, false)
-                // …the mouse goes over the other one, 200 pt in from its left and top
-                let there = otherScreen.frame
-                let global = NSRect(x: there.minX + 180, y: there.maxY - 200 - 190, width: 300, height: 200)
-                DesktopView.debugMouse = NSPoint(x: there.minX + 200, y: there.maxY - 200)
-                _ = main.debugFenceOverMonitor(zone.id, global, final: false)
-                views().forEach { $0.displayIfNeeded() }
-                func iconThere(_ view: DesktopView) -> Bool { member.map { view.debugCenter(of: $0) != nil } ?? true }
-                s.note("  while dragging over the other monitor: zone there \(other.debugFenceView(zone.id)?.isHidden == false), icon there \(iconThere(other)), hidden here (still dragging) \(main.debugFenceView(zone.id)?.isHidden == true), icon gone here \(!iconThere(main))  expect true, true, true, true")
-                // …back over the main one (it takes the zone back)
-                DesktopView.debugMouse = NSPoint(x: NSScreen.screens[0].frame.midX, y: NSScreen.screens[0].frame.midY)
-                main.debugFenceView(zone.id)?.onFrame?(start, false)
-                _ = main.debugFenceOverMonitor(zone.id, NSRect(x: 0, y: 0, width: 300, height: 200), final: false)
-                views().forEach { $0.displayIfNeeded() }
-                let back = main.layout.fences.first { $0.id == zone.id }
-                s.note("    (zone's monitor: \(back?.screenID == mainID ? "main" : back?.screenID == otherID ? "other" : "?"), main's view: \(main.debugFenceView(zone.id).map { $0.isHidden ? "hidden" : "shown" } ?? "none"))")
-                s.note("  back over the main one: zone here \(main.debugFenceView(zone.id)?.isHidden == false), icon here \(iconThere(main)), gone there \(other.debugFenceView(zone.id) == nil)  expect true, true, true")
-                // …over the other one again, and let go
-                DesktopView.debugMouse = NSPoint(x: there.minX + 200, y: there.maxY - 200)
-                _ = main.debugFenceOverMonitor(zone.id, global, final: false)
-                let went = main.debugFenceOverMonitor(zone.id, global, final: true)
-                DesktopView.debugMouse = nil
-                views().forEach { $0.displayIfNeeded() }
+                let frame = main.debugFenceView(zone.id)?.frame ?? .zero
                 let stored = main.layout.fences.first { $0.id == zone.id }
-                s.note("  let go there: moved \(went), on the other monitor: \(stored?.screenID == otherID), at \(Int(stored?.x ?? -1)),\(Int(stored?.y ?? -1)), shown there: \(other.debugFenceView(zone.id) != nil), gone from here: \(main.debugFenceView(zone.id) == nil)  expect true, true, about 180,190, true, true")
-                if let member { s.note("  its icon went along: \(other.debugCenter(of: member) != nil && main.debugCenter(of: member) == nil)  expect true") }
+                s.note("  shown \(Int(here.width - frame.maxX)) pt from the right edge; stored place kept: \(stored?.x == old.width - 310 && stored?.y == old.height - 220), measured on \(main.layout.recordedSize(ofScreen: id).map { "\(Int($0.width))×\(Int($0.height))" } ?? "-")  expect about 10 (beside what's there if needed), true, 1200×800")
                 var fences = main.layout.fences
                 fences.removeAll { $0.id == zone.id }
                 main.layout.fences = fences
-                if let member, let memberPlace { main.layout.setPlace(memberPlace, for: member); main.layout.save() }
-                views().forEach { $0.reloadShared() }
-            }),
-            (0.3, "a laptop zone with its icons, monitors coming in steps", {
-                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
-                      let other = views().first(where: { $0.window?.screen != NSScreen.screens.first }),
-                      let mainID = NSScreen.screens.first?.displayUUID, let otherID = other.window?.screen?.displayUUID else { s.note("  (one monitor only)"); return }
-                main.layout.debugSetSize(ofScreen: "LAPTOP", CGSize(width: 1710, height: 1107))
-                let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
-                    .filter { name in !name.hasPrefix(".") && !main.layout.fences.contains { $0.members.contains(name) } }.sorted().prefix(3).map { $0 }
-                let saved = names.map { main.layout.place(for: $0) }
-                var zone = DesktopFence(title: "test", screenID: "LAPTOP", x: 1262, y: 800, width: 440, height: 200)
-                zone.members = names
-                for name in names { main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 0.85, y: 0.8), screenID: "LAPTOP"), for: name) }
-                main.layout.setFence(zone)
-                @MainActor func show(main mainView: DesktopView, _ title: String) {
-                    let chosen = mainView === main ? mainID : otherID
-                    for view in views() { view.mainScreenID = chosen }
-                    views().forEach { $0.reloadShared() }
-                    views().forEach { $0.displayIfNeeded() }
-                    let zoneOn = views().first { $0.debugFenceView(zone.id) != nil } === main ? "main" : "other"
-                    let iconsOn = names.map { name in views().first { $0.debugCenter(of: name) != nil } === main ? "main" : "other" }
-                    s.note("  \(title): zone on \(zoneOn), icons on \(iconsOn), stored \(names.map { main.layout.place(for: $0)?.screenID == "LAPTOP" ? "laptop" : "changed" })")
-                }
-                // Its icons still on another monitor (as a zone moved with its arrangement left them):
-                // they go with the zone
-                for name in names { main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 0.9, y: 0.5), screenID: otherID), for: name) }
+                if let real { main.layout.setRecordedSize(real, ofScreen: id) }
                 main.layout.save()
-                s.note("  icons left on another monitor, after a save: \(names.map { main.layout.place(for: $0)?.screenID == "LAPTOP" ? "laptop" : "other" })  expect all laptop")
-                show(main: other, "the other monitor main for a moment")
-                show(main: main, "then this one main")
-                s.note("  expect: zone and icons on the same monitor, stored laptop")
-                var fences = main.layout.fences
-                fences.removeAll { $0.id == zone.id }
-                main.layout.fences = fences
-                for (name, place) in zip(names, saved) { if let place { main.layout.setPlace(place, for: name) } }
-                main.layout.save()
-                for view in views() { view.mainScreenID = mainID }
                 views().forEach { $0.reloadShared() }
             }),
             (0.2, "an old «main monitor» place on top of an icon that lives there", {

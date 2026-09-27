@@ -20,8 +20,28 @@ final class DesktopController {
         shown = true
         layout = DesktopLayout(desktop: DesktopView.desktopURL, screens: DesktopView.layoutScreens())
         updateScreens()
-        observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.updateScreens() }
+        observers.add(NSApplication.didChangeScreenParametersNotification) { [weak self] in self?.screensChanged() }
+        // Waking up: monitors come back one step at a time (and may pass through other modes)
+        let workspace = NSWorkspace.shared.notificationCenter
+        observers.add(NSWorkspace.didWakeNotification, center: workspace) { [weak self] in self?.screensChanged() }
+        observers.add(NSWorkspace.screensDidWakeNotification, center: workspace) { [weak self] in self?.screensChanged() }
     }
+
+    /// The monitors changed: placed now, and again once they've settled (macOS sends the changes
+    /// in steps, and the last one can come before everything is in place).
+    private func screensChanged() {
+        updateScreens()
+        settle?.cancel()
+        let again = DispatchWorkItem { [weak self] in
+            guard let self, self.shown else { return }
+            self.updateScreens()
+            self.desktops.forEach { $0.view.reloadShared() }
+        }
+        settle = again
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: again)
+    }
+
+    private var settle: DispatchWorkItem?
 
     /// A picture of the whole desktop (every monitor as arranged, wallpaper, icons, zones) for a
     /// snapshot, `width` points wide.
@@ -240,6 +260,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// A fence dragged here from another monitor, at `rect`: it lives here now, with its icons —
     /// following the mouse (`live`), or let go: kept on the monitor, snapped to its edges and fences.
     func acceptFence(_ id: String, at rect: NSRect, live: Bool = false) {
+        rebaseIfResized()
         guard var fence = layout.fences.first(where: { $0.id == id }), let screen = screens.first else { return }
         var frame = NSRect(x: rect.minX, y: rect.minY, width: fence.width, height: fence.collapsed ? DesktopFence.titleHeight : fence.height)
         let area = screen.iconArea
@@ -454,16 +475,22 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             // there (kept at its edge or corner, with the icons around it — see `ScreenAnchoring`)
             let screen = screens.first { $0.id == place.screenID } ?? screens[0]
             let away = place.screenID != nil && screen.id != place.screenID
+            // (This monitor at another size than its places were measured on: shown adapted, the same way)
+            let resized = !away ? layout.recordedSize(ofScreen: screen.id).flatMap { $0 != screen.frame.size ? $0 : nil } : nil
+            let adapted = away || (resized != nil && guestShift["icon:" + name(of: i)] != nil)
             if away, let id = place.screenID, let home = layout.size(ofScreen: id), let shift = guestShift["icon:" + name(of: i)] {
                 centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * home.width + shift.dx,
                                            y: screen.frame.minY + place.point.y * home.height + shift.dy))
+            } else if let resized, let shift = guestShift["icon:" + name(of: i)] {
+                centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * resized.width + shift.dx,
+                                           y: screen.frame.minY + place.point.y * resized.height + shift.dy))
             } else {
                 centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * screen.frame.width,
                                            y: screen.frame.minY + place.point.y * screen.frame.height))
             }
-            if isUnderWidget(centers[i]) || (away && overlapsAnother(centers[i], placed)) {
+            if isUnderWidget(centers[i]) || (adapted && overlapsAnother(centers[i], placed)) {
                 displaced.append(i)
-            } else if away {
+            } else if adapted {
                 // Adapted from another monitor: lands between this one's cells — into the nearest one
                 if layout.alignToGrid { offGrid.append(i) } else { placed.append(centers[i]) }
             } else if overlapsAnother(centers[i], placed) {
@@ -533,6 +560,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func storeAllPositions() {
+        rebaseIfResized()
         items.indices.forEach(storePosition)
         adoptArrangementHere()
         layout.save()
@@ -736,6 +764,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func setPlacement(_ point: CGPoint, forName name: String) {
+        rebaseIfResized()
         layout.setPlace(place(of: point), for: name)
     }
 
@@ -890,6 +919,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     override func mouseDown(with event: NSEvent) {
         emptyArea = nil
+        if layout.recordedSize(ofScreen: screens.first?.id ?? "").map({ $0 != screens.first?.frame.size }) == true {
+            rebaseIfResized()
+            relayout()
+        }
         slowClick.cancel()
         slowClickIndex = nil
         endRename()
@@ -1191,6 +1224,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     override func menu(for event: NSEvent) -> NSMenu? {
         emptyArea = nil
+        rebaseIfResized()
         needsLayout = true
         let menu = buildMenu(for: event)
         menu.map(MenuStyle.decorate)
@@ -1540,9 +1574,35 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     private func computeGuestShifts() {
         guestShift = [:]
-        guard isMain, let here = screens.first else { return }
-        var guests: [String: [(key: String, rect: CGRect)]] = [:]
+        guard let here = screens.first else { return }
         let fenced = Set(layout.fences.flatMap(\.members))
+        // This monitor at another size than its places were measured on (another resolution, even
+        // for a moment): its own icons and fences are shown adapted — the stored places stay, so
+        // back at that size everything is exactly where it was
+        var own: [(key: String, rect: CGRect)] = []
+        let recorded = layout.recordedSize(ofScreen: here.id)
+        let measure = recorded ?? here.frame.size
+        for i in items.indices {
+            let name = name(of: i)
+            guard !fenced.contains(name), let place = layout.place(for: name), place.screenID == here.id || (place.screenID == nil && isMain) else { continue }
+            own.append(("icon:" + name, DesktopLayout.cell(around: CGPoint(x: place.point.x * measure.width, y: place.point.y * measure.height))))
+        }
+        for fence in layout.fences where fence.screenID == here.id { own.append(("fence:" + fence.id, fence.frame)) }
+        var obstacles = widgetRects
+        if let recorded, recorded != here.frame.size, recorded.width > 0, recorded.height > 0 {
+            let offsets = ScreenAnchoring.offsets(for: own.map(\.rect), from: recorded, to: here.frame.size, obstacles: widgetRects)
+            for (entry, offset) in zip(own, offsets) {
+                guestShift[entry.key] = offset
+                obstacles.append(entry.rect.offsetBy(dx: offset.dx, dy: offset.dy))
+            }
+        } else {
+            obstacles += own.map(\.rect)
+        }
+        // Monitors that aren't connected: their icons and fences are guests here, on the main one;
+        // what lives here stays put, guests find room around it (a group that doesn't fit where it
+        // was moves, whole, beside it)
+        guard isMain else { return }
+        var guests: [String: [(key: String, rect: CGRect)]] = [:]
         for i in items.indices {
             let name = name(of: i)
             guard !fenced.contains(name), let place = layout.place(for: name), let id = place.screenID,
@@ -1552,22 +1612,39 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for fence in layout.fences where !connectedScreenIDs.contains(fence.screenID) && layout.size(ofScreen: fence.screenID) != nil {
             guests[fence.screenID, default: []].append(("fence:" + fence.id, fence.frame))
         }
-        // What lives here stays put: guests find room around it (a group that doesn't fit where it
-        // was moves, whole, beside it)
-        var obstacles: [CGRect] = widgetRects + layout.fences.filter { $0.screenID == here.id }.map(\.frame)
-        for i in items.indices {
-            let name = name(of: i)
-            guard !fenced.contains(name), let place = layout.place(for: name), place.screenID == here.id || place.screenID == nil else { continue }
-            obstacles.append(DesktopLayout.cell(around: CGPoint(x: place.point.x * here.frame.width, y: place.point.y * here.frame.height)))
-        }
         for (id, entries) in guests {
             guard let home = layout.size(ofScreen: id) else { continue }
             let offsets = ScreenAnchoring.offsets(for: entries.map(\.rect), from: home, to: here.frame.size, obstacles: obstacles)
             for (entry, offset) in zip(entries, offsets) {
                 guestShift[entry.key] = offset
-                if let rect = entries.first(where: { $0.key == entry.key })?.rect { obstacles.append(rect.offsetBy(dx: offset.dx, dy: offset.dy)) }
+                obstacles.append(entry.rect.offsetBy(dx: offset.dx, dy: offset.dy))
             }
         }
+    }
+
+    /// This monitor is at another size than its places were measured on and something is about
+    /// to change here: what's shown becomes what's stored, measured on the size it has now.
+    private func rebaseIfResized() {
+        guard let here = screens.first, !here.id.isEmpty, let recorded = layout.recordedSize(ofScreen: here.id),
+              recorded != here.frame.size else { return }
+        for i in items.indices where fenceOf[i] == nil && !isVolume(i) {
+            guard let place = layout.place(for: name(of: i)), place.screenID == here.id || (place.screenID == nil && isMain) else { continue }
+            layout.setPlace(DesktopLayout.Place(point: CGPoint(x: (centers[i].x - here.frame.minX) / max(here.frame.width, 1),
+                                                               y: (centers[i].y - here.frame.minY) / max(here.frame.height, 1)),
+                                                screenID: here.id), for: name(of: i))
+        }
+        var fences = layout.fences
+        for n in fences.indices where fences[n].screenID == here.id {
+            let shown = visibleFrame(of: fences[n], whole: true)
+            fences[n].x = shown.minX
+            fences[n].y = shown.minY
+        }
+        layout.setRecordedSize(here.frame.size, ofScreen: here.id)
+        guestShift = guestShift.filter { entry in
+            !(entry.key.hasPrefix("fence:") ? fences.contains { "fence:" + $0.id == entry.key && $0.screenID == here.id }
+                                            : layout.place(for: String(entry.key.dropFirst(5)))?.screenID == here.id)
+        }
+        layout.fences = fences
     }
 
     /// Fences of a monitor that isn't connected, shown here for now: where they go so they don't
@@ -1749,6 +1826,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             self.scrollFences()
         }
         view.onFrame = { [weak self] frame, final in
+            self?.rebaseIfResized()
             guard let self, var fence = self.layout.fences.first(where: { $0.id == id }) else { return }
             self.draggingFence = final ? nil : id
             // Moved by hand: it belongs to this monitor now, where it was put

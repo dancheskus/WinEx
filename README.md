@@ -234,7 +234,9 @@ The English interface in scenarios: `WINEX_LANG=en scripts/capture-window.sh set
   monitor from an edge keeps its distance to that edge (a folder in the bottom-left corner stays
   there, a row at the top stays at the top); one out in the open keeps its place in proportion.
   What finds no room — the monitor's own icons, zones, widgets — moves, whole, beside it for the
-  time being. The same happens when a monitor changes resolution. The size of a monitor WinEx
+  time being. The same happens when a monitor changes resolution — shown adapted, the stored places kept, so a
+passing change (monitors waking up through other modes) leaves nothing moved; the desktop is placed
+again once the monitors have settled after waking. The size of a monitor WinEx
   never saw (a laptop's screen while it's closed) comes from what macOS remembers of it.
 - On first launch it takes the icon layout from Finder (`~/Desktop/.DS_Store`, `dilc` records:
   bytes 0…3 — the monitor), then keeps its own. Icons avoid desktop widgets, as in Finder.
