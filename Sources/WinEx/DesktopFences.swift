@@ -296,6 +296,9 @@ final class FenceView: NSView, NSTextFieldDelegate {
 
     /// Live frame while moving / resizing (with the snapping guides), then the final one.
     var onFrame: ((NSRect, _ final: Bool) -> Void)?
+    /// Moved with the mouse over another monitor: its frame in screen coordinates (nil: back over
+    /// its own); `final` when let go there — true if the fence went over.
+    var onOtherMonitor: ((_ screenFrame: NSRect?, _ final: Bool) -> Bool)?
     var snap: ((NSRect, Set<NSRectEdge>) -> (NSRect, [FenceSnap.Guide]))?
     var onGuides: (([FenceSnap.Guide]) -> Void)?
     var onToggleCollapsed: (() -> Void)?
@@ -522,10 +525,29 @@ final class FenceView: NSView, NSTextFieldDelegate {
             current = rect.integral
             frame = current
             onFrame?(current, false)
+            if moving { _ = onOtherMonitor?(mouseOnOtherMonitor ? screenFrame(of: current) : nil, false) }
         }
         onGuides?([])
+        // Let go over another monitor: the fence goes there
+        if moved, moving, mouseOnOtherMonitor, let global = screenFrame(of: current), onOtherMonitor?(global, true) == true {
+            return true
+        }
+        if moving { _ = onOtherMonitor?(nil, false) }
         if moved { onFrame?(current, true) }
         return moved
+    }
+
+    /// The mouse is over a monitor other than the one this fence's desktop is on.
+    private var mouseOnOtherMonitor: Bool {
+        let mouse = NSEvent.mouseLocation
+        guard let here = window?.screen, let there = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) else { return false }
+        return there != here
+    }
+
+    /// A rect of the desktop view in screen coordinates.
+    private func screenFrame(of rect: NSRect) -> NSRect? {
+        guard let superview, let window else { return nil }
+        return window.convertToScreen(superview.convert(rect, to: nil))
     }
 
     // MARK: Rename (inline, in the title bar)

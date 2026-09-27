@@ -147,6 +147,25 @@ final class DesktopController {
             self?.desktops.filter { $0.view !== sender }.forEach { $0.view.setQuickHidden(hidden, fromOtherMonitor: true) }
         }
         // Selecting on one monitor deselects the others, like one desktop
+        // A fence dragged onto another monitor: shown there as an outline, moved there when let go
+        view.fenceOverMonitor = { [weak self] sender, id, global, final in
+            guard let self else { return false }
+            self.desktops.forEach { $0.view.showFencePreview(nil) }
+            var mouse = NSEvent.mouseLocation
+            #if DEBUG
+            if let fake = DesktopView.debugMouse { mouse = fake }
+            #endif
+            guard let global, let target = self.desktops.first(where: { $0.window.frame.contains(mouse) }), target.view !== sender else { return false }
+            let origin = target.window.frame
+            let local = NSRect(x: global.minX - origin.minX, y: origin.maxY - global.maxY, width: global.width, height: global.height)
+            guard final else {
+                target.view.showFencePreview(local)
+                return false
+            }
+            target.view.acceptFence(id, at: local)
+            self.desktops.forEach { $0.view.reloadShared() }
+            return true
+        }
         view.selectionStarted = { [weak self] sender in
             self?.desktops.filter { $0.view !== sender }.forEach { $0.view.clearSelection() }
         }
@@ -189,6 +208,44 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// Called after a change other monitors must see (icons moved here, view options).
     var sharedChange: ((DesktopView) -> Void)?
     var selectionStarted: ((DesktopView) -> Void)?
+    /// A fence of this desktop dragged over another monitor (its frame in screen coordinates; nil:
+    /// not over another) — `final` when let go; true if it moved there.
+    var fenceOverMonitor: ((DesktopView, String, NSRect?, Bool) -> Bool)?
+    private let fencePreview = FenceAreaOutline()
+    #if DEBUG
+    /// Scenarios: where "the mouse" is, instead of the real one.
+    static var debugMouse: NSPoint?
+    func debugFenceOverMonitor(_ id: String, _ global: NSRect, final: Bool) -> Bool { fenceOverMonitor?(self, id, global, final) ?? false }
+    var debugPreviewShown: Bool { fencePreview.superview != nil }
+    #endif
+
+    /// Where a fence dragged over from another monitor would go (nil: nothing).
+    func showFencePreview(_ rect: NSRect?) {
+        guard let rect else { fencePreview.removeFromSuperview(); return }
+        fencePreview.frame = rect
+        if fencePreview.superview == nil { addSubview(fencePreview, positioned: .above, relativeTo: nil) }
+    }
+
+    /// A fence dragged here from another monitor and let go at `rect`: it lives here now (kept on
+    /// the monitor, snapped to its edges and fences), with its icons.
+    func acceptFence(_ id: String, at rect: NSRect) {
+        guard var fence = layout.fences.first(where: { $0.id == id }), let screen = screens.first else { return }
+        var frame = NSRect(x: rect.minX, y: rect.minY, width: fence.width, height: fence.collapsed ? DesktopFence.titleHeight : fence.height)
+        let area = screen.iconArea
+        frame.origin.x = min(max(frame.minX, area.minX), area.maxX - frame.width)
+        frame.origin.y = min(max(frame.minY, area.minY), area.maxY - frame.height)
+        if FenceStyle.snapping {
+            frame = FenceSnap.snap(frame, edges: [.minX, .maxX, .minY, .maxY], area: area, others: myFences.filter { $0.id != id }.map { visibleFrame(of: $0) }).0
+        }
+        fence.screenID = screen.id
+        fence.x = frame.minX
+        fence.y = frame.minY
+        layout.setFence(fence, save: false)
+        // Its icons live on this monitor now
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        for name in fence.members { layout.setPlace(place(of: center), for: name) }
+        layout.save()
+    }
 
     private var isMain: Bool { screens.first?.id == mainScreenID }
 
@@ -1663,6 +1720,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return (snapped, guides)
         }
         view.onGuides = { [weak self] guides in self?.guidesView.guides = guides }
+        view.onOtherMonitor = { [weak self] global, final in
+            guard let self else { return false }
+            let went = self.fenceOverMonitor?(self, id, global, final) ?? false
+            if went { self.draggingFence = nil }
+            return went
+        }
         view.onScroll = { [weak self] offset in
             guard let self else { return }
             self.fenceScroll[id] = offset

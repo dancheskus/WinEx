@@ -2018,6 +2018,37 @@ enum Scenarios {
                 main.layout.debugSetSize(ofScreen: "RESIZED", nil)
                 views().forEach { $0.reloadShared() }
             }),
+            (0.3, "a zone dragged onto the other monitor", {
+                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
+                      let other = views().first(where: { $0.window?.screen != NSScreen.screens.first }),
+                      let otherScreen = other.window?.screen, let mainID = NSScreen.screens.first?.displayUUID,
+                      let otherID = otherScreen.displayUUID else { s.note("  (one monitor only)"); return }
+                var zone = DesktopFence(title: "Travels", screenID: mainID, x: 400, y: 300, width: 300, height: 200)
+                // With an icon of the main monitor in it
+                let member = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .first { name in !name.hasPrefix(".") && !main.layout.fences.contains { $0.members.contains(name) } && main.debugCenter(of: name) != nil }
+                let memberPlace = member.flatMap { main.layout.place(for: $0) }
+                if let member { zone.members = [member] }
+                main.layout.setFence(zone)
+                views().forEach { $0.reloadShared() }
+                // Dragged so the mouse is over the other monitor, 200 pt in from its left and top
+                let there = otherScreen.frame
+                let global = NSRect(x: there.minX + 180, y: there.maxY - 200 - 190, width: 300, height: 200)
+                DesktopView.debugMouse = NSPoint(x: there.minX + 200, y: there.maxY - 200)
+                _ = main.debugFenceOverMonitor(zone.id, global, final: false)
+                s.note("  outline on the other monitor while dragging: \(other.debugPreviewShown)  expect true")
+                let went = main.debugFenceOverMonitor(zone.id, global, final: true)
+                DesktopView.debugMouse = nil
+                other.displayIfNeeded()
+                let stored = main.layout.fences.first { $0.id == zone.id }
+                s.note("  let go there: moved \(went), on the other monitor: \(stored?.screenID == otherID), at \(Int(stored?.x ?? -1)),\(Int(stored?.y ?? -1)), shown there: \(other.debugFenceView(zone.id) != nil), gone from here: \(main.debugFenceView(zone.id) == nil), outline gone: \(!other.debugPreviewShown)  expect true, true, about 180,190, true, true, true")
+                if let member { s.note("  its icon went along: \(other.debugCenter(of: member) != nil && main.debugCenter(of: member) == nil)  expect true") }
+                var fences = main.layout.fences
+                fences.removeAll { $0.id == zone.id }
+                main.layout.fences = fences
+                if let member, let memberPlace { main.layout.setPlace(memberPlace, for: member); main.layout.save() }
+                views().forEach { $0.reloadShared() }
+            }),
             (0.2, "an old «main monitor» place on top of an icon that lives there", {
                 guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
                       let id = NSScreen.screens.first?.displayUUID else { return }
