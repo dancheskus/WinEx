@@ -296,6 +296,8 @@ final class FenceView: NSView, NSTextFieldDelegate {
 
     /// Live frame while moving / resizing (with the snapping guides), then the final one.
     var onFrame: ((NSRect, _ final: Bool) -> Void)?
+    /// The part of the monitor a fence may take (it's kept inside while moved or resized).
+    var keepInside: (() -> NSRect?)?
     /// Moved with the mouse over another monitor: its frame in screen coordinates (nil: back over
     /// its own); `final` when let go there — true if the fence went over.
     var onOtherMonitor: ((_ screenFrame: NSRect?, _ final: Bool) -> Bool)?
@@ -539,6 +541,19 @@ final class FenceView: NSView, NSTextFieldDelegate {
                 onGuides?(guides)
             } else {
                 onGuides?([])
+            }
+            // Kept on the monitor: the panel doesn't slide past its edge (its icons are laid out
+            // inside the monitor, they'd be left behind)
+            if let area = keepInside?() {
+                if moving {
+                    rect.origin.x = min(max(rect.minX, area.minX), area.maxX - rect.width)
+                    rect.origin.y = min(max(rect.minY, area.minY), area.maxY - rect.height)
+                } else {
+                    if edges.contains(.minX), rect.minX < area.minX { rect.size.width -= area.minX - rect.minX; rect.origin.x = area.minX }
+                    if edges.contains(.minY), rect.minY < area.minY { rect.size.height -= area.minY - rect.minY; rect.origin.y = area.minY }
+                    if edges.contains(.maxX), rect.maxX > area.maxX { rect.size.width = area.maxX - rect.minX }
+                    if edges.contains(.maxY), rect.maxY > area.maxY { rect.size.height = area.maxY - rect.minY }
+                }
             }
             current = rect.integral
             frame = current

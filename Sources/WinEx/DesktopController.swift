@@ -1738,6 +1738,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return (snapped, guides)
         }
         view.onGuides = { [weak self] guides in self?.guidesView.guides = guides }
+        view.keepInside = { [weak self] in self?.screens.first?.iconArea }
         view.onOtherMonitor = { [weak self] global, final in
             guard let self else { return false }
             return self.fenceOverMonitor?(self, id, global, final) ?? false
