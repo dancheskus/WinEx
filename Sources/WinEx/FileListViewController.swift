@@ -194,10 +194,19 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             return indexes.map { index in
                 let file = self.items[index]
                 let item = NSDraggingItem(pasteboardWriter: file.url as NSURL)
-                let frame = self.collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame ?? .zero
-                let iconSize = min(self.viewMode.iconSize, 64)
-                item.setDraggingFrame(NSRect(x: frame.midX - iconSize / 2, y: frame.midY - iconSize / 2,
-                                             width: iconSize, height: iconSize), contents: file.icon)
+                // The picture the window shows (a preview, not the file type's icon), over the icon
+                // as it's drawn — same size, same proportions
+                let image = self.image(for: file)
+                let path = IndexPath(item: index, section: 0)
+                let frame = self.collectionView.layoutAttributesForItem(at: path)?.frame ?? .zero
+                var box: NSRect
+                if let shown = self.collectionView.item(at: path)?.imageView, shown.superview != nil {
+                    box = shown.convert(shown.bounds, to: self.collectionView)
+                } else {
+                    let side = self.viewMode.iconSize
+                    box = NSRect(x: frame.midX - side / 2, y: frame.minY + 4, width: side, height: side)
+                }
+                item.setDraggingFrame(DesktopView.aspectFit(image.size, in: box), contents: image)
                 return item
             }
         }

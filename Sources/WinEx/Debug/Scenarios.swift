@@ -44,9 +44,40 @@ enum Scenarios {
         "paste": pasteKeys,
         "keys": keyboardShortcuts,
         "threecopies": threeCopies,
+        "dragpreview": dragPreview,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// Dragging from a window in icon view: the drag shows the preview, where the icon is drawn.
+    static func dragPreview(_ s: Scenario) {
+        let base = s.makeFiles([], in: "pics")
+        // A wide picture: its preview isn't square, unlike the file type's icon
+        let picture = base.appendingPathComponent("wide.png")
+        let image = NSImage(size: NSSize(width: 400, height: 200), flipped: false) { rect in
+            NSColor.systemOrange.setFill(); rect.fill()
+            NSColor.systemBlue.setFill(); NSRect(x: 0, y: 0, width: 200, height: 200).fill()
+            return true
+        }
+        if let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: picture)
+        }
+        s.window?.navigate(to: base)
+        s.setViewMode(.largeIcons)
+        s.run([
+            (2.0, "drag it", {
+                guard let grid = s.grid, let items = grid.draggingItems?([0]), let item = items.first else { s.note("  (no drag)"); return }
+                let contents = item.imageComponents?.first?.contents as? NSImage
+                let shown = (grid.item(at: IndexPath(item: 0, section: 0)) as? FileGridItem)?.imageView
+                let shownImage = shown?.image
+                s.note("  drag image: \(Int(contents?.size.width ?? 0))×\(Int(contents?.size.height ?? 0)), same as shown: \(contents === shownImage)  expect the preview shown (true)")
+                if let shown {
+                    let box = shown.convert(shown.bounds, to: grid)
+                    s.note("  frame \(item.draggingFrame.integral) inside the icon's \(box.integral): \(box.insetBy(dx: -1, dy: -1).contains(item.draggingFrame))  expect true")
+                }
+            }),
+        ])
+    }
 
     /// Three copies at once: how their windows look and sit, and cancelling the middle one alone.
     static func threeCopies(_ s: Scenario) {
