@@ -492,7 +492,16 @@ final class FenceView: NSView, NSTextFieldDelegate {
     /// Moves (all edges) or resizes (some) until the mouse goes up; snaps on the way.
     @discardableResult
     private func track(from event: NSEvent, edges: Set<NSRectEdge>) -> Bool {
-        guard let superview else { return false }
+        guard let superview, let window else { return false }
+        // (Kept: moved onto another monitor, this view leaves its desktop while the drag goes on)
+        let home = window.screen
+        func screenFrame(_ rect: NSRect) -> NSRect { window.convertToScreen(superview.convert(rect, to: nil)) }
+        func overOther() -> Bool {
+            let mouse = NSEvent.mouseLocation
+            guard let home, let there = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) else { return false }
+            return there != home
+        }
+        var elsewhere = false
         let startMouse = superview.convert(event.locationInWindow, from: nil)
         let startFrame = frame
         let moving = edges.count == 4
@@ -514,6 +523,15 @@ final class FenceView: NSView, NSTextFieldDelegate {
                 if edges.contains(.minY) { rect.origin.y = min(startFrame.minY + dy, startFrame.maxY - minimumSize.height); rect.size.height = startFrame.maxY - rect.minY }
                 if edges.contains(.maxY) { rect.size.height = max(startFrame.height + dy, minimumSize.height) }
             }
+            // Over another monitor: the fence (with its icons) is there now, following the mouse
+            if moving, overOther() {
+                elsewhere = true
+                current = rect.integral
+                frame = current
+                onGuides?([])
+                _ = onOtherMonitor?(screenFrame(current), false)
+                continue
+            }
             // ⌘ held: no snapping (fine positioning)
             if FenceStyle.snapping, !next.modifierFlags.contains(.command), let snap {
                 let (snapped, guides) = snap(rect, edges)
@@ -525,29 +543,19 @@ final class FenceView: NSView, NSTextFieldDelegate {
             current = rect.integral
             frame = current
             onFrame?(current, false)
-            if moving { _ = onOtherMonitor?(mouseOnOtherMonitor ? screenFrame(of: current) : nil, false) }
+            // Back from another monitor: here again (its icons too)
+            if elsewhere {
+                elsewhere = false
+                _ = onOtherMonitor?(nil, false)
+            }
         }
         onGuides?([])
-        // Let go over another monitor: the fence goes there
-        if moved, moving, mouseOnOtherMonitor, let global = screenFrame(of: current), onOtherMonitor?(global, true) == true {
+        // Let go over another monitor: it stays there (snapped to that monitor's edges and fences)
+        if moved, moving, overOther(), onOtherMonitor?(screenFrame(current), true) == true {
             return true
         }
-        if moving { _ = onOtherMonitor?(nil, false) }
         if moved { onFrame?(current, true) }
         return moved
-    }
-
-    /// The mouse is over a monitor other than the one this fence's desktop is on.
-    private var mouseOnOtherMonitor: Bool {
-        let mouse = NSEvent.mouseLocation
-        guard let here = window?.screen, let there = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) else { return false }
-        return there != here
-    }
-
-    /// A rect of the desktop view in screen coordinates.
-    private func screenFrame(of rect: NSRect) -> NSRect? {
-        guard let superview, let window else { return nil }
-        return window.convertToScreen(superview.convert(rect, to: nil))
     }
 
     // MARK: Rename (inline, in the title bar)

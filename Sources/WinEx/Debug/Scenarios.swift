@@ -2031,17 +2031,34 @@ enum Scenarios {
                 if let member { zone.members = [member] }
                 main.layout.setFence(zone)
                 views().forEach { $0.reloadShared() }
-                // Dragged so the mouse is over the other monitor, 200 pt in from its left and top
+                // The drag starts on the main monitor…
+                main.displayIfNeeded()
+                let start = NSRect(x: zone.x, y: zone.y, width: zone.width, height: zone.height)
+                main.debugFenceView(zone.id)?.onFrame?(start, false)
+                // …the mouse goes over the other one, 200 pt in from its left and top
                 let there = otherScreen.frame
                 let global = NSRect(x: there.minX + 180, y: there.maxY - 200 - 190, width: 300, height: 200)
                 DesktopView.debugMouse = NSPoint(x: there.minX + 200, y: there.maxY - 200)
                 _ = main.debugFenceOverMonitor(zone.id, global, final: false)
-                s.note("  outline on the other monitor while dragging: \(other.debugPreviewShown)  expect true")
+                views().forEach { $0.displayIfNeeded() }
+                func iconThere(_ view: DesktopView) -> Bool { member.map { view.debugCenter(of: $0) != nil } ?? true }
+                s.note("  while dragging over the other monitor: zone there \(other.debugFenceView(zone.id)?.isHidden == false), icon there \(iconThere(other)), hidden here (still dragging) \(main.debugFenceView(zone.id)?.isHidden == true), icon gone here \(!iconThere(main))  expect true, true, true, true")
+                // …back over the main one (it takes the zone back)
+                DesktopView.debugMouse = NSPoint(x: NSScreen.screens[0].frame.midX, y: NSScreen.screens[0].frame.midY)
+                main.debugFenceView(zone.id)?.onFrame?(start, false)
+                _ = main.debugFenceOverMonitor(zone.id, NSRect(x: 0, y: 0, width: 300, height: 200), final: false)
+                views().forEach { $0.displayIfNeeded() }
+                let back = main.layout.fences.first { $0.id == zone.id }
+                s.note("    (zone's monitor: \(back?.screenID == mainID ? "main" : back?.screenID == otherID ? "other" : "?"), main's view: \(main.debugFenceView(zone.id).map { $0.isHidden ? "hidden" : "shown" } ?? "none"))")
+                s.note("  back over the main one: zone here \(main.debugFenceView(zone.id)?.isHidden == false), icon here \(iconThere(main)), gone there \(other.debugFenceView(zone.id) == nil)  expect true, true, true")
+                // …over the other one again, and let go
+                DesktopView.debugMouse = NSPoint(x: there.minX + 200, y: there.maxY - 200)
+                _ = main.debugFenceOverMonitor(zone.id, global, final: false)
                 let went = main.debugFenceOverMonitor(zone.id, global, final: true)
                 DesktopView.debugMouse = nil
-                other.displayIfNeeded()
+                views().forEach { $0.displayIfNeeded() }
                 let stored = main.layout.fences.first { $0.id == zone.id }
-                s.note("  let go there: moved \(went), on the other monitor: \(stored?.screenID == otherID), at \(Int(stored?.x ?? -1)),\(Int(stored?.y ?? -1)), shown there: \(other.debugFenceView(zone.id) != nil), gone from here: \(main.debugFenceView(zone.id) == nil), outline gone: \(!other.debugPreviewShown)  expect true, true, about 180,190, true, true, true")
+                s.note("  let go there: moved \(went), on the other monitor: \(stored?.screenID == otherID), at \(Int(stored?.x ?? -1)),\(Int(stored?.y ?? -1)), shown there: \(other.debugFenceView(zone.id) != nil), gone from here: \(main.debugFenceView(zone.id) == nil)  expect true, true, about 180,190, true, true")
                 if let member { s.note("  its icon went along: \(other.debugCenter(of: member) != nil && main.debugCenter(of: member) == nil)  expect true") }
                 var fences = main.layout.fences
                 fences.removeAll { $0.id == zone.id }
