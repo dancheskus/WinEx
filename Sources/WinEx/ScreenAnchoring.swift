@@ -7,8 +7,9 @@ import CoreGraphics
 enum ScreenAnchoring {
     /// How far each rect moves (icons' cells and zones, in points from the monitor's top-left),
     /// going from a monitor of size `from` to one of size `to`. Rects closer than `gap` form a group.
-    static func offsets(for rects: [CGRect], from: CGSize, to: CGSize, gap: CGFloat = 24) -> [CGVector] {
-        guard from.width > 0, from.height > 0, from != to else { return rects.map { _ in .zero } }
+    /// `obstacles`: what's already on the new monitor (in its points) — a group doesn't land on it.
+    static func offsets(for rects: [CGRect], from: CGSize, to: CGSize, obstacles: [CGRect] = [], gap: CGFloat = 24) -> [CGVector] {
+        guard from.width > 0, from.height > 0, from != to || !obstacles.isEmpty else { return rects.map { _ in .zero } }
         var offsets = rects.map { _ in CGVector.zero }
         // Groups at the edges first; one that then lands on another (not enough room) moves, whole,
         // to the nearest free spot beside it
@@ -16,7 +17,7 @@ enum ScreenAnchoring {
         func edgeDistance(_ box: CGRect) -> CGFloat {
             min(box.minX, from.width - box.maxX, box.minY, from.height - box.maxY)
         }
-        var placed: [CGRect] = []
+        var placed = obstacles
         for (group, box) in boxes.sorted(by: { edgeDistance($0.1) < edgeDistance($1.1) }) {
             let moved = free(anchor(box, from: from, to: to), among: placed, in: to, gap: gap)
             placed.append(moved)

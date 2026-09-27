@@ -1439,10 +1439,21 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for fence in layout.fences where !connectedScreenIDs.contains(fence.screenID) && layout.size(ofScreen: fence.screenID) != nil {
             guests[fence.screenID, default: []].append(("fence:" + fence.id, fence.frame))
         }
+        // What lives here stays put: guests find room around it (a group that doesn't fit where it
+        // was moves, whole, beside it)
+        var obstacles: [CGRect] = widgetRects + layout.fences.filter { $0.screenID == here.id }.map(\.frame)
+        for i in items.indices {
+            let name = name(of: i)
+            guard !fenced.contains(name), let place = layout.place(for: name), place.screenID == here.id || place.screenID == nil else { continue }
+            obstacles.append(DesktopLayout.cell(around: CGPoint(x: place.point.x * here.frame.width, y: place.point.y * here.frame.height)))
+        }
         for (id, entries) in guests {
             guard let home = layout.size(ofScreen: id) else { continue }
-            let offsets = ScreenAnchoring.offsets(for: entries.map(\.rect), from: home, to: here.frame.size)
-            for (entry, offset) in zip(entries, offsets) { guestShift[entry.key] = offset }
+            let offsets = ScreenAnchoring.offsets(for: entries.map(\.rect), from: home, to: here.frame.size, obstacles: obstacles)
+            for (entry, offset) in zip(entries, offsets) {
+                guestShift[entry.key] = offset
+                if let rect = entries.first(where: { $0.key == entry.key })?.rect { obstacles.append(rect.offsetBy(dx: offset.dx, dy: offset.dy)) }
+            }
         }
     }
 
@@ -2018,6 +2029,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         relayout()
     }
     func debugScroll(_ id: String) -> CGFloat { fenceScroll[id] ?? 0 }
+    /// Shown icons (not in fences) whose place meets `rect`.
+    func debugIconsUnder(_ rect: NSRect) -> [String] {
+        items.indices.filter { fenceOf[$0] == nil && !hiddenIcons.contains($0) && hitRect($0).intersects(rect) }.map(name(of:))
+    }
     func debugMaxScroll(_ id: String) -> CGFloat { layout.fences.first { $0.id == id }.map(maxScroll) ?? -1 }
     /// The height the snapping gives a fence of `rows` whole rows.
     func debugRowsHeight(_ rows: Int) -> CGFloat { DesktopFence.titleHeight + fenceTopExtra + CGFloat(rows) * fenceCell.height + DesktopFence.padding }

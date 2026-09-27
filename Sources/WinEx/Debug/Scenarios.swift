@@ -56,6 +56,8 @@ enum Scenarios {
         guard let path = ProcessInfo.processInfo.environment["WINEX_LAYOUT_FILE"], let data = FileManager.default.contents(atPath: path) else {
             s.note("  (no WINEX_LAYOUT_FILE)"); return s.run([])
         }
+        // (The scenario's own settings get their arrangement back afterwards)
+        let before = AppDefaults.store.data(forKey: "desktopLayout")
         AppDefaults.store.set(data, forKey: "desktopLayout")
         let controller = DesktopController()
         controller.show()
@@ -69,7 +71,10 @@ enum Scenarios {
                 }
                 try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
             }),
-            (2.0, "done", { controller.hide() }),
+            (2.0, "done", {
+                controller.hide()
+                if let before { AppDefaults.store.set(before, forKey: "desktopLayout") } else { AppDefaults.store.removeObject(forKey: "desktopLayout") }
+            }),
         ])
     }
 
@@ -1927,9 +1932,9 @@ enum Scenarios {
                     .filter { name in !name.hasPrefix(".") && !main.layout.fences.contains { $0.members.contains(name) } }.sorted().prefix(2)
                 guard names.count == 2, let a = names.first, let b = names.last else { s.note("  (need 2 icons)"); return }
                 let saved = names.map { main.layout.place(for: $0) }
-                // Side by side at the top, in the middle of the laptop
-                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 540 / laptop.width, y: 110 / laptop.height), screenID: "LAPTOP"), for: a)
-                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 660 / laptop.width, y: 110 / laptop.height), screenID: "LAPTOP"), for: b)
+                // Side by side, in the laptop's right half, next to where the zone is
+                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 700 / laptop.width, y: 400 / laptop.height), screenID: "LAPTOP"), for: a)
+                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 820 / laptop.width, y: 400 / laptop.height), screenID: "LAPTOP"), for: b)
                 // A zone 10 pt from the laptop's right edge, 60 pt from its top
                 let zone = DesktopFence(title: "Laptop", screenID: "LAPTOP", x: laptop.width - 10 - 300, y: 60, width: 300, height: 200)
                 main.layout.setFence(zone)
@@ -1937,8 +1942,10 @@ enum Scenarios {
                 main.displayIfNeeded()
                 let (ca, cb) = (main.debugCenter(of: a) ?? .zero, main.debugCenter(of: b) ?? .zero)
                 let frame = main.debugFenceView(zone.id)?.frame ?? .zero
-                s.note("  zone: \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top  expect 10, 60")
-                s.note("  icons: \(Int(cb.x - ca.x)) pt apart, the right one \(Int(here.width - cb.x)) pt from the right edge, \(Int(ca.y)) from the top  expect 120, \(Int(laptop.width - 660)), 110")
+                // At the right edge as on the laptop if there's room; else moved, whole, beside what's there
+                let under = main.debugIconsUnder(frame)
+                s.note("  zone: \(Int(frame.width))×\(Int(frame.height)), \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top, icons under it: \(under.count)  expect 300×200, 10 (or beside what's there), 60, 0")
+                s.note("  icons: \(Int(cb.x - ca.x)) pt apart, \(Int(cb.y - ca.y)) pt higher/lower  expect 120, 0 (still side by side)")
                 // Put things back
                 var fences = main.layout.fences
                 fences.removeAll { $0.id == zone.id }
@@ -1960,7 +1967,7 @@ enum Scenarios {
                 views().forEach { $0.reloadShared() }
                 main.displayIfNeeded()
                 let frame = main.debugFenceView(zone.id)?.frame ?? .zero
-                s.note("  \(id.prefix(8)) remembered as \(Int(size.width))×\(Int(size.height)); zone \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top  expect 8, 42")
+                s.note("  \(id.prefix(8)) remembered as \(Int(size.width))×\(Int(size.height)); zone \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top, icons under it: \(main.debugIconsUnder(frame).count)  expect 8 (or beside what's there), 42, 0")
                 var fences = main.layout.fences
                 fences.removeAll { $0.id == zone.id }
                 main.layout.fences = fences
