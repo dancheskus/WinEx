@@ -111,9 +111,10 @@ final class DesktopLayout {
 
     // MARK: Monitors
 
-    /// The size of a monitor when it was last connected (nil: never seen).
+    /// The size of a monitor when it was last connected; one WinEx never saw (a laptop's screen
+    /// while it's closed): what macOS remembers of it. Nil: nobody knows.
     func size(ofScreen id: String) -> CGSize? {
-        guard let value = stored.screenSizes?[id], value.count == 2 else { return nil }
+        guard let value = stored.screenSizes?[id], value.count == 2 else { return id.isEmpty ? nil : SystemDisplays.size(of: id) }
         return CGSize(width: value[0], height: value[1])
     }
 
@@ -132,10 +133,12 @@ final class DesktopLayout {
             changed = true
         }
         for screen in screens where !screen.id.isEmpty {
-            if let old = size(ofScreen: screen.id), old != screen.size {
+            // (Only a size WinEx saw itself: what macOS keeps is already the new one)
+            let seen = stored.screenSizes?[screen.id].flatMap { $0.count == 2 ? CGSize(width: $0[0], height: $0[1]) : nil }
+            if let old = seen, old != screen.size {
                 adapt(screen: screen.id, from: old, to: screen.size)
             }
-            if size(ofScreen: screen.id) != screen.size {
+            if seen != screen.size {
                 stored.screenSizes?[screen.id] = [screen.size.width, screen.size.height]
                 changed = true
             }

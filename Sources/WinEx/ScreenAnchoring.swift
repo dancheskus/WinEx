@@ -55,3 +55,49 @@ enum ScreenAnchoring {
         return Dictionary(grouping: rects.indices, by: root).values.map { $0.sorted() }.sorted { $0[0] < $1[0] }
     }
 }
+
+/// What macOS remembers about monitors, connected or not (WindowServer's display sets): the size
+/// (in points, "looks like") a monitor had, for one WinEx never saw — like a laptop's own screen
+/// while it's closed on external monitors.
+enum SystemDisplays {
+    private static let path = "/Library/Preferences/com.apple.windowserver.displays.plist"
+    nonisolated(unsafe) private static var cache: (modified: Date, sizes: [String: CGSize])?
+
+    /// Every monitor macOS remembers, with its size.
+    static var known: [String: CGSize] {
+        _ = size(of: "")
+        return cache?.sizes ?? [:]
+    }
+
+    /// The last size macOS has for the monitor with this display UUID.
+    static func size(of uuid: String) -> CGSize? {
+        let modified = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date) ?? .distantPast
+        if cache?.modified != modified {
+            let plist = NSDictionary(contentsOfFile: path) as? [String: Any] ?? [:]
+            cache = (modified, sizes(in: plist))
+        }
+        return cache?.sizes[uuid.uppercased()]
+    }
+
+    /// From the plist: each display's size in the set where it was alone (where it was used by
+    /// itself), else in the first set it's in.
+    static func sizes(in plist: [String: Any]) -> [String: CGSize] {
+        var alone: [String: CGSize] = [:], any: [String: CGSize] = [:]
+        for key in ["DisplayAnyUserSets", "DisplaySets"] {
+            let configs = (plist[key] as? [String: Any])?["Configs"] as? [Any] ?? []
+            for config in configs {
+                let displays = (config as? [[String: Any]]) ?? ((config as? [String: Any])?["DisplayConfig"] as? [[String: Any]]) ?? []
+                for display in displays {
+                    guard let uuid = (display["UUID"] as? String)?.uppercased(),
+                          let info = display["CurrentInfo"] as? [String: Any],
+                          let wide = (info["Wide"] as? NSNumber)?.doubleValue, let high = (info["High"] as? NSNumber)?.doubleValue,
+                          wide > 0, high > 0 else { continue }
+                    let size = CGSize(width: wide, height: high)
+                    if displays.count == 1, alone[uuid] == nil { alone[uuid] = size }
+                    if any[uuid] == nil { any[uuid] = size }
+                }
+            }
+        }
+        return any.merging(alone) { _, alone in alone }
+    }
+}

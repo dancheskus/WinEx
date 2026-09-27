@@ -45,9 +45,33 @@ enum Scenarios {
         "keys": keyboardShortcuts,
         "threecopies": threeCopies,
         "dragpreview": dragPreview,
+        "replaylayout": replayLayout,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// A copy of a real desktop arrangement (WINEX_LAYOUT_FILE, the JSON of "desktopLayout") shown
+    /// on the monitors connected now, in the scenario's own settings; the main desktop is photographed.
+    static func replayLayout(_ s: Scenario) {
+        guard let path = ProcessInfo.processInfo.environment["WINEX_LAYOUT_FILE"], let data = FileManager.default.contents(atPath: path) else {
+            s.note("  (no WINEX_LAYOUT_FILE)"); return s.run([])
+        }
+        AppDefaults.store.set(data, forKey: "desktopLayout")
+        let controller = DesktopController()
+        controller.show()
+        s.run([
+            (2.0, "shown", {
+                guard let view = NSApp.windows.compactMap({ $0.contentView as? DesktopView }).first(where: { $0.window?.screen == NSScreen.screens.first }),
+                      let window = view.window, let size = window.screen?.frame.size else { return }
+                for fence in view.layout.fences {
+                    let frame = view.debugFenceView(fence.id)?.frame ?? .zero
+                    s.note("  «\(fence.title)» at \(Int(frame.minX)),\(Int(frame.minY)): \(Int(size.width - frame.maxX)) pt from the right edge")
+                }
+                try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+            }),
+            (2.0, "done", { controller.hide() }),
+        ])
+    }
 
     /// Dragging from a window in icon view: the drag shows the preview, where the icon is drawn.
     static func dragPreview(_ s: Scenario) {
@@ -1921,6 +1945,25 @@ enum Scenarios {
                 main.layout.fences = fences
                 for (name, place) in zip(names, saved) { if let place { main.layout.setPlace(place, for: name) } }
                 main.layout.debugSetSize(ofScreen: "LAPTOP", nil)
+                views().forEach { $0.reloadShared() }
+            }),
+            (0.3, "a monitor WinEx never saw (only macOS remembers it): its zone keeps its edge", {
+                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
+                      let here = NSScreen.screens.first?.frame.size else { return }
+                let connected = Set(NSScreen.screens.compactMap { $0.displayUUID?.uppercased() })
+                guard let (id, size) = SystemDisplays.known.first(where: { !connected.contains($0.key) && $0.value != here }) else {
+                    s.note("  (no disconnected monitor of another size remembered by macOS)"); return
+                }
+                main.layout.debugSetSize(ofScreen: id, nil)
+                let zone = DesktopFence(title: "Unseen", screenID: id, x: size.width - 8 - 440, y: 42, width: 440, height: 279)
+                main.layout.setFence(zone)
+                views().forEach { $0.reloadShared() }
+                main.displayIfNeeded()
+                let frame = main.debugFenceView(zone.id)?.frame ?? .zero
+                s.note("  \(id.prefix(8)) remembered as \(Int(size.width))×\(Int(size.height)); zone \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top  expect 8, 42")
+                var fences = main.layout.fences
+                fences.removeAll { $0.id == zone.id }
+                main.layout.fences = fences
                 views().forEach { $0.reloadShared() }
             }),
             (0.3, "a monitor at another resolution than when set up", {

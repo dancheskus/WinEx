@@ -62,3 +62,25 @@ import Testing
         #expect(after.maxX <= laptop.width && after.maxY <= laptop.height && after.minX >= 0 && after.minY >= 0)
     }
 }
+
+/// Sizes of monitors macOS remembers (WindowServer's display sets).
+@Suite struct SystemDisplaysTests {
+    func display(_ uuid: String, _ wide: Int, _ high: Int) -> [String: Any] {
+        ["UUID": uuid, "CurrentInfo": ["Wide": wide, "High": high, "Scale": 2]]
+    }
+
+    @Test func aDisplayAloneWinsOverOneInASet() {
+        let plist: [String: Any] = ["DisplayAnyUserSets": ["Configs": [
+            [display("ext-a", 2560, 1440), display("laptop", 1512, 982)],   // with a monitor: another mode
+            [display("laptop", 1710, 1107)],                                  // on its own
+        ]]]
+        let sizes = SystemDisplays.sizes(in: plist)
+        #expect(sizes["LAPTOP"] == CGSize(width: 1710, height: 1107))
+        #expect(sizes["EXT-A"] == CGSize(width: 2560, height: 1440))
+    }
+
+    @Test func nothingForAnUnknownOrBrokenFile() {
+        #expect(SystemDisplays.sizes(in: [:]).isEmpty)
+        #expect(SystemDisplays.sizes(in: ["DisplayAnyUserSets": ["Configs": [[["UUID": "x"]]]]]).isEmpty)
+    }
+}
