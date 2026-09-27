@@ -265,7 +265,20 @@ final class DesktopLayout {
     }
 
     /// Forgets positions of files that are gone.
-    func prune(keeping names: Set<String>) {
+    /// Files on their way to the desktop (dropped from another folder: copied or moved by a file
+    /// operation that takes a moment): their places and fences are kept though they aren't there
+    /// yet — until they arrive, for five minutes at most (a copy cancelled).
+    private var expected: [String: Date] = [:]
+
+    func expect(_ names: [String]) {
+        let until = Date().addingTimeInterval(300)
+        for name in names { expected[name] = until }
+    }
+
+    func prune(keeping present: Set<String>) {
+        let now = Date()
+        expected = expected.filter { $0.value > now && !present.contains($0.key) }
+        let names = present.union(expected.keys)
         let before = stored.positions.count
         stored.positions = stored.positions.filter { names.contains($0.key) }
         stored.screens = stored.screens?.filter { names.contains($0.key) }

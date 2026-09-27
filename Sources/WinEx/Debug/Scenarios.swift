@@ -1161,6 +1161,23 @@ enum Scenarios {
                 s.note("  \(other): icons in the zone \(Int(apart)) pt apart, a cell is \(Int(cell))  expect the same")
                 view.debugSetIconSize(before)
             }),
+            (1.0, "files dropped from another folder, not arrived yet: kept in the zone", {
+                guard let view = mainView(), var fence = view.layout.fences.first else { return }
+                let present = Set(((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? []).filter { !$0.hasPrefix(".") })
+                // Two files on their way, one that isn't (a leftover)
+                view.layout.expect(["on its way 1.txt", "on its way 2.txt"])
+                for name in ["on its way 1.txt", "on its way 2.txt", "never coming.txt"] {
+                    view.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 0.5, y: 0.5), screenID: fence.screenID), for: name)
+                    fence.members.append(name)
+                }
+                view.layout.setFence(fence)
+                // The desktop is read again before they arrive (another monitor, the first file landing)
+                view.layout.prune(keeping: present)
+                let members = view.layout.fences.first { $0.id == fence.id }?.members ?? []
+                s.note("  still in the zone: \(members.contains("on its way 1.txt") && members.contains("on its way 2.txt")), place kept: \(view.layout.place(for: "on its way 1.txt") != nil), the other dropped: \(!members.contains("never coming.txt"))  expect true, true, true")
+                fence.members.removeAll { $0.hasPrefix("on its way") || $0 == "never coming.txt" }
+                view.layout.setFence(fence)
+            }),
             (1.0, "an icon dragged out of a zone onto the desktop", {
                 guard let view = mainView(), let fence = view.layout.fences.first(where: { !$0.members.isEmpty }),
                       let name = fence.members.first, let spot = view.debugEmptySpot(NSSize(width: 200, height: 200)) else { s.note("  (no zone with icons)"); return }

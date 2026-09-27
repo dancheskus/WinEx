@@ -1057,8 +1057,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return true
         }
 
-        // Files from elsewhere appear where they were dropped
+        // Files from elsewhere appear where they were dropped (kept for while they're on their way)
         let urls = FileDrop.urls(sender)
+        layout.expect(urls.map(\.lastPathComponent))
         var occupied = centers
         for (n, url) in urls.enumerated() {
             let spot = placement(near: CGPoint(x: point.x + CGFloat(n) * 16, y: point.y + CGFloat(n) * 16), occupied: occupied)
