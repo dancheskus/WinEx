@@ -2066,6 +2066,43 @@ enum Scenarios {
                 if let member, let memberPlace { main.layout.setPlace(memberPlace, for: member); main.layout.save() }
                 views().forEach { $0.reloadShared() }
             }),
+            (0.3, "a laptop zone with its icons, monitors coming in steps", {
+                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
+                      let other = views().first(where: { $0.window?.screen != NSScreen.screens.first }),
+                      let mainID = NSScreen.screens.first?.displayUUID, let otherID = other.window?.screen?.displayUUID else { s.note("  (one monitor only)"); return }
+                main.layout.debugSetSize(ofScreen: "LAPTOP", CGSize(width: 1710, height: 1107))
+                let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { name in !name.hasPrefix(".") && !main.layout.fences.contains { $0.members.contains(name) } }.sorted().prefix(3).map { $0 }
+                let saved = names.map { main.layout.place(for: $0) }
+                var zone = DesktopFence(title: "test", screenID: "LAPTOP", x: 1262, y: 800, width: 440, height: 200)
+                zone.members = names
+                for name in names { main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 0.85, y: 0.8), screenID: "LAPTOP"), for: name) }
+                main.layout.setFence(zone)
+                @MainActor func show(main mainView: DesktopView, _ title: String) {
+                    let chosen = mainView === main ? mainID : otherID
+                    for view in views() { view.mainScreenID = chosen }
+                    views().forEach { $0.reloadShared() }
+                    views().forEach { $0.displayIfNeeded() }
+                    let zoneOn = views().first { $0.debugFenceView(zone.id) != nil } === main ? "main" : "other"
+                    let iconsOn = names.map { name in views().first { $0.debugCenter(of: name) != nil } === main ? "main" : "other" }
+                    s.note("  \(title): zone on \(zoneOn), icons on \(iconsOn), stored \(names.map { main.layout.place(for: $0)?.screenID == "LAPTOP" ? "laptop" : "changed" })")
+                }
+                // Its icons still on another monitor (as a zone moved with its arrangement left them):
+                // they go with the zone
+                for name in names { main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 0.9, y: 0.5), screenID: otherID), for: name) }
+                main.layout.save()
+                s.note("  icons left on another monitor, after a save: \(names.map { main.layout.place(for: $0)?.screenID == "LAPTOP" ? "laptop" : "other" })  expect all laptop")
+                show(main: other, "the other monitor main for a moment")
+                show(main: main, "then this one main")
+                s.note("  expect: zone and icons on the same monitor, stored laptop")
+                var fences = main.layout.fences
+                fences.removeAll { $0.id == zone.id }
+                main.layout.fences = fences
+                for (name, place) in zip(names, saved) { if let place { main.layout.setPlace(place, for: name) } }
+                main.layout.save()
+                for view in views() { view.mainScreenID = mainID }
+                views().forEach { $0.reloadShared() }
+            }),
             (0.2, "an old «main monitor» place on top of an icon that lives there", {
                 guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
                       let id = NSScreen.screens.first?.displayUUID else { return }

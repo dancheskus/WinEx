@@ -89,6 +89,8 @@ final class DesktopLayout {
         } else {
             stored = Stored()
         }
+        // (An arrangement saved before icons followed their fences: put right)
+        keepMembersWithTheirFences()
         if !stored.importedFromFinder {
             // First run (or after a reset): take the arrangement and view options the user has in Finder
             var screenIDs: [String: String] = [:]
@@ -110,6 +112,22 @@ final class DesktopLayout {
     }
 
     // MARK: Monitors
+
+    /// An icon in a fence lives on the fence's monitor: when a fence moved to another monitor (by
+    /// hand, or with the arrangement it was shown in), its icons go along — otherwise they'd show up
+    /// loose on their old monitor, away from their fence.
+    private func keepMembersWithTheirFences() {
+        for fence in stored.fences ?? [] {
+            let size = size(ofScreen: fence.screenID)
+            for name in fence.members where stored.positions[name] != nil && stored.screens?[name] != fence.screenID {
+                stored.screens = stored.screens ?? [:]
+                stored.screens?[name] = fence.screenID
+                if let size, size.width > 0, size.height > 0 {
+                    stored.positions[name] = [fence.frame.midX / size.width, fence.frame.midY / size.height]
+                }
+            }
+        }
+    }
 
     /// The size of a monitor when it was last connected; one WinEx never saw (a laptop's screen
     /// while it's closed): what macOS remembers of it. Nil: nobody knows.
@@ -261,6 +279,7 @@ final class DesktopLayout {
     }
 
     func save() {
+        keepMembersWithTheirFences()
         if let data = try? JSONEncoder().encode(stored) {
             AppDefaults.store.set(data, forKey: Self.defaultsKey)
         }
