@@ -96,6 +96,8 @@ final class DesktopController {
         let screens = NSScreen.screens
         let connected = Set(screens.compactMap(\.displayUUID))
         let mainID = main.displayUUID ?? ""
+        // Remember every monitor's size; one now of another size gets its places adapted
+        layout.noteScreens(screens.map { DesktopLayout.Screen(id: $0.displayUUID ?? "", size: $0.frame.size) })
         var kept: [(window: DesktopWindow, view: DesktopView)] = []
         for screen in screens {
             let id = screen.displayUUID ?? ""
@@ -355,6 +357,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard !screens.isEmpty else { return }
         widgetRects = Self.widgetFrames(in: window)
         centers = Array(repeating: .zero, count: items.count)
+        computeGuestShifts()
         layoutFences()
         // A rolled-up fence keeps its whole place: rolling it up or down moves nothing else
         blockedRects = widgetRects + myFences.map { visibleFrame(of: $0, whole: true).insetBy(dx: -4, dy: -4) }
@@ -370,20 +373,33 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         // main monitor" (older positions, Finder's) — after a monitor change the main one may be
         // another monitor, and such an icon must not land on top of one that really lives there
         let places = items.indices.map { layout.place(for: name(of: $0)) }
-        let order = items.indices.filter { fenceOf[$0] == nil }
-            .sorted { (places[$0]?.screenID == nil ? 1 : 0) < (places[$1]?.screenID == nil ? 1 : 0) }
+        // (Guests from a monitor that isn't connected come last: they give way to this one's own)
+        func rank(_ i: Int) -> Int {
+            guard let id = places[i]?.screenID else { return 1 }
+            return screens.contains { $0.id == id } ? 0 : 2
+        }
+        let order = items.indices.filter { fenceOf[$0] == nil }.sorted { rank($0) < rank($1) }
         for i in order {
             guard let place = places[i] else { unplaced.append(i); continue }
-            // On a monitor that isn't connected: shown on the main one for now (see below)
+            // On a monitor that isn't connected: shown on the main one, moved the way it was set up
+            // there (kept at its edge or corner, with the icons around it — see `ScreenAnchoring`)
             let screen = screens.first { $0.id == place.screenID } ?? screens[0]
             let away = place.screenID != nil && screen.id != place.screenID
-            centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * screen.frame.width,
-                                       y: screen.frame.minY + place.point.y * screen.frame.height))
-            if away || isUnderWidget(centers[i]) {
+            if away, let id = place.screenID, let home = layout.size(ofScreen: id), let shift = guestShift["icon:" + name(of: i)] {
+                centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * home.width + shift.dx,
+                                           y: screen.frame.minY + place.point.y * home.height + shift.dy))
+            } else {
+                centers[i] = clamp(CGPoint(x: screen.frame.minX + place.point.x * screen.frame.width,
+                                           y: screen.frame.minY + place.point.y * screen.frame.height))
+            }
+            if isUnderWidget(centers[i]) || (away && overlapsAnother(centers[i], placed)) {
                 displaced.append(i)
+            } else if away {
+                placed.append(centers[i])
             } else if overlapsAnother(centers[i], placed) {
                 displaced.append(i)
-                overlapped.insert(i)
+                // (An old "main monitor" place — Finder's — is kept: the main monitor can change)
+                if place.screenID != nil { overlapped.insert(i) }
             } else {
                 placed.append(centers[i])
             }
@@ -1405,6 +1421,31 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return layout.fences.filter { connectedScreenIDs.contains($0.screenID) ? $0.screenID == here : isMain }
     }
 
+    /// Icons and fences of monitors that aren't connected, shown here (the main monitor): how far each
+    /// moves from its place on its own monitor, in points — keyed "icon:<name>" and "fence:<id>".
+    private var guestShift: [String: CGVector] = [:]
+
+    private func computeGuestShifts() {
+        guestShift = [:]
+        guard isMain, let here = screens.first else { return }
+        var guests: [String: [(key: String, rect: CGRect)]] = [:]
+        let fenced = Set(layout.fences.flatMap(\.members))
+        for i in items.indices {
+            let name = name(of: i)
+            guard !fenced.contains(name), let place = layout.place(for: name), let id = place.screenID,
+                  !connectedScreenIDs.contains(id), let home = layout.size(ofScreen: id) else { continue }
+            guests[id, default: []].append(("icon:" + name, DesktopLayout.cell(around: CGPoint(x: place.point.x * home.width, y: place.point.y * home.height))))
+        }
+        for fence in layout.fences where !connectedScreenIDs.contains(fence.screenID) && layout.size(ofScreen: fence.screenID) != nil {
+            guests[fence.screenID, default: []].append(("fence:" + fence.id, fence.frame))
+        }
+        for (id, entries) in guests {
+            guard let home = layout.size(ofScreen: id) else { continue }
+            let offsets = ScreenAnchoring.offsets(for: entries.map(\.rect), from: home, to: here.frame.size)
+            for (entry, offset) in zip(entries, offsets) { guestShift[entry.key] = offset }
+        }
+    }
+
     /// Fences of a monitor that isn't connected, shown here for now: where they go so they don't
     /// cover this monitor's own fences (their stored place is kept for when the monitor returns).
     private var displacedFrames: [String: NSRect] = [:]
@@ -1452,6 +1493,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             return moved
         }
         var frame = fence.frame
+        // A guest from a monitor that isn't connected: moved the way it was set up there
+        if let shift = guestShift["fence:" + fence.id] { frame = frame.offsetBy(dx: shift.dx, dy: shift.dy) }
         frame.size.width = min(frame.width, area.width)
         frame.size.height = min(frame.height, area.height)
         frame.origin.x = min(max(frame.minX, area.minX), area.maxX - frame.width)

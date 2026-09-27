@@ -1894,6 +1894,52 @@ enum Scenarios {
                 views().forEach { $0.reloadShared() }
                 s.note("  back: \(counts())")
             }),
+            (0.3, "set up on a laptop that's gone: a zone at its right edge, two icons at the top middle", {
+                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
+                      let here = NSScreen.screens.first?.frame.size else { return }
+                let laptop = CGSize(width: 1200, height: 800)
+                main.layout.debugSetSize(ofScreen: "LAPTOP", laptop)
+                let names = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { name in !name.hasPrefix(".") && !main.layout.fences.contains { $0.members.contains(name) } }.sorted().prefix(2)
+                guard names.count == 2, let a = names.first, let b = names.last else { s.note("  (need 2 icons)"); return }
+                let saved = names.map { main.layout.place(for: $0) }
+                // Side by side at the top, in the middle of the laptop
+                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 540 / laptop.width, y: 110 / laptop.height), screenID: "LAPTOP"), for: a)
+                main.layout.setPlace(DesktopLayout.Place(point: CGPoint(x: 660 / laptop.width, y: 110 / laptop.height), screenID: "LAPTOP"), for: b)
+                // A zone 10 pt from the laptop's right edge, 60 pt from its top
+                let zone = DesktopFence(title: "Laptop", screenID: "LAPTOP", x: laptop.width - 10 - 300, y: 60, width: 300, height: 200)
+                main.layout.setFence(zone)
+                views().forEach { $0.reloadShared() }
+                main.displayIfNeeded()
+                let (ca, cb) = (main.debugCenter(of: a) ?? .zero, main.debugCenter(of: b) ?? .zero)
+                let frame = main.debugFenceView(zone.id)?.frame ?? .zero
+                s.note("  zone: \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top  expect 10, 60")
+                s.note("  icons: \(Int(cb.x - ca.x)) pt apart, their middle at \(String(format: "%.2f", (ca.x + cb.x) / 2 / here.width)) of the width, \(Int(ca.y)) from the top  expect 120, 0.50, 110")
+                // Put things back
+                var fences = main.layout.fences
+                fences.removeAll { $0.id == zone.id }
+                main.layout.fences = fences
+                for (name, place) in zip(names, saved) { if let place { main.layout.setPlace(place, for: name) } }
+                main.layout.debugSetSize(ofScreen: "LAPTOP", nil)
+                views().forEach { $0.reloadShared() }
+            }),
+            (0.3, "a monitor at another resolution than when set up", {
+                guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }) else { return }
+                // A monitor (only this zone on it) set up at 1200×800, now 2560×1440
+                let old = CGSize(width: 1200, height: 800), new = CGSize(width: 2560, height: 1440)
+                main.layout.debugSetSize(ofScreen: "RESIZED", old)
+                let zone = DesktopFence(title: "Set up at 1200×800", screenID: "RESIZED", x: old.width - 10 - 300, y: old.height - 20 - 200, width: 300, height: 200)
+                main.layout.setFence(zone)
+                main.layout.noteScreens(DesktopView.layoutScreens() + [DesktopLayout.Screen(id: "RESIZED", size: new)])
+                let frame = main.layout.fences.first { $0.id == zone.id }?.frame ?? .zero
+                s.note("  zone: \(Int(new.width - frame.maxX)) pt from the right edge, \(Int(new.height - frame.maxY)) from the bottom  expect 10, 20")
+                s.note("  size remembered: \(main.layout.size(ofScreen: "RESIZED").map { "\(Int($0.width))×\(Int($0.height))" } ?? "-")  expect 2560×1440")
+                var fences = main.layout.fences
+                fences.removeAll { $0.id == zone.id }
+                main.layout.fences = fences
+                main.layout.debugSetSize(ofScreen: "RESIZED", nil)
+                views().forEach { $0.reloadShared() }
+            }),
             (0.2, "an old «main monitor» place on top of an icon that lives there", {
                 guard let main = views().first(where: { $0.window?.screen == NSScreen.screens.first }),
                       let id = NSScreen.screens.first?.displayUUID else { return }

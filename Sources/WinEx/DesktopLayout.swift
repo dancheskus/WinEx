@@ -62,6 +62,9 @@ final class DesktopLayout {
         var screens: [String: String]?
         /// Fences (areas grouping icons), on all monitors.
         var fences: [DesktopFence]?
+        /// Display UUID → the monitor's size (points) when it was last connected: what its icons'
+        /// and fences' places were set on.
+        var screenSizes: [String: [Double]]?
     }
 
     /// Where an icon is: center as fractions of the monitor, and the monitor (nil: the main one).
@@ -104,6 +107,73 @@ final class DesktopLayout {
             stored.importedFromFinder = true
             save()
         }
+    }
+
+    // MARK: Monitors
+
+    /// The size of a monitor when it was last connected (nil: never seen).
+    func size(ofScreen id: String) -> CGSize? {
+        guard let value = stored.screenSizes?[id], value.count == 2 else { return nil }
+        return CGSize(width: value[0], height: value[1])
+    }
+
+    /// The connected monitors (`main` first): a monitor now of another size (another resolution)
+    /// gets its icons and fences moved the way they were set up (see `ScreenAnchoring`); every
+    /// size is remembered, so the places of a monitor that goes away can be shown elsewhere.
+    func noteScreens(_ screens: [Screen]) {
+        guard let main = screens.first else { return }
+        var changed = false
+        if stored.screenSizes == nil {
+            // First time: icons still "on the main monitor" (Finder's) belong to the main one now
+            stored.screenSizes = [:]
+            var ids = stored.screens ?? [:]
+            for name in stored.positions.keys where ids[name] == nil { ids[name] = main.id }
+            stored.screens = ids
+            changed = true
+        }
+        for screen in screens where !screen.id.isEmpty {
+            if let old = size(ofScreen: screen.id), old != screen.size {
+                adapt(screen: screen.id, from: old, to: screen.size)
+            }
+            if size(ofScreen: screen.id) != screen.size {
+                stored.screenSizes?[screen.id] = [screen.size.width, screen.size.height]
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// Moves a monitor's icons and fences from its old size to its new one.
+    private func adapt(screen id: String, from old: CGSize, to new: CGSize) {
+        let names = stored.positions.keys.filter { stored.screens?[$0] == id }.sorted()
+        let fenceIndices = (stored.fences ?? []).indices.filter { stored.fences?[$0].screenID == id }
+        let rects = names.compactMap { name -> CGRect? in
+            guard let value = stored.positions[name], value.count == 2 else { return nil }
+            return Self.cell(around: CGPoint(x: value[0] * old.width, y: value[1] * old.height))
+        } + fenceIndices.compactMap { stored.fences?[$0].frame }
+        let offsets = ScreenAnchoring.offsets(for: rects, from: old, to: new)
+        for (n, name) in names.enumerated() {
+            guard let value = stored.positions[name], value.count == 2 else { continue }
+            stored.positions[name] = [(value[0] * old.width + offsets[n].dx) / new.width,
+                                      (value[1] * old.height + offsets[n].dy) / new.height]
+        }
+        var fences = stored.fences ?? []
+        for (k, index) in fenceIndices.enumerated() {
+            fences[index].frame = fences[index].frame.offsetBy(dx: offsets[names.count + k].dx, dy: offsets[names.count + k].dy)
+        }
+        if !fenceIndices.isEmpty { stored.fences = fences }
+    }
+
+    #if DEBUG
+    func debugSetSize(ofScreen id: String, _ size: CGSize?) {
+        stored.screenSizes = stored.screenSizes ?? [:]
+        stored.screenSizes?[id] = size.map { [$0.width, $0.height] }
+    }
+    #endif
+
+    /// An icon's room (its cell) around its centre, for grouping.
+    static func cell(around center: CGPoint) -> CGRect {
+        CGRect(x: center.x - 50, y: center.y - 50, width: 100, height: 100)
     }
 
     /// Forgets everything WinEx changed on the desktop; the next `DesktopLayout` takes Finder's again.
