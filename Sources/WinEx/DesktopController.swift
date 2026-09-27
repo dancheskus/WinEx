@@ -369,6 +369,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         var unplaced: [Int] = []
         var displaced: [Int] = []
         var overlapped: Set<Int> = []
+        var offGrid: [Int] = []
         // Icons stored with their monitor claim their spots first; then those stored as "on the
         // main monitor" (older positions, Finder's) — after a monitor change the main one may be
         // another monitor, and such an icon must not land on top of one that really lives there
@@ -395,11 +396,16 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             if isUnderWidget(centers[i]) || (away && overlapsAnother(centers[i], placed)) {
                 displaced.append(i)
             } else if away {
-                placed.append(centers[i])
+                // Adapted from another monitor: lands between this one's cells — into the nearest one
+                if layout.alignToGrid { offGrid.append(i) } else { placed.append(centers[i]) }
             } else if overlapsAnother(centers[i], placed) {
                 displaced.append(i)
                 // (An old "main monitor" place — Finder's — is kept: the main monitor can change)
                 if place.screenID != nil { overlapped.insert(i) }
+            } else if layout.alignToGrid && place.screenID != nil && !isOnGrid(centers[i]) {
+                // Its place came from another resolution: into a cell, and that's its place now
+                offGrid.append(i)
+                overlapped.insert(i)
             } else {
                 placed.append(centers[i])
             }
@@ -411,6 +417,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             placed.append(centers[i])
             // On top of another icon: where it went is its place from now on — otherwise it would
             // jump into the first spot that frees up (a file deleted nearby)
+            if overlapped.contains(i) { storePosition(of: i) }
+        }
+        for i in offGrid {
+            centers[i] = nearestFreeCell(to: centers[i], occupied: placed)
+            placed.append(centers[i])
             if overlapped.contains(i) { storePosition(of: i) }
         }
         for i in unplaced {
@@ -582,6 +593,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     private func overlapsAnother(_ point: CGPoint, _ placed: [CGPoint]) -> Bool {
         placed.contains { abs($0.x - point.x) < cellSize.width * 0.75 && abs($0.y - point.y) < cellSize.height * 0.75 }
+    }
+
+    /// Whether `point` is a grid cell's centre.
+    private func isOnGrid(_ point: CGPoint) -> Bool {
+        gridCells().contains { abs($0.x - point.x) < 1.5 && abs($0.y - point.y) < 1.5 }
     }
 
     private func firstFreeCell(occupied: [CGPoint]) -> CGPoint {
@@ -2061,6 +2077,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         relayout()
     }
     func debugScroll(_ id: String) -> CGFloat { fenceScroll[id] ?? 0 }
+    func debugOnGrid(_ name: String) -> Bool { debugCenter(of: name).map(isOnGrid) ?? false }
     /// Shown icons (not in fences) whose place meets `rect`.
     func debugIconsUnder(_ rect: NSRect) -> [String] {
         items.indices.filter { fenceOf[$0] == nil && !hiddenIcons.contains($0) && hitRect($0).intersects(rect) }.map(name(of:))

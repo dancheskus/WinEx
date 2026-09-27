@@ -69,6 +69,9 @@ enum Scenarios {
                     let frame = view.debugFenceView(fence.id)?.frame ?? .zero
                     s.note("  «\(fence.title)» at \(Int(frame.minX)),\(Int(frame.minY)): \(Int(size.width - frame.maxX)) pt from the right edge")
                 }
+                let shown = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { name in !name.hasPrefix(".") && !view.layout.fences.contains { $0.members.contains(name) } && view.debugCenter(of: name) != nil }
+                s.note("  icons in grid cells: \(shown.filter(view.debugOnGrid).count) of \(shown.count)  (grid on: \(view.layout.alignToGrid))")
                 try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
                 // The same arrangement moved to another size (WINEX_TARGET_SIZE, e.g. 1710x1107)
                 if let target = ProcessInfo.processInfo.environment["WINEX_TARGET_SIZE"]?.split(separator: "x").compactMap({ Double($0) }), target.count == 2 {
@@ -1963,7 +1966,7 @@ enum Scenarios {
                 // At the right edge as on the laptop if there's room; else moved, whole, beside what's there
                 let under = main.debugIconsUnder(frame)
                 s.note("  zone: \(Int(frame.width))×\(Int(frame.height)), \(Int(here.width - frame.maxX)) pt from the right edge, \(Int(frame.minY)) from the top, icons under it: \(under.count)  expect 300×200, 10 (or beside what's there), 60, 0")
-                s.note("  icons: \(Int(cb.x - ca.x)) pt apart, \(Int(cb.y - ca.y)) pt higher/lower  expect 120, 0 (still side by side)")
+                s.note("  icons: \(Int(cb.x - ca.x)) pt apart, \(Int(cb.y - ca.y)) pt higher/lower, in grid cells: \(main.debugOnGrid(a) && main.debugOnGrid(b))  expect 120, 0 (still side by side), true (grid on: \(main.layout.alignToGrid))")
                 // Something moved here: the arrangement as shown here is the one to go by from now on
                 let shownZone = main.debugFenceView(zone.id)?.frame ?? .zero
                 let shownA = main.debugCenter(of: a) ?? .zero
