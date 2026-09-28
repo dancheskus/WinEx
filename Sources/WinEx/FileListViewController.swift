@@ -37,7 +37,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private(set) var directory: URL?
     private var allItems: [FileItem] = []
     private var items: [FileItem] = []
+    #if DEBUG
+    var debugShownTags: [String: [String]] { Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.tags.map(\.name)) }) }
+    #endif
     private var watcher: DirectoryWatcher?
+    private var tagWatcher: TagChangeWatcher?
     private var errorMessage: String?
     private let observers = Observers()
     private let thumbnails = NSCache<NSString, NSImage>()
@@ -299,7 +303,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         case .network:
             // "Сеть": servers found by Bonjour; double-click mounts one
             directory = nil
-            watcher = nil
+            watcher = nil; tagWatcher = nil
             NetworkBrowser.shared.start()
             showNetworkServers()
             refilter(keepSelection: false)
@@ -327,6 +331,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
         directory = url
         watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
+        tagWatcher = TagChangeWatcher(url: url) { [weak self] in self?.reload() }
         updateFolderColumn()
         showFolderView()
         // Compare resolved paths: /tmp/x and /private/tmp/x are the same item
@@ -419,7 +424,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private func startSearch(_ newSearch: FileSearch?) {
         directory = nil
-        watcher = nil
+        watcher = nil; tagWatcher = nil
         allItems = []
         allItemsOrder = nil
         errorMessage = nil
@@ -450,7 +455,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     func stopWatching() {
         stopSearch()
         loader.cancel()
-        watcher = nil
+        watcher = nil; tagWatcher = nil
     }
 
     /// What is shown: a folder, the Trash, a tag or the network.

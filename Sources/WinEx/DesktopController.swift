@@ -373,6 +373,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         registerForDraggedTypes([.fileURL])
         reload()
         watcher = DirectoryWatcher(url: desktopURL) { [weak self] in self?.reload() }
+        // Tags changed elsewhere (Finder…): the folder doesn't change, the files' attributes do
+        tagWatcher = TagChangeWatcher(url: desktopURL) { [weak self] in self?.reload() }
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
             observers.add(name, center: NSWorkspace.shared.notificationCenter) { [weak self] in self?.reload() }
         }
@@ -396,11 +398,13 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
     }
 
+    private var tagWatcher: TagChangeWatcher?
     private let observers = Observers()
 
     func stop() {
         endRename()
         watcher = nil
+        tagWatcher = nil
         observers.removeAll()
         settingsTimer?.invalidate()
         settingsTimer = nil

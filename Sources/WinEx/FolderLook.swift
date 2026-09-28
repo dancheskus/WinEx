@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// macOS 26 folder customization (Finder ▸ "Настроить папку…"): a symbol or an emoji on the folder,
 /// stored as JSON in the `com.apple.icon.folder#S` extended attribute — `{"sym":"star.fill"}` or
-/// `{"emoji":"🐱"}`. The folder's color comes from its first colored tag.
+/// `{"emoji":"🐱"}`. The folder's color comes from its last colored tag.
 enum FolderCustomization: Equatable {
     case symbol(String)
     case emoji(String)
@@ -46,7 +46,7 @@ enum FolderCustomization: Equatable {
     }
 }
 
-/// Draws folder icons the way macOS 26 Finder does: tinted with the first colored tag,
+/// Draws folder icons the way macOS 26 Finder does: tinted with the last colored tag,
 /// with the customization symbol / emoji on the front.
 enum FolderIcon {
     private static let genericFolder = NSWorkspace.shared.icon(for: .folder)
@@ -104,14 +104,15 @@ final class TagRowMenuView: NSView {
         self.urls = urls
         self.onChange = onChange
         let width = Self.inset * 2 + CGFloat(tags.count) * Self.diameter + CGFloat(max(tags.count - 1, 0)) * Self.spacing
-        super.init(frame: NSRect(x: 0, y: 0, width: max(width, 220), height: 30))
+        // Room under the circles for what a click will do (Finder: «Добавить тег «Зеленый»»)
+        super.init(frame: NSRect(x: 0, y: 0, width: max(width, 220), height: 46))
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
     private func circleRect(_ index: Int) -> NSRect {
-        NSRect(x: Self.inset + CGFloat(index) * (Self.diameter + Self.spacing), y: (bounds.height - Self.diameter) / 2,
+        NSRect(x: Self.inset + CGFloat(index) * (Self.diameter + Self.spacing), y: bounds.height - 6 - Self.diameter,
                width: Self.diameter, height: Self.diameter)
     }
 
@@ -132,11 +133,25 @@ final class TagRowMenuView: NSView {
             if hovered == i { rect = rect.insetBy(dx: -2, dy: -2) }
             FileTags.color(forIndex: tag.color)?.setFill()
             NSBezierPath(ovalIn: rect).fill()
-            guard counts[i] > 0 else { continue }
-            // ✓ when every file has the tag, – when only some do
             let mark = NSBezierPath()
             mark.lineWidth = 2
             mark.lineCapStyle = .round
+            // Under the mouse: what a click does — «+» adds, «×» removes (every file has it)
+            if hovered == i {
+                let r = rect.insetBy(dx: rect.width * 0.3, dy: rect.height * 0.3)
+                if counts[i] == urls.count {
+                    mark.move(to: NSPoint(x: r.minX, y: r.minY)); mark.line(to: NSPoint(x: r.maxX, y: r.maxY))
+                    mark.move(to: NSPoint(x: r.minX, y: r.maxY)); mark.line(to: NSPoint(x: r.maxX, y: r.minY))
+                } else {
+                    mark.move(to: NSPoint(x: r.midX, y: r.minY)); mark.line(to: NSPoint(x: r.midX, y: r.maxY))
+                    mark.move(to: NSPoint(x: r.minX, y: r.midY)); mark.line(to: NSPoint(x: r.maxX, y: r.midY))
+                }
+                NSColor.white.setStroke()
+                mark.stroke()
+                continue
+            }
+            guard counts[i] > 0 else { continue }
+            // ✓ when every file has the tag, – when only some do
             if counts[i] == urls.count {
                 mark.move(to: NSPoint(x: rect.minX + rect.width * 0.28, y: rect.midY))
                 mark.line(to: NSPoint(x: rect.minX + rect.width * 0.45, y: rect.minY + rect.height * 0.32))
@@ -148,6 +163,12 @@ final class TagRowMenuView: NSView {
             NSColor.white.setStroke()
             mark.stroke()
         }
+        // The caption: what a click on the circle under the mouse will do
+        guard let i = hovered, tags.indices.contains(i) else { return }
+        let caption = counts[i] == urls.count ? L("Удалить тег «%@»", tags[i].name) : L("Добавить тег «%@»", tags[i].name)
+        NSAttributedString(string: caption, attributes: [
+            .font: NSFont.menuFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor,
+        ]).draw(at: NSPoint(x: Self.inset, y: 3))
     }
 
     override func mouseMoved(with event: NSEvent) {

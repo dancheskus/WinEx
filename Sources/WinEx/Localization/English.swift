@@ -425,7 +425,7 @@ enum English {
         "Показывать в боковом меню": "Show in the sidebar",
         "Цветной ряд в контекстном меню (как в Finder)": "The colored row in the context menu (as in Finder)",
         "Удалить тег": "Delete Tag",
-        "«Сбоку» — показывать тег в боковом меню. «Избранный» — кружок в контекстном меню файлов; этот список общий с Finder. Переименование и смена цвета применяются ко всем файлам с тегом.": "“Sidebar” — show the tag in the sidebar. “Favorite” — a circle in the files’ context menu; this list is shared with Finder. Renaming and recoloring apply to every file with the tag.",
+        "«Сбоку» — показывать тег в боковом меню. «Избранный» — кружок в контекстном меню файлов, общий с Finder; Finder видит только избранные теги и те, что стоят на файлах, поэтому новый тег сразу избранный. Переименование и смена цвета применяются ко всем файлам с тегом.": "“Sidebar” shows the tag in the sidebar. “Favorite” puts a circle in the files' context menu, shared with Finder; Finder sees only favorite tags and those on files, so a new tag starts as a favorite. Renaming and a new color apply to every file with the tag.",
         "Оттенять папки цветом тега": "Tint folders with the tag color",
         "Новый тег %@": "New Tag %@",
         "Удалить тег «%@»?": "Delete the tag “%@”?",
@@ -712,5 +712,7 @@ enum English {
         "Finder перезапустится: его открытые окна закроются и откроются снова. Можно и вручную — перетащить кнопку на панель с зажатой ⌘.": "Finder restarts: its open windows close and open again. You can also ⌘-drag the button onto the toolbar yourself.",
         "Добавить": "Add",
         "Перетащу сам": "I'll Drag It Myself",
+        "Удалить тег «%@»": "Remove Tag “%@”",
+        "Добавить тег «%@»": "Add Tag “%@”",
     ]
 }

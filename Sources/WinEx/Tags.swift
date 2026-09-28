@@ -109,35 +109,58 @@ enum FileTags {
         }
     }
 
-    /// "●● " in the tags' colors, to put before a name. Glued to it with a no-break space: a long
-    /// name wraps after its own words, the dots stay on its first line (as in Finder).
+    /// The tag dots before a name, as Finder draws them: the last added in front, then the ones
+    /// before it — three at most, overlapping, each cut out of the one behind by a thin gap. Glued
+    /// to the name with a no-break space: a long name wraps after its own words, the dots stay on
+    /// its first line.
     static func dots(for tags: [Tag], attributes: [NSAttributedString.Key: Any]) -> NSAttributedString {
-        let text = NSMutableAttributedString()
-        for tag in tags {
-            guard let color = color(forIndex: tag.color) else { continue }
-            var dot = attributes
-            dot[.foregroundColor] = color
-            text.append(NSAttributedString(string: "●", attributes: dot))
+        let colors = tags.reversed().compactMap { color(forIndex: $0.color) }.prefix(3)
+        guard !colors.isEmpty else { return NSAttributedString() }
+        let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 12)
+        let side = (font.pointSize * 0.78).rounded()
+        let step = side * 0.55, ring: CGFloat = 1.2
+        let width = side + step * CGFloat(colors.count - 1) + ring
+        let image = NSImage(size: NSSize(width: width, height: side + ring), flipped: false) { _ in
+            // Back to front: the oldest of the three on the right, the newest on the left, on top
+            for (n, color) in colors.enumerated().reversed() {
+                let rect = NSRect(x: CGFloat(n) * step + ring / 2, y: ring / 2, width: side, height: side)
+                NSGraphicsContext.current?.compositingOperation = .clear
+                NSBezierPath(ovalIn: rect.insetBy(dx: -ring, dy: -ring)).fill()
+                NSGraphicsContext.current?.compositingOperation = .sourceOver
+                color.setFill()
+                NSBezierPath(ovalIn: rect).fill()
+            }
+            return true
         }
-        if text.length > 0 {
-            // Finder leaves a wider gap between the dots and the name than a space
-            var gap = attributes
-            gap[.kern] = 2
-            text.append(NSAttributedString(string: "\u{00A0}", attributes: gap))
-        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        // On the text's middle (cap height), like a character
+        attachment.bounds = NSRect(x: 0, y: (font.capHeight - image.size.height) / 2, width: image.size.width, height: image.size.height)
+        let text = NSMutableAttributedString(attachment: attachment)
+        text.addAttributes(attributes, range: NSRange(location: 0, length: text.length))
+        // Finder leaves a wider gap between the dots and the name than a space
+        var gap = attributes
+        gap[.kern] = 2
+        text.append(NSAttributedString(string: "\u{00A0}", attributes: gap))
         return text
     }
 
-    /// macOS 26 tints folders with their tag color; do the same to a folder icon.
+    /// macOS 26 tints folders with their tag color; do the same to a folder icon: the color itself
+    /// in the folder's shape, the folder's own shading laid over it softly (light colors stay light).
     static func tinted(_ icon: NSImage, with color: NSColor) -> NSImage {
         let size = NSSize(width: 256, height: 256)
         return NSImage(size: size, flipped: false) { rect in
-            icon.draw(in: rect)
             color.setFill()
-            rect.fill(using: .color)  // keep the icon's shading, take the tag's hue
-            color.withAlphaComponent(0.45).setFill()
-            rect.fill(using: .multiply)  // deepen it: Finder's tinted folders are fully saturated
+            rect.fill()
             icon.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1)
+            let shading = NSImage(size: size, flipped: false) { r in
+                icon.draw(in: r)
+                NSColor.white.setFill()
+                r.fill(using: .saturation)   // the folder in grey: just its light and shade
+                return true
+            }
+            shading.draw(in: rect, from: .zero, operation: .softLight, fraction: 0.9)
+            icon.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1)  // nothing outside it
             return true
         }
     }

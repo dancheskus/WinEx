@@ -159,7 +159,7 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         let buttons = NSStackView(views: [add, removeButton])
         buttons.spacing = 0
 
-        let hint = SettingsForm.hint(L("«Сбоку» — показывать тег в боковом меню. «Избранный» — кружок в контекстном меню файлов; этот список общий с Finder. Переименование и смена цвета применяются ко всем файлам с тегом."))
+        let hint = SettingsForm.hint(L("«Сбоку» — показывать тег в боковом меню. «Избранный» — кружок в контекстном меню файлов, общий с Finder; Finder видит только избранные теги и те, что стоят на файлах, поэтому новый тег сразу избранный. Переименование и смена цвета применяются ко всем файлам с тегом."))
         hint.preferredMaxLayoutWidth = SettingsForm.width - 40
         let tint = ClosureCheckbox {
             Settings.tintFoldersByTags = $0
@@ -315,6 +315,9 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         var n = 2
         while names.contains(name) { name = L("Новый тег %@", n); n += 1 }
         TagLibrary.entries += [TagLibrary.Entry(name: name, color: 0, inSidebar: true)]
+        // A favourite from the start: Finder lists only its favourites and the tags on files, so a
+        // new tag shows up there too (untick «Избранный» to keep it out of the colored row)
+        setFavorite(name, true)
         guard let row = entries.firstIndex(where: { $0.name == name }) else { return }
         table.scrollRowToVisible(row)
         table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)

@@ -81,6 +81,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
     private var selection = Set<Int>() { didSet { needsDisplay = true; QuickLook.selectionChanged(in: self) } }
     private var anchor: Int?
     private var watcher: DirectoryWatcher?
+    private var tagWatcher: TagChangeWatcher?
     private var thumbnails: [String: NSImage] = [:]
     private var requested = Set<String>()
     private var columns = 1
@@ -96,6 +97,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         super.init(frame: .zero)
         registerForDraggedTypes([.fileURL])
         watcher = DirectoryWatcher(url: folder) { [weak self] in self?.reload() }
+        tagWatcher = TagChangeWatcher(url: folder) { [weak self] in self?.reload() }
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
         let menu = NSMenu()
@@ -119,6 +121,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         items = []
         needsLayoutGrid = true
         watcher = DirectoryWatcher(url: url) { [weak self] in self?.reload() }
+        tagWatcher = TagChangeWatcher(url: url) { [weak self] in self?.reload() }
         reading = false
         reload()
     }

@@ -47,9 +47,42 @@ enum Scenarios {
         "dragpreview": dragPreview,
         "replaylayout": replayLayout,
         "finderbutton": finderButton,
+        "tagwatch": tagWatch,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// A tag put on a file by another app (here: the xattr tool) shows in WinEx at once.
+    static func tagWatch(_ s: Scenario) {
+        let folder = s.makeFiles(["a.txt"], in: "tags")
+        s.window?.navigate(to: folder)
+        s.setViewMode(.details)
+        s.run([
+            (1.0, "tagged from outside", {
+                let data = (try? PropertyListSerialization.data(fromPropertyList: ["Зеленый\n2", "Желтый\n5"], format: .binary, options: 0)) ?? Data()
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+                process.arguments = ["-wx", "com.apple.metadata:_kMDItemUserTags", data.map { String(format: "%02x", $0) }.joined(), folder.appendingPathComponent("a.txt").path]
+                try? process.run(); process.waitUntilExit()
+            }),
+            (1.5, "shown", {
+                s.note("  a.txt shows: \(s.window?.debugShownTags["a.txt"] ?? [])  expect [Зеленый, Желтый]")
+                s.send("refresh:")
+            }),
+            (1.0, "a folder with four tags (the last one added: yellow)", {
+                let dir = folder.appendingPathComponent("Папка")
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try? FileTags.setTags([FileTags.Tag(name: "Зеленый", color: 2), FileTags.Tag(name: "Красный", color: 6),
+                                       FileTags.Tag(name: "Синий", color: 4), FileTags.Tag(name: "Желтый", color: 5)], on: dir)
+                s.setViewMode(.largeIcons)
+                s.send("refresh:")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8) }
+                }
+            }),
+            (3.0, "done", {}),
+        ])
+    }
 
     /// Finder's "Open in WinEx" button, made in the sandbox (not run: it would control Finder).
     static func finderButton(_ s: Scenario) {

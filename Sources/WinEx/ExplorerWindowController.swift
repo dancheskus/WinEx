@@ -609,6 +609,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     #if DEBUG
+    /// The names of the tags the list shows on each file now.
+    var debugShownTags: [String: [String]] { fileList.debugShownTags }
     static var debugRefreshes = 0
     static var debugFullScreenToggles = 0
     #endif

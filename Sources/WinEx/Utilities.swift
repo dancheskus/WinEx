@@ -179,7 +179,8 @@ final class FileItem {
 
     /// File icon; customized folders (tag color, symbol / emoji) are drawn like macOS 26 Finder does.
     lazy var icon: NSImage = {
-        let tint = Settings.tintFoldersByTags ? tags.lazy.compactMap({ FileTags.color(forIndex: $0.color) }).first : nil
+        // The last tag put on it (with a color) colors it, as in Finder
+        let tint = Settings.tintFoldersByTags ? tags.reversed().lazy.compactMap({ FileTags.color(forIndex: $0.color) }).first : nil
         if isFolder, let custom = FolderIcon.custom(tagColor: tint,
                                                     customization: FolderCustomization.read(url)) {
             return custom
@@ -407,5 +408,57 @@ final class SlowClickRename {
     /// A plain single click: no modifiers, no second click.
     static func isPlainClick(_ event: NSEvent) -> Bool {
         event.clickCount == 1 && event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty
+    }
+}
+
+/// Tags (and other extended attributes / Finder info) changed on items right inside a folder — by
+/// Finder or any other app. The folder itself doesn't change then, so `DirectoryWatcher` doesn't
+/// hear it; FSEvents with file-level events does. `onChange` runs on the main thread, at most a few
+/// times a second.
+final class TagChangeWatcher {
+    private var stream: FSEventStreamRef?
+    private let folder: String
+    private let onChange: () -> Void
+    private var pending = false
+
+    init?(url: URL, onChange: @escaping () -> Void) {
+        folder = Self.plain(url.resolvingSymlinksInPath().standardizedFileURL.path)
+        self.onChange = onChange
+        var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil, copyDescription: nil)
+        let callback: FSEventStreamCallback = { _, info, count, paths, flags, _ in
+            guard let info else { return }
+            let watcher = Unmanaged<TagChangeWatcher>.fromOpaque(info).takeUnretainedValue()
+            let list = unsafeBitCast(paths, to: NSArray.self) as? [String] ?? []
+            let interesting = FSEventStreamEventFlags(kFSEventStreamEventFlagItemXattrMod | kFSEventStreamEventFlagItemFinderInfoMod)
+            for n in 0..<min(count, list.count) where flags[n] & interesting != 0 {
+                if TagChangeWatcher.plain((list[n] as NSString).deletingLastPathComponent) == watcher.folder { watcher.changed(); return }
+            }
+        }
+        guard let stream = FSEventStreamCreate(nil, callback, &context, [folder] as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.3,
+                                               FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)) else { return nil }
+        self.stream = stream
+        FSEventStreamSetDispatchQueue(stream, .main)
+        FSEventStreamStart(stream)
+    }
+
+    /// FSEvents reports real paths (/private/var/…, /private/tmp/…); URLs drop the "/private".
+    private static func plain(_ path: String) -> String {
+        path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path
+    }
+
+    private func changed() {
+        guard !pending else { return }
+        pending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.pending = false
+            self?.onChange()
+        }
+    }
+
+    deinit {
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
     }
 }
