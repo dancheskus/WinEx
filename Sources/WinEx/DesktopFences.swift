@@ -260,6 +260,18 @@ final class FenceView: NSView, NSTextFieldDelegate {
         onScroll?(view.contentView.bounds.origin.y)
     }
 
+    // The mouse over the fence: the scroller shows for a moment, telling there's more to scroll
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.filter { $0.owner === self && $0.userInfo?["hover"] != nil }.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: ["hover": true]))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard event.trackingArea?.userInfo?["hover"] != nil, let scrollView else { return super.mouseEntered(with: event) }
+        scrollView.flashScrollers()
+    }
+
     /// The desktop passes on scrolling over the fence's inside.
     func scroll(with event: NSEvent) -> Bool {
         guard let scrollView else { return false }

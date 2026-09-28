@@ -320,6 +320,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private var fenceScroll: [String: CGFloat] = [:]
     /// The part of the fence a member icon may show in (its icon is cut off beyond it).
     private var fenceClip: [Int: NSRect] = [:]
+    /// Fences with more icons above / below what they show: their icons fade out at that edge.
+    private var fenceFade: [Int: (top: Bool, bottom: Bool)] = [:]
     /// Icons of collapsed fences and below a fence's visible rows.
     private var hiddenIcons = Set<Int>()
     /// Icon index → the fence it's in (on this monitor).
@@ -811,7 +813,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             tile.isHidden = hiddenIcons.contains(i)
             if !landing.contains(i) {
                 tile.frame = hitRect(i).insetBy(dx: -6, dy: -6)
-                tile.clip(to: fenceClip[i])
+                tile.clip(to: fenceClip[i], fade: fenceFade[i] ?? (false, false))
             }
             tile.needsDisplay = true
         }
@@ -970,7 +972,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             let rect = NSRect(x: min(point.x, mouseDownPoint.x), y: min(point.y, mouseDownPoint.y),
                               width: abs(point.x - mouseDownPoint.x), height: abs(point.y - mouseDownPoint.y))
             rubberBand = rect
-            selection = rubberBandBase.union(items.indices.filter { iconsVisible && !hiddenIcons.contains($0) && hitRect($0).intersects(rect) })
+            // (An icon in a fence counts only by the part of it the fence shows)
+            selection = rubberBandBase.union(items.indices.filter {
+                iconsVisible && !hiddenIcons.contains($0) && hitRect($0).intersection(fenceClip[$0] ?? .infinite).intersects(rect)
+            })
             if rect.width > 3 || rect.height > 3 { emptyClickCandidate = false }
             needsDisplay = true
             return
@@ -1729,6 +1734,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         hiddenIcons = []
         fenceOf = [:]
         fenceClip = [:]
+        fenceFade = [:]
         placeDisplacedFences()
         for fence in myFences where !fence.isPortal {
             let grid = fenceGrid(fence)
@@ -1746,7 +1752,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                 let row = k / grid.columns, column = k % grid.columns
                 centers[i] = CGPoint(x: grid.content.minX + fenceCell.width * (CGFloat(column) + 0.5),
                                      y: grid.content.minY + fenceTopExtra + iconSide / 2 + 8 + fenceCell.height * CGFloat(row) - offset)
-                if fence.collapsed || !hitRect(i).intersects(clip) { hiddenIcons.insert(i) } else { fenceClip[i] = clip }
+                if fence.collapsed || !hitRect(i).intersects(clip) { hiddenIcons.insert(i) } else {
+                    fenceClip[i] = clip
+                    fenceFade[i] = (top: offset > 1, bottom: offset < maxScroll(fence) - 1)
+                }
             }
         }
     }
@@ -2217,6 +2226,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    var debugSelectedNames: [String] { selection.map(name(of:)) }
     func debugSetIconSize(_ size: DesktopIconSize) {
         let item = NSMenuItem()
         item.tag = size.rawValue
@@ -2380,19 +2390,33 @@ private final class DesktopIconTile: NSView {
 
     /// Only the part inside `rect` (in the desktop's coordinates) shows: an icon scrolled halfway out
     /// of its fence is cut off at the fence's edge.
-    func clip(to rect: NSRect?) {
-        guard let rect, !rect.contains(frame) else {
+    func clip(to rect: NSRect?, fade: (top: Bool, bottom: Bool) = (false, false)) {
+        let band: CGFloat = 36
+        guard let rect else { layer?.mask = nil; return }
+        let fades = (fade.top && frame.minY < rect.minY + band) || (fade.bottom && frame.maxY > rect.maxY - band)
+        guard !rect.contains(frame) || fades else {
             layer?.mask = nil
             return
         }
         wantsLayer = true
-        var visible = rect.intersection(frame).offsetBy(dx: -frame.minX, dy: -frame.minY)
-        if layer?.contentsAreFlipped() == false { visible.origin.y = bounds.height - visible.maxY }
-        let mask = (layer?.mask) ?? CALayer()
-        mask.backgroundColor = NSColor.black.cgColor
+        // The fence's inside in this tile's layer; opaque there, fading out towards an edge with
+        // more icons beyond it (more to scroll to)
+        var area = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
+        let flipped = layer?.contentsAreFlipped() ?? false
+        if !flipped { area.origin.y = bounds.height - area.maxY }
+        let mask = (layer?.mask as? CAGradientLayer) ?? CAGradientLayer()
+        let edge = min(band / max(area.height, 1), 0.45)
+        // Gradient points run from the layer's low y to its high y: that's the visual bottom first
+        // unless the layer is flipped
+        let low = flipped ? fade.top : fade.bottom, high = flipped ? fade.bottom : fade.top
+        mask.colors = [low ? NSColor.clear.cgColor : NSColor.black.cgColor, NSColor.black.cgColor,
+                       NSColor.black.cgColor, high ? NSColor.clear.cgColor : NSColor.black.cgColor]
+        mask.locations = [0, NSNumber(value: Double(low ? edge : 0)), NSNumber(value: Double(high ? 1 - edge : 1)), 1]
+        mask.startPoint = CGPoint(x: 0.5, y: 0)
+        mask.endPoint = CGPoint(x: 0.5, y: 1)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        mask.frame = visible
+        mask.frame = area
         CATransaction.commit()
         layer?.mask = mask
     }

@@ -1120,8 +1120,19 @@ enum Scenarios {
                 s.note("  sized to its \(rows) rows: can scroll \(Int(view.debugMaxScroll(fence.id))) pt, scroll view: \(fenceView?.debugScrollState.hasPrefix("no scroll view") == true ? "none" : "there")  expect 0, none")
                 view.debugSetFenceFrame(fence.id, frame)
                 view.displayIfNeeded()
-                view.debugFenceView(fence.id)?.debugScroll(to: 40)
+                view.debugFenceView(fence.id)?.debugScroll(to: 0)
                 view.displayIfNeeded()
+                // A rubber band just under the zone: the icons cut off at its bottom aren't caught
+                let zoneFrame = view.debugFenceView(fence.id)?.frame ?? .zero
+                func mouse(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {
+                    NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                }
+                if let down = mouse(.leftMouseDown, NSPoint(x: zoneFrame.minX + 4, y: zoneFrame.maxY + 6)) { view.mouseDown(with: down) }
+                if let drag = mouse(.leftMouseDragged, NSPoint(x: zoneFrame.maxX - 4, y: zoneFrame.maxY + 70)) { view.mouseDragged(with: drag) }
+                let caught = view.debugSelectedNames.filter { fence.members.contains($0) }
+                if let up = mouse(.leftMouseUp, NSPoint(x: zoneFrame.maxX - 4, y: zoneFrame.maxY + 70)) { view.mouseUp(with: up) }
+                s.note("  rubber band under the zone caught its icons: \(caught)  expect []")
                 try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8)
             }),
             (1.0, "let go of a dragged icon: it glides to its place", {
