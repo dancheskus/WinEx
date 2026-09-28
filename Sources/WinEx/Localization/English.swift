@@ -702,10 +702,15 @@ enum English {
         "Кнопка в Finder:": "Finder button:",
         "Не удалось создать кнопку": "Couldn't create the button",
         "Открыть в WinEx": "Open in WinEx",
-        "Показать кнопку в Finder…": "Show the Button in Finder…",
         "Создать кнопку «Открыть в WinEx»…": "Create the “Open in WinEx” Button…",
-        "Стопки в Dock и некоторые программы открывают папки только в Finder. Перетащите «Открыть в WinEx» с зажатой ⌘ на панель инструментов окна Finder: нажатие закроет окно Finder и откроет ту же папку в WinEx, с выделенными файлами. При первом нажатии macOS спросит разрешение управлять Finder.": "Dock stacks and some apps open folders in Finder only. ⌘-drag “Open in WinEx” onto the toolbar of a Finder window: a click closes the Finder window and opens the same folder in WinEx, with the selected files. On the first click macOS asks to let it control Finder.",
+        "Стопки в Dock и некоторые программы открывают папки только в Finder. WinEx добавит на панель инструментов Finder кнопку «Открыть в WinEx»: нажатие закроет окно Finder и откроет ту же папку в WinEx, с выделенными файлами. При первом нажатии macOS спросит разрешение управлять Finder.": "Dock stacks and some apps open folders in Finder only. WinEx adds an “Open in WinEx” button to Finder's toolbar: a click closes the Finder window and opens the same folder in WinEx, with the selected files. On the first click macOS asks to let it control Finder.",
         "Убрать": "Remove",
         "Чтобы узнать, какая папка открыта в окне Finder, закрыть его и открыть ту же папку в WinEx.": "To find out which folder a Finder window shows, close it and open the same folder in WinEx.",
+        "Обновить кнопку": "Update the Button",
+        "Добавить кнопку в Finder…": "Add the Button to Finder…",
+        "Добавить кнопку на панель инструментов Finder?": "Add the button to Finder's toolbar?",
+        "Finder перезапустится: его открытые окна закроются и откроются снова. Можно и вручную — перетащить кнопку на панель с зажатой ⌘.": "Finder restarts: its open windows close and open again. You can also ⌘-drag the button onto the toolbar yourself.",
+        "Добавить": "Add",
+        "Перетащу сам": "I'll Drag It Myself",
     ]
 }

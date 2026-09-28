@@ -53,7 +53,7 @@ enum Scenarios {
 
     /// Finder's "Open in WinEx" button, made in the sandbox (not run: it would control Finder).
     static func finderButton(_ s: Scenario) {
-        let app = s.sandbox.appendingPathComponent("Open in WinEx.app")
+        let app = ProcessInfo.processInfo.environment["WINEX_BUTTON_AT"].map { URL(fileURLWithPath: $0) } ?? s.sandbox.appendingPathComponent("Open in WinEx.app")
         do {
             try FinderToolbarButton.install(at: app)
             let plist = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
@@ -68,7 +68,7 @@ enum Scenarios {
             decompile.standardOutput = out
             try decompile.run(); decompile.waitUntilExit()
             let script = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            s.note("  built: no Dock icon \(plist?["LSUIElement"] as? Bool == true), asks for Finder \(plist?["NSAppleEventsUsageDescription"] != nil), WinEx icon \(icon), signed \(verify.terminationStatus == 0), opens WinEx \(script.contains("open -b \(Bundle.main.bundleIdentifier ?? "")"))  expect true ×5")
+            s.note("  built: no Dock icon \(plist?["LSUIElement"] as? Bool == true), asks for Finder \(plist?["NSAppleEventsUsageDescription"] != nil), WinEx icon \(icon && plist?["CFBundleIconName"] == nil && !FileManager.default.fileExists(atPath: app.appendingPathComponent("Contents/Resources/Assets.car").path)), signed \(verify.terminationStatus == 0), opens WinEx \(script.contains("open -b \(Bundle.main.bundleIdentifier ?? "")"))  expect true ×5")
         } catch {
             s.note("  FAIL: \(error.localizedDescription)")
         }

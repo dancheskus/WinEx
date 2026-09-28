@@ -321,8 +321,8 @@ that sends folders to WinEx and everything else — files, apps, packages, URLs,
 `open`; unchecking it removes those lines.
 
 For places that always open Finder — the Dock's stacks, apps that talk to Finder directly —
-Settings ▸ Finder ▸ “Create the Open in WinEx Button…” makes a small applet in ~/Applications to ⌘-drag
-onto a Finder window's toolbar: a click closes that Finder window and opens the same folder in WinEx,
+Settings ▸ Finder ▸ “Create the Open in WinEx Button…” makes a small applet in ~/Applications and puts it on
+Finder's toolbar (Finder restarts to show it; or ⌘-drag it there yourself): a click closes that Finder window and opens the same folder in WinEx,
 with the same items selected (macOS asks once to let it control Finder).
 
 Quitting WinEx undoes all of it — except when the session ends (log out, restart, shut down)
