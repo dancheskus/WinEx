@@ -124,7 +124,10 @@ enum FenceSnap {
     /// `rect` with its moving edges pulled onto the nearest target lines (within the threshold).
     /// `edges`: which sides move (all four when the whole rect moves). Targets: the area's edges,
     /// the other rects' edges (lined up with them, or `gap` away from them side by side).
-    static func snap(_ rect: NSRect, edges: Set<NSRectEdge>, area: NSRect, others: [NSRect]) -> (NSRect, [Guide]) {
+    /// `grid`: lines where an edge sits right beside the desktop's icon cells (no space lost to a
+    /// cell the fence would just touch) — targets too, without guide lines.
+    static func snap(_ rect: NSRect, edges: Set<NSRectEdge>, area: NSRect, others: [NSRect],
+                     grid: (xs: [CGFloat], ys: [CGFloat]) = ([], [])) -> (NSRect, [Guide]) {
         let moving = edges.count == 4
         // The spacing already used between the other fences is offered too, so a new fence can
         // keep the same rhythm
@@ -137,6 +140,9 @@ enum FenceSnap {
             for g in xGaps { xs += [other.maxX + g, other.minX - g] }
             for g in yGaps { ys += [other.maxY + g, other.minY - g] }
         }
+        let visibleXs = Set(xs), visibleYs = Set(ys)
+        xs += grid.xs
+        ys += grid.ys
         func nearest(_ value: CGFloat, in lines: [CGFloat]) -> CGFloat? {
             lines.filter { abs($0 - value) <= threshold }.min { abs($0 - value) < abs($1 - value) }
         }
@@ -176,6 +182,8 @@ enum FenceSnap {
                 guides.append(Guide(vertical: false, position: line, from: 0, to: 0))
             }
         }
+        // (Lines of the icon grid aren't drawn)
+        guides = guides.filter { $0.vertical ? visibleXs.contains($0.position) : visibleYs.contains($0.position) }
         // Guides span the snapped rect and whatever it lines up with
         guides = guides.map { guide in
             var g = guide

@@ -661,7 +661,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     private func isUnderWidget(_ center: CGPoint) -> Bool {
         let cell = NSRect(x: center.x - cellSize.width / 2, y: center.y - iconSide / 2, width: cellSize.width, height: cellSize.height - 8)
-        return blockedRects.contains { $0.intersects(cell) }
+        // (Only when it really goes into the cell: a fence just touching it doesn't cost the cell)
+        return blockedRects.contains { rect in
+            let overlap = rect.intersection(cell)
+            return !overlap.isNull && overlap.width > 8 && overlap.height > 8
+        }
     }
 
     /// Frames of desktop widgets in view coordinates (window list bounds are top-left based, like this view).
@@ -1709,6 +1713,25 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return frame
     }
 
+    /// Where a fence's edge sits right beside the desktop's icon cells (with the same margin other
+    /// icons keep from a fence): its right or bottom edge just before a cell, its left or top edge
+    /// just after one — so no cell is lost to a fence that would only touch it.
+    private var gridSnapLines: (xs: [CGFloat], ys: [CGFloat]) {
+        guard let area = screens.first?.iconArea, layout.alignToGrid || layout.autoArrange else { return ([], []) }
+        let margin: CGFloat = 5
+        let columns = max(1, Int((area.width - 24) / cellSize.width)), rows = max(1, Int((area.height - 24) / cellSize.height))
+        var xs: [CGFloat] = [], ys: [CGFloat] = []
+        for k in 0...columns {
+            let boundary = area.maxX - 12 - cellSize.width * CGFloat(k)
+            xs += [boundary - margin, boundary + margin]
+        }
+        for k in 0...rows {
+            ys.append(area.minY + 20 + cellSize.height * CGFloat(k) - margin)   // a fence's bottom above a cell's icon
+            ys.append(area.minY + 12 + cellSize.height * CGFloat(k) + margin)   // a fence's top below a cell's label
+        }
+        return (xs, ys)
+    }
+
     /// Where a fence's icons go: its inside, the number of columns and of whole rows.
     private func fenceGrid(_ fence: DesktopFence) -> (content: NSRect, columns: Int, rows: Int) {
         let frame = visibleFrame(of: fence)
@@ -1802,7 +1825,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             guard let self, let area = self.screens.first?.iconArea else { return (rect, []) }
             // Snapping targets: this monitor's edges and its other fences only (not icons or widgets)
             let others = self.myFences.filter { $0.id != id }.map { self.visibleFrame(of: $0) }
-            var (snapped, guides) = FenceSnap.snap(rect, edges: edges, area: area, others: others)
+            var (snapped, guides) = FenceSnap.snap(rect, edges: edges, area: area, others: others, grid: self.gridSnapLines)
             // Resizing: a light pull towards sizes that hold whole columns and rows of icons
             // (unless an edge already clings to something)
             if edges.count < 4 {
@@ -2226,6 +2249,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    /// The grid cell right under `rect` (its column nearest the rect's middle), in this view.
+    func debugCellBelow(_ rect: NSRect) -> CGPoint? {
+        gridCells().filter { $0.y > rect.maxY }.min { a, b in
+            (a.y - rect.maxY, abs(a.x - rect.midX)) < (b.y - rect.maxY, abs(b.x - rect.midX))
+        }
+    }
     var debugSelectedNames: [String] { selection.map(name(of:)) }
     func debugSetIconSize(_ size: DesktopIconSize) {
         let item = NSMenuItem()

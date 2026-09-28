@@ -1189,6 +1189,22 @@ enum Scenarios {
                 fence.members.removeAll { $0.hasPrefix("on its way") || $0 == "never coming.txt" }
                 view.layout.setFence(fence)
             }),
+            (1.0, "a zone dragged near a row of cells snaps right beside it", {
+                guard let view = mainView(), let fence = view.layout.fences.first, let fenceView = view.debugFenceView(fence.id),
+                      let name = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                        .first(where: { n in !n.hasPrefix(".") && !view.layout.fences.contains { $0.members.contains(n) } && view.debugCenter(of: n) != nil }),
+                      let probeCell = view.debugCellBelow(NSRect(x: 600, y: 300, width: 300, height: 0)) else { return }
+                // The zone's bottom 6 pt into the icon of the cell below it
+                let cellIconTop = probeCell.y - view.layout.iconSize.iconSide / 2
+                var rect = fenceView.frame
+                rect.origin = NSPoint(x: probeCell.x - rect.width / 2, y: cellIconTop + 6 - rect.height)
+                let snapped = fenceView.snap?(rect, [.minX, .maxX, .minY, .maxY]).0 ?? rect
+                view.debugSetFenceFrame(fence.id, snapped)
+                // An icon put in that cell: stays there (the zone doesn't take the cell)
+                view.debugPlace(name, at: probeCell)
+                let at = view.debugCenter(of: name) ?? .zero
+                s.note("  zone bottom moved up \(Int(rect.maxY - snapped.maxY)) pt; the cell under it is free: \(abs(at.x - probeCell.x) < 1 && abs(at.y - probeCell.y) < 1)  expect a few pt, true")
+            }),
             (1.0, "an icon dragged out of a zone onto the desktop", {
                 guard let view = mainView(), let fence = view.layout.fences.first(where: { !$0.members.isEmpty }),
                       let name = fence.members.first, let spot = view.debugEmptySpot(NSSize(width: 200, height: 200)) else { s.note("  (no zone with icons)"); return }
