@@ -697,5 +697,7 @@ enum English {
         "операция": "operation",
         "операции": "operations",
         "операций": "operations",
+        "Зоны по сетке значков": "Zones on the icon grid",
+        "Когда значки выровнены по сетке, зоны занимают её ячейки целиком — без щелей и наездов рядом с ними.": "With icons aligned to the grid, zones take whole cells of it — no gaps and no overlaps beside them.",
     ]
 }

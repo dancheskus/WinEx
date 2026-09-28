@@ -661,10 +661,10 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     private func isUnderWidget(_ center: CGPoint) -> Bool {
         let cell = NSRect(x: center.x - cellSize.width / 2, y: center.y - iconSide / 2, width: cellSize.width, height: cellSize.height - 8)
-        // (Only when it really goes into the cell: a fence just touching it doesn't cost the cell)
+        // (A fence on the grid ends where the next cell begins: touching it doesn't take it)
         return blockedRects.contains { rect in
             let overlap = rect.intersection(cell)
-            return !overlap.isNull && overlap.width > 8 && overlap.height > 8
+            return !overlap.isNull && overlap.width > 1 && overlap.height > 1
         }
     }
 
@@ -1709,8 +1709,73 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         frame.size.height = min(frame.height, area.height)
         frame.origin.x = min(max(frame.minX, area.minX), area.maxX - frame.width)
         frame.origin.y = min(max(frame.minY, area.minY), area.maxY - frame.height)
+        if fencesOnGrid { frame = gridPlaced[fence.id] ?? gridFrame(frame) }
         if fence.collapsed && !whole { frame.size.height = DesktopFence.titleHeight }
         return frame
+    }
+
+    /// Where each fence of this monitor sits on the grid (two fences that round to the same cells:
+    /// the later one takes the nearest free cells).
+    private var gridPlaced: [String: NSRect] = [:]
+
+    private func placeFencesOnGrid() {
+        gridPlaced = [:]
+        guard fencesOnGrid, let area = screens.first?.iconArea else { return }
+        let fences = myFences.map { fence -> (String, NSRect) in
+            gridPlaced[fence.id] = nil
+            var whole = fence
+            whole.collapsed = false
+            return (fence.id, visibleFrame(of: whole))   // (not on the grid yet: gridPlaced is empty)
+        }.sorted { ($0.1.minY, $0.1.minX) < ($1.1.minY, $1.1.minX) }
+        let w = cellSize.width, h = cellSize.height
+        let columns = max(1, Int((area.width - 24) / w)), rows = max(1, Int((area.height - 24) / h))
+        var placed: [NSRect] = []
+        for (id, raw) in fences {
+            var frame = gridFrame(raw)
+            if placed.contains(where: { $0.insetBy(dx: 1, dy: 1).intersects(frame) }) {
+                // The nearest spot on the grid where it fits
+                var best: NSRect?
+                for column in 0...columns {
+                    for row in 0...rows {
+                        let candidate = NSRect(x: area.maxX - 12 - w * CGFloat(column) + 4, y: area.minY + 12 + h * CGFloat(row) + 4,
+                                               width: frame.width, height: frame.height)
+                        guard candidate.maxX <= area.maxX - 12, candidate.minX >= area.maxX - 12 - w * CGFloat(columns),
+                              candidate.maxY <= area.minY + 12 + h * CGFloat(rows),
+                              !placed.contains(where: { $0.insetBy(dx: 1, dy: 1).intersects(candidate) }) else { continue }
+                        if best.map({ hypot($0.minX - frame.minX, $0.minY - frame.minY) > hypot(candidate.minX - frame.minX, candidate.minY - frame.minY) }) ?? true {
+                            best = candidate
+                        }
+                    }
+                }
+                if let best { frame = best }
+            }
+            gridPlaced[id] = frame
+            placed.append(frame)
+        }
+    }
+
+    /// Fences take whole cells of the icon grid (Settings ▸ Zones, with Align to Grid on).
+    private var fencesOnGrid: Bool { FenceStyle.onGrid && layout.alignToGrid && !layout.autoArrange }
+
+    /// `rect` on the icon grid: the cells it covers most (at least what a fence needs), the panel
+    /// 4 pt inside them — so fences and icons meet without gaps and without overlapping. Unchanged
+    /// when fences aren't on the grid.
+    private func gridFrame(_ rect: NSRect) -> NSRect {
+        guard fencesOnGrid, let area = screens.first?.iconArea else { return rect }
+        let w = cellSize.width, h = cellSize.height, m: CGFloat = 4
+        let columns = max(1, Int((area.width - 24) / w)), rows = max(1, Int((area.height - 24) / h))
+        // Columns count from the right (where macOS keeps icons), rows from the top
+        let right = area.maxX - 12, top = area.minY + 12
+        let minWidth = fenceCell.width + 2 * DesktopFence.padding
+        let minHeight = DesktopFence.titleHeight + fenceTopExtra + fenceCell.height + DesktopFence.padding
+        let wide = min(columns, max(Int(((rect.width + 2 * m) / w).rounded()), Int(ceil((minWidth + 2 * m) / w)), 1))
+        let high = min(rows, max(Int(((rect.height + 2 * m) / h).rounded()), Int(ceil((minHeight + 2 * m) / h)), 1))
+        let leftColumn = Int(((right - (rect.minX - m)) / w).rounded())   // boundaries from the right
+        let firstRow = Int(((rect.minY - m - top) / h).rounded())
+        let edge = min(max(leftColumn, wide), columns)
+        let row = min(max(firstRow, 0), rows - high)
+        return NSRect(x: right - w * CGFloat(edge) + m, y: top + h * CGFloat(row) + m,
+                      width: w * CGFloat(wide) - 2 * m, height: h * CGFloat(high) - 2 * m)
     }
 
     /// Where a fence's edge sits right beside the desktop's icon cells (with the same margin other
@@ -1759,6 +1824,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         fenceClip = [:]
         fenceFade = [:]
         placeDisplacedFences()
+        placeFencesOnGrid()
         for fence in myFences where !fence.isPortal {
             let grid = fenceGrid(fence)
             let members = fence.members.compactMap(index(named:))
@@ -1823,6 +1889,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let id = fence.id
         view.snap = { [weak self] rect, edges in
             guard let self, let area = self.screens.first?.iconArea else { return (rect, []) }
+            // On the icon grid: whole cells (a rolled-up fence keeps its whole height's cells)
+            if self.fencesOnGrid {
+                let collapsed = self.layout.fences.first { $0.id == id }.map { $0.collapsed ? $0.height : nil } ?? nil
+                let whole = self.gridFrame(NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: collapsed ?? rect.height))
+                return (collapsed != nil ? NSRect(x: whole.minX, y: whole.minY, width: whole.width, height: rect.height) : whole, [])
+            }
             // Snapping targets: this monitor's edges and its other fences only (not icons or widgets)
             let others = self.myFences.filter { $0.id != id }.map { self.visibleFrame(of: $0) }
             var (snapped, guides) = FenceSnap.snap(rect, edges: edges, area: area, others: others, grid: self.gridSnapLines)
@@ -2249,6 +2321,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     func debugFenceView(_ id: String) -> FenceView? { fenceViews[id] }
     func debugIsHidden(_ name: String) -> Bool { index(named: name).map { hiddenIcons.contains($0) } ?? true }
     func debugToggle(_ id: String) { toggleCollapsed(id) }
+    /// Whether a fence's panel sits exactly on grid cells (4 pt inside them).
+    func debugFenceOnGrid(_ id: String) -> Bool {
+        guard let frame = fenceViews[id]?.frame, let area = screens.first?.iconArea else { return false }
+        let fx = (area.maxX - 12 - (frame.minX - 4)) / cellSize.width, fy = (frame.minY - 4 - (area.minY + 12)) / cellSize.height
+        let fw = (frame.width + 8) / cellSize.width, fh = (frame.height + 8) / cellSize.height
+        return [fx, fy, fw, fh].allSatisfy { abs($0 - $0.rounded()) < 0.01 }
+    }
+    var debugFenceFrames: [String: NSRect] { fenceViews.mapValues(\.frame) }
     /// The grid cell right under `rect` (its column nearest the rect's middle), in this view.
     func debugCellBelow(_ rect: NSRect) -> CGPoint? {
         gridCells().filter { $0.y > rect.maxY }.min { a, b in

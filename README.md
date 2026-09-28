@@ -249,7 +249,7 @@ again once the monitors have settled after waking. The size of a monitor WinEx
   edges — both snap to the monitor's edges, the other zones and whole rows of icons (with guide
   lines; ⌘ turns snapping off); click the title's text to rename it; double-click the title bar or
   click the chevron to roll it up (it keeps its place, so nothing else moves). When its icons don't
-  fit it scrolls like a portal — the system's overlay scroller, momentum, the rubber band at the
+  fit it scrolls like a portal (icons fade out at an edge with more beyond it) — the system's overlay scroller, momentum, the rubber band at the
   ends. Its own colour and removal are in its menu (its icons stay where they are). Nothing runs in
   the background for them.
 - Folder portals: “New Folder Portal…” shows any folder on the desktop in a zone — icons with
@@ -257,6 +257,10 @@ again once the monitors have settled after waking. The size of a monitor WinEx
   it follows the folder's changes (read in the background, no polling). Portals are named after
   their folder; double-click a subfolder to go into it inside the portal (“‹” in the title goes
   back, ⌘↑ or Backspace too); the button at the title's right opens the folder in a WinEx window.
+- Zones on the icon grid (Settings ▸ Zones, on by default, with Align to Grid on): zones and
+  portals take whole cells of the desktop's grid, the panel a little inside them, so zones and
+  icons meet without gaps and without overlapping; zones that would land on the same cells go to
+  the nearest free ones. Their stored places stay: switched off, they're back where they were.
 - Double-click the wallpaper to hide every icon and zone (and again to bring them back), on all
   monitors. Zones of an unplugged monitor are shown on the remaining one in free spots, never on
   top of its own zones.

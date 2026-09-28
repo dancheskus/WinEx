@@ -771,6 +771,9 @@ final class FenceSettingsView: NSView {
         let snapping = ClosureCheckbox { FenceStyle.snapping = $0 }
         snapping.title = L("Прилипание к краям, зонам и сетке значков")
         snapping.state = FenceStyle.snapping ? .on : .off
+        let onGrid = ClosureCheckbox { FenceStyle.onGrid = $0 }
+        onGrid.title = L("Зоны по сетке значков")
+        onGrid.state = FenceStyle.onGrid ? .on : .off
         let quickHide = ClosureCheckbox { FenceStyle.quickHide = $0 }
         quickHide.title = L("Двойной щелчок по рабочему столу скрывает значки и зоны")
         quickHide.state = FenceStyle.quickHide ? .on : .off
@@ -798,6 +801,8 @@ final class FenceSettingsView: NSView {
         gap()
         row(L("Поведение:"), snapping)
         row(nil, SettingsForm.hint(L("⌘ при перетаскивании временно отключает прилипание.")))
+        row(nil, onGrid)
+        row(nil, SettingsForm.hint(L("Когда значки выровнены по сетке, зоны занимают её ячейки целиком — без щелей и наездов рядом с ними.")))
         row(nil, quickHide)
         row(nil, SettingsForm.hint(L("Создать зону — правый щелчок по рабочему столу WinEx; там же у каждой зоны свой цвет.")))
         grid.column(at: 0).xPlacement = .trailing

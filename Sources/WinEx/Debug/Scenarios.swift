@@ -1205,6 +1205,19 @@ enum Scenarios {
                 let at = view.debugCenter(of: name) ?? .zero
                 s.note("  zone bottom moved up \(Int(rect.maxY - snapped.maxY)) pt; the cell under it is free: \(abs(at.x - probeCell.x) < 1 && abs(at.y - probeCell.y) < 1)  expect a few pt, true")
             }),
+            (1.0, "zones on the icon grid, and off it again", {
+                guard let view = mainView() else { return }
+                FenceStyle.onGrid = true
+                view.displayIfNeeded()
+                let ids = view.layout.fences.filter { !$0.collapsed }.map(\.id)
+                s.note("  on the grid: \(ids.filter(view.debugFenceOnGrid).count) of \(ids.count)  expect all")
+                let stored = view.layout.fences.map(\.frame)
+                FenceStyle.onGrid = false
+                view.displayIfNeeded()
+                let shown = view.layout.fences.compactMap { view.debugFenceFrames[$0.id] }
+                s.note("  off: shown where stored: \(zip(stored, shown).allSatisfy { abs($0.minX - $1.minX) < 1 && abs($0.minY - $1.minY) < 1 })  expect true")
+                FenceStyle.onGrid = true
+            }),
             (1.0, "an icon dragged out of a zone onto the desktop", {
                 guard let view = mainView(), let fence = view.layout.fences.first(where: { !$0.members.isEmpty }),
                       let name = fence.members.first, let spot = view.debugEmptySpot(NSSize(width: 200, height: 200)) else { s.note("  (no zone with icons)"); return }

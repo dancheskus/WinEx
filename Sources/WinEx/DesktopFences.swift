@@ -67,6 +67,13 @@ enum FenceStyle {
         set { defaults.set(newValue, forKey: "fenceSnapping"); changed() }
     }
 
+    /// With icons aligned to the grid, fences take whole cells of it: no gaps beside them, no icon
+    /// half under them.
+    static var onGrid: Bool {
+        get { defaults.object(forKey: "fenceOnGrid") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "fenceOnGrid"); changed() }
+    }
+
     /// A double-click on the desktop hides (and shows again) every icon and fence.
     static var quickHide: Bool {
         get { defaults.object(forKey: "fenceQuickHide") as? Bool ?? true }
