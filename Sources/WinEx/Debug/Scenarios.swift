@@ -55,11 +55,11 @@ enum Scenarios {
 
     /// Customized folder icons (symbol, emoji, tag colors) as pictures, and the customization popover.
     static func folderIcon(_ s: Scenario) {
-        let samples: [(NSColor?, FolderCustomization?)] = [(nil, .symbol("person.crop.circle")), (.systemYellow, .symbol("person.crop.circle")),
-                                                           (.systemGreen, .symbol("star.fill")), (nil, .emoji("🐱")), (.systemRed, nil)]
+        let samples: [(Int?, FolderCustomization?)] = [(nil, .symbol("person.crop.circle")), (5, .symbol("person.crop.circle")),
+                                                       (2, .symbol("star.fill")), (nil, .emoji("🐱")), (6, nil), (nil, nil)]
         let sheet = NSImage(size: NSSize(width: 160 * CGFloat(samples.count), height: 160), flipped: false) { _ in
             for (n, sample) in samples.enumerated() {
-                FolderIcon.render(tagColor: sample.0, customization: sample.1).draw(in: NSRect(x: CGFloat(n) * 160, y: 0, width: 160, height: 160))
+                FolderIcon.render(tagColor: sample.0, customization: sample.1, filled: n % 2 == 0).draw(in: NSRect(x: CGFloat(n) * 160, y: 0, width: 160, height: 160))
             }
             return true
         }
@@ -87,7 +87,16 @@ enum Scenarios {
                 guard let view = s.window?.window?.contentView else { return }
                 FolderCustomizationController.show(for: folder, relativeTo: NSRect(x: 300, y: 300, width: 10, height: 10), of: view)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                    if let popover = NSApp.windows.first(where: { $0.isVisible && $0.className.contains("Popover") }) {
+                    guard let popover = NSApp.windows.first(where: { $0.isVisible && $0.className.contains("Popover") }) else { return }
+                    // A click on a circle at the right: the row must stay where it is
+                    func buttons(_ view: NSView) -> [NSButton] { view.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? buttons($0) } }
+                    let circles = buttons(popover.contentView ?? NSView()).filter { $0.identifier != nil && $0.frame.width == 26 }
+                    let before = circles.first.map { $0.convert($0.bounds, to: nil).minX } ?? 0
+                    circles.dropLast().last?.performClick(nil)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        let after = buttons(popover.contentView ?? NSView()).filter { $0.identifier != nil && $0.frame.width == 26 }
+                            .first.map { $0.convert($0.bounds, to: nil).minX } ?? 0
+                        s.note((abs(after - before) < 0.5 ? "ok" : "FAIL") + " tag circles after a click: \(before) → \(after)")
                         try? "\(popover.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
                     }
                 }

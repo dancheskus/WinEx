@@ -138,6 +138,8 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         name.lineBreakMode = .byTruncatingMiddle
 
         tagRow.spacing = 8
+        // Kept in the middle however wide the row gets (a click on a circle rebuilds it)
+        tagRow.setHuggingPriority(.required, for: .horizontal)
         tagRow.alignment = .centerY
 
         let grid = symbolGrid()
@@ -268,15 +270,15 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
     // MARK: - Tags
 
     private func refresh() {
-        let color = tags.reversed().lazy.compactMap { FileTags.color(forIndex: $0.color) }.first
-        preview.image = FolderIcon.render(tagColor: color, customization: customization)
+        let color = tags.last { FileTags.color(forIndex: $0.color) != nil }?.color
+        preview.image = FolderIcon.render(tagColor: color, customization: customization, filled: FolderIcon.hasContents(folder))
         clearButton?.isEnabled = customization != nil
         // Highlight the chosen symbol
         for case let button as NSButton in (view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews ?? []) {
             button.contentTintColor = customization == .symbol(button.identifier?.rawValue ?? "") ? .controlAccentColor : .secondaryLabelColor
         }
 
-        tagRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        tagRow.views.forEach { tagRow.removeView($0) }
         // As in Finder: «remove all» (just the symbol), the favourite colours in their order (✓ on
         // the folder's), its other tags after them, «+» on a grey circle
         let removeAll = NSButton(image: NSImage(systemSymbolName: "tag.slash", accessibilityDescription: L("Снять теги"))?
@@ -285,7 +287,7 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         removeAll.contentTintColor = tags.isEmpty ? .tertiaryLabelColor : .secondaryLabelColor
         removeAll.toolTip = L("Снять все теги")
         removeAll.widthAnchor.constraint(equalToConstant: 22).isActive = true
-        tagRow.addArrangedSubview(removeAll)
+        tagRow.addView(removeAll, in: .center)
         let favorites = FileTags.favorites.filter { $0.color > 0 }
         let shown = favorites + tags.filter { tag in !favorites.contains { $0.name == tag.name } }
         for tag in shown {
@@ -293,12 +295,12 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
             let button = circleButton(image: nil, color: tag.color, checked: applied, size: 26, action: #selector(toggleTag(_:)))
             button.toolTip = tag.name
             button.identifier = NSUserInterfaceItemIdentifier(tag.name)
-            tagRow.addArrangedSubview(button)
+            tagRow.addView(button, in: .center)
         }
         let add = circleButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить тег"))?
             .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold)), color: nil, checked: false, size: 28, action: #selector(addCustomTag(_:)))
         add.toolTip = L("Добавить тег…")
-        tagRow.addArrangedSubview(add)
+        tagRow.addView(add, in: .center)
     }
 
     private func circleButton(image: NSImage?, color: Int?, checked: Bool, size: CGFloat, action: Selector) -> NSButton {

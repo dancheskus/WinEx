@@ -41,52 +41,137 @@ enum FolderCustomization: Equatable {
             return data.withUnsafeBytes { setxattr(path, attribute, $0.baseAddress, data.count, 0, 0) }
         }
         if result != 0 { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: url.path]) }
+        // Finder also marks the folder as having its own icon: then macOS draws it customized
+        // everywhere (Dock, Open dialogs, other apps). Left alone if it has a real custom icon file
+        let iconFile = url.appendingPathComponent("Icon\r")
+        if value != nil || !FileManager.default.fileExists(atPath: iconFile.path) {
+            setHasCustomIcon(value != nil, at: url)
+        }
         // Let Finder / Dock redraw the folder
         NSWorkspace.shared.noteFileSystemChanged(url.path)
     }
-}
 
-/// Draws folder icons the way macOS 26 Finder does: tinted with the last colored tag,
-/// with the customization symbol / emoji on the front.
-enum FolderIcon {
-    private static let genericFolder = NSWorkspace.shared.icon(for: .folder)
-
-    /// `nil` when the folder has nothing special (use the system icon, which keeps special-folder glyphs).
-    static func custom(tagColor: NSColor?, customization: FolderCustomization?) -> NSImage? {
-        guard tagColor != nil || customization != nil else { return nil }
-        return render(tagColor: tagColor, customization: customization)
-    }
-
-    static func render(tagColor: NSColor?, customization: FolderCustomization?) -> NSImage {
-        let base = tagColor.map { FileTags.tinted(genericFolder, with: $0) } ?? genericFolder
-        guard let customization else { return base }
-        let side: CGFloat = 256
-        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
-            base.draw(in: rect)
-            // In the middle of the folder's front panel, large (as Finder draws it)
-            let badge = NSRect(x: rect.width * 0.28, y: rect.height * 0.23, width: rect.width * 0.44, height: rect.height * 0.4)
-            switch customization {
-            case .symbol(let name):
-                let config = NSImage.SymbolConfiguration(pointSize: badge.height * 0.8, weight: .medium)
-                guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { break }
-                // Embossed look: the folder's own color, a shade darker
-                let ink = (tagColor ?? NSColor(red: 0.16, green: 0.49, blue: 0.87, alpha: 1)).blended(withFraction: 0.3, of: .black) ?? .black
-                let tinted = NSImage(size: symbol.size, flipped: false) { r in
-                    symbol.draw(in: r)
-                    ink.setFill()
-                    r.fill(using: .sourceIn)
-                    return true
-                }
-                tinted.draw(in: DesktopView.aspectFit(tinted.size, in: badge), from: .zero, operation: .sourceOver, fraction: 0.6)
-            case .emoji(let emoji):
-                let font = NSFont.systemFont(ofSize: badge.height * 0.85)
-                let text = NSAttributedString(string: emoji, attributes: [.font: font])
-                let size = text.size()
-                text.draw(at: NSPoint(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2))
+    /// Finder's "has a custom icon" flag (kHasCustomIcon in the FinderInfo attribute).
+    static func setHasCustomIcon(_ on: Bool, at url: URL) {
+        url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return }
+            let name = "com.apple.FinderInfo"
+            var info = Data(count: 32)
+            let size = info.withUnsafeMutableBytes { getxattr(path, name, $0.baseAddress, 32, 0, 0) }
+            if size != 32 { info = Data(count: 32) }
+            let before = info[8]
+            info[8] = on ? before | 0x04 : before & ~0x04
+            guard info[8] != before else { return }
+            if info.allSatisfy({ $0 == 0 }) {
+                removexattr(path, name, 0)
+            } else {
+                _ = info.withUnsafeBytes { setxattr(path, name, $0.baseAddress, 32, 0, 0) }
             }
-            return true
         }
     }
+}
+
+/// Folder icons exactly as macOS 26 Finder draws them: in the color of the last colored tag, with
+/// the symbol / emoji on the front, and with a sheet of paper showing when the folder isn't empty.
+/// macOS draws that itself for a folder marked as having its own icon; WinEx lets it draw small
+/// sample folders of its own (in its caches) with the same tag and customization, and uses their
+/// icons — nothing is written to the user's folders just to show them.
+enum FolderIcon {
+    /// `nil` when the system's own icon is right (a special folder, a folder with its own picture).
+    static func icon(for url: URL, tagColor: Int?, customization: FolderCustomization?) -> NSImage? {
+        guard tagColor != nil || customization != nil || isPlain(url) else { return nil }
+        return render(tagColor: tagColor, customization: customization, filled: hasContents(url))
+    }
+
+    /// The icon of a folder with this tag color (`FileTags` color index), customization and contents.
+    static func render(tagColor: Int?, customization: FolderCustomization?, filled: Bool) -> NSImage {
+        let key = "\(tagColor ?? 0)-\(filled ? 1 : 0)-" + customizationKey(customization)
+        // (Folder listings load icons off the main thread)
+        lock.lock()
+        defer { lock.unlock() }
+        if let known = cache[key] { return known }
+        let image = sample(key: key, tagColor: tagColor, customization: customization, filled: filled).map {
+            NSWorkspace.shared.icon(forFile: $0.path)
+        } ?? NSWorkspace.shared.icon(for: .folder)
+        cache[key] = image
+        return image
+    }
+
+    nonisolated(unsafe) private static var cache: [String: NSImage] = [:]
+    private static let lock = NSLock()
+
+    private static func customizationKey(_ customization: FolderCustomization?) -> String {
+        switch customization {
+        case .symbol(let name): "s" + name.replacingOccurrences(of: ".", with: "_")   // no dots: not taken for an extension
+        case .emoji(let emoji): "e" + emoji.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "_")
+        case nil: "none"
+        }
+    }
+
+    /// A sample folder (made once) for macOS to draw.
+    private static func sample(key: String, tagColor: Int?, customization: FolderCustomization?, filled: Bool) -> URL? {
+        let fm = FileManager.default
+        guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
+        let looks = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "WinEx").appendingPathComponent("Folder looks")
+        let folder = looks.appendingPathComponent(key)
+        if fm.fileExists(atPath: folder.path) { return folder }
+        // Made complete elsewhere, then copied in: macOS keeps the look a folder had when it first
+        // saw it, so it must never see one half made
+        let draft = looks.appendingPathComponent(".draft-" + UUID().uuidString)
+        defer { try? fm.removeItem(at: draft) }
+        do {
+            try fm.createDirectory(at: draft, withIntermediateDirectories: true)
+            if filled { try Data().write(to: draft.appendingPathComponent("sheet")) }
+            if let tagColor { try FileTags.setTags([FileTags.Tag(name: "WinEx", color: tagColor)], on: draft) }
+            // Without a symbol or emoji an invisible emoji: macOS then draws just the colored folder
+            try FolderCustomization.write(customization ?? .emoji(" "), to: draft)
+            try fm.copyItem(at: draft, to: folder)
+            return folder
+        } catch {
+            return fm.fileExists(atPath: folder.path) ? folder : nil
+        }
+    }
+
+    /// Folders not empty (hidden files don't count) show a sheet of paper, as in Finder.
+    static func hasContents(_ url: URL) -> Bool {
+        url.withUnsafeFileSystemRepresentation { path in
+            guard let path, let dir = opendir(path) else { return false }
+            defer { closedir(dir) }
+            while let entry = readdir(dir) {
+                let first = withUnsafeBytes(of: entry.pointee.d_name) { $0.first ?? 0 }
+                if first != UInt8(ascii: ".") { return true }
+            }
+            return false
+        }
+    }
+
+    /// An ordinary folder: not one with a picture of its own (Downloads' arrow, a volume, a folder
+    /// with its own icon) — those keep the system's icon.
+    private static func isPlain(_ url: URL) -> Bool {
+        let values = try? url.resourceValues(forKeys: [.isVolumeKey, .isPackageKey])
+        if values?.isVolume == true || values?.isPackage == true { return false }
+        if specialFolders.contains(url.standardizedFileURL.path) { return false }
+        if url.path.hasPrefix(cloudStorage) { return url.deletingLastPathComponent().path != cloudStorage }
+        // Its own icon (the "custom icon" flag set, no customization)
+        let flagged: Bool = url.withUnsafeFileSystemRepresentation { path in
+            guard let path else { return false }
+            var info = [UInt8](repeating: 0, count: 32)
+            return getxattr(path, "com.apple.FinderInfo", &info, 32, 0, 0) == 32 && info[8] & 0x04 != 0
+        }
+        return !flagged
+    }
+
+    private static let cloudStorage = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/CloudStorage").path
+
+    private static let specialFolders: Set<String> = {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        var paths = ["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures", "Public", "Public/Drop Box",
+                     "Library", "Applications", "Sites", ".Trash", "Library/Mobile Documents/com~apple~CloudDocs", "Library/CloudStorage"]
+            .map { home.appendingPathComponent($0).path }
+        paths += [home.path, "/", "/Applications", "/Applications/Utilities", "/Library", "/System", "/Users", "/Users/Shared",
+                  "/Volumes", "/Network", "/System/Applications", "/System/Applications/Utilities"]
+        return Set(paths)
+    }()
 }
 
 // MARK: - Inline tag row for context menus

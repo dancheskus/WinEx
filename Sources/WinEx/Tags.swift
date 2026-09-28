@@ -145,26 +145,6 @@ enum FileTags {
         return text
     }
 
-    /// macOS 26 tints folders with their tag color; do the same to a folder icon: the color itself
-    /// in the folder's shape, the folder's own shading laid over it softly (light colors stay light).
-    static func tinted(_ icon: NSImage, with color: NSColor) -> NSImage {
-        let size = NSSize(width: 256, height: 256)
-        return NSImage(size: size, flipped: false) { rect in
-            color.setFill()
-            rect.fill()
-            icon.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1)
-            let shading = NSImage(size: size, flipped: false) { r in
-                icon.draw(in: r)
-                NSColor.white.setFill()
-                r.fill(using: .saturation)   // the folder in grey: just its light and shade
-                return true
-            }
-            shading.draw(in: rect, from: .zero, operation: .softLight, fraction: 0.9)
-            icon.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1)  // nothing outside it
-            return true
-        }
-    }
-
     final class TagToggle: NSObject {
         let tag: Tag
         let urls: [URL]
