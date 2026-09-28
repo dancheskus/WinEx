@@ -75,9 +75,8 @@ enum FileContextMenu {
             add(L("Распаковать"), #selector(FileMenuActions.extractArchive(_:)))
         }
         menu.addItem(.separator())
-        // Finder's row of tag colours, then the tags submenu
+        // Finder's row of tag colours (and, for a folder, «Настроить папку…» right under it)
         menu.addItem(TagRowMenuView.menuItem(for: urls))
-        menu.addItem(FileTags.menuItem(for: urls, target: target, action: #selector(FileMenuActions.toggleTag(_:))))
         if customizableFolder { add(L("Настроить папку…"), #selector(FileMenuActions.customizeFolder(_:))) }
         menu.addItem(.separator())
         add(L("Свойства"), #selector(FileMenuActions.showProperties(_:)))

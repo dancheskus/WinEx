@@ -853,8 +853,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
 
         if selection.contains(i) || dropTarget == i {
-            // Finder's desktop: a dark translucent square with a light border
-            let square = NSBezierPath(roundedRect: iconRect.insetBy(dx: -5, dy: -5), xRadius: 10, yRadius: 10)
+            // Finder's desktop: a dark translucent square with a light border, close around what the
+            // picture shows (a folder is wider than tall; icons have empty margins of their own)
+            let picture = image(for: i)
+            let shown = Self.visibleRect(of: picture, in: Self.aspectFit(picture.size, in: iconRect))
+            let square = NSBezierPath(roundedRect: shown.insetBy(dx: -5, dy: -5), xRadius: 9, yRadius: 9)
             NSColor.black.withAlphaComponent(dropTarget == i ? 0.45 : 0.3).setFill()
             square.fill()
             NSColor.white.withAlphaComponent(0.4).setStroke()
@@ -878,6 +881,42 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             }
         }
     }
+
+    /// The part of `rect` (where `image` is drawn) that the picture really covers — without the
+    /// transparent margins icons have. Measured once per image, on a small copy.
+    static func visibleRect(of image: NSImage, in rect: NSRect) -> NSRect {
+        let unit: NSRect
+        if let known = visibleBounds.object(forKey: image) {
+            unit = known.rectValue
+        } else {
+            let side = 48
+            var found = NSRect(x: 0, y: 0, width: 1, height: 1)
+            if let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8, samplesPerPixel: 4,
+                                          hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+                NSGraphicsContext.restoreGraphicsState()
+                var minX = side, minY = side, maxX = -1, maxY = -1
+                for y in 0..<side {
+                    for x in 0..<side where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 {
+                        minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                    }
+                }
+                if maxX >= minX, maxY >= minY {
+                    // (Bitmap rows run top down; the rect is measured from the top as the desktop is flipped)
+                    found = NSRect(x: CGFloat(minX) / CGFloat(side), y: CGFloat(minY) / CGFloat(side),
+                                   width: CGFloat(maxX - minX + 1) / CGFloat(side), height: CGFloat(maxY - minY + 1) / CGFloat(side))
+                }
+            }
+            visibleBounds.setObject(NSValue(rect: found), forKey: image)
+            unit = found
+        }
+        return NSRect(x: rect.minX + unit.minX * rect.width, y: rect.minY + unit.minY * rect.height,
+                      width: unit.width * rect.width, height: unit.height * rect.height)
+    }
+
+    private static let visibleBounds = NSMapTable<NSImage, NSValue>.weakToStrongObjects()
 
     /// Largest rect with the image's proportions inside `rect` (previews aren't square).
     static func aspectFit(_ size: NSSize, in rect: NSRect) -> NSRect {

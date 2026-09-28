@@ -63,8 +63,8 @@ enum FolderIcon {
         let side: CGFloat = 256
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             base.draw(in: rect)
-            // The front panel of the folder occupies roughly the lower 60 % of the icon
-            let badge = NSRect(x: rect.width * 0.34, y: rect.height * 0.2, width: rect.width * 0.32, height: rect.height * 0.32)
+            // In the middle of the folder's front panel, large (as Finder draws it)
+            let badge = NSRect(x: rect.width * 0.3, y: rect.height * 0.26, width: rect.width * 0.4, height: rect.height * 0.36)
             switch customization {
             case .symbol(let name):
                 let config = NSImage.SymbolConfiguration(pointSize: badge.height * 0.8, weight: .medium)

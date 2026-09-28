@@ -48,9 +48,42 @@ enum Scenarios {
         "replaylayout": replayLayout,
         "finderbutton": finderButton,
         "tagwatch": tagWatch,
+        "foldericon": folderIcon,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// Customized folder icons (symbol, emoji, tag colors) as pictures, and the customization popover.
+    static func folderIcon(_ s: Scenario) {
+        let samples: [(NSColor?, FolderCustomization?)] = [(nil, .symbol("person.crop.circle")), (.systemYellow, .symbol("person.crop.circle")),
+                                                           (.systemGreen, .symbol("star.fill")), (nil, .emoji("🐱")), (.systemRed, nil)]
+        let sheet = NSImage(size: NSSize(width: 160 * CGFloat(samples.count), height: 160), flipped: false) { _ in
+            for (n, sample) in samples.enumerated() {
+                FolderIcon.render(tagColor: sample.0, customization: sample.1).draw(in: NSRect(x: CGFloat(n) * 160, y: 0, width: 160, height: 160))
+            }
+            return true
+        }
+        if let tiff = sheet.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: s.output.appendingPathComponent("icons.png"))
+        }
+        // The popover, on a folder with one tag and a symbol
+        let folder = s.makeFiles(["Папка/"], in: "custom").appendingPathComponent("Папка")
+        try? FileTags.setTags([FileTags.Tag(name: "Желтый", color: 5)], on: folder)
+        try? FolderCustomization.write(.symbol("person.crop.circle"), to: folder)
+        s.window?.navigate(to: folder.deletingLastPathComponent())
+        s.run([
+            (1.0, "popover", {
+                guard let view = s.window?.window?.contentView else { return }
+                FolderCustomizationController.show(for: folder, relativeTo: NSRect(x: 300, y: 300, width: 10, height: 10), of: view)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    if let popover = NSApp.windows.first(where: { $0.isVisible && $0.className.contains("Popover") }) {
+                        try? "\(popover.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                    }
+                }
+            }),
+            (3.0, "done", {}),
+        ])
+    }
 
     /// A tag put on a file by another app (here: the xattr tool) shows in WinEx at once.
     static func tagWatch(_ s: Scenario) {
@@ -136,6 +169,9 @@ enum Scenarios {
                 for fence in view.layout.fences {
                     let frame = view.debugFenceView(fence.id)?.frame ?? .zero
                     s.note("  «\(fence.title)» at \(Int(frame.minX)),\(Int(frame.minY)): \(Int(size.width - frame.maxX)) pt from the right edge")
+                }
+                if let select = ProcessInfo.processInfo.environment["WINEX_SELECT"] {
+                    for v in NSApp.windows.compactMap({ $0.contentView as? DesktopView }) { v.debugSelect(select.components(separatedBy: "|")); v.displayIfNeeded() }
                 }
                 let shown = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
                     .filter { name in !name.hasPrefix(".") && !view.layout.fences.contains { $0.members.contains(name) } && view.debugCenter(of: name) != nil }

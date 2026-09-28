@@ -19,23 +19,39 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
     private var customization: FolderCustomization?
     private var tags: [FileTags.Tag]
 
-    /// Curated SF Symbols, in the same spirit as Finder's sections.
+    /// SF Symbols in Finder's sections (missing names are skipped).
     private static let symbolSections: [(String, [String])] = [
-        (L("Люди"), ["person.fill", "person.2.fill", "person.crop.circle", "figure.stand", "figure.2.and.child.holdinghands",
-                  "face.smiling", "brain.head.profile", "eye", "hand.raised.fill", "hand.thumbsup.fill", "heart.fill", "star.fill"]),
-        (L("Животные и природа"), ["hare.fill", "tortoise.fill", "dog.fill", "cat.fill", "bird.fill", "fish.fill",
-                                "pawprint.fill", "leaf.fill", "tree.fill", "flame.fill", "drop.fill", "sun.max.fill",
-                                "moon.fill", "cloud.fill", "snowflake", "bolt.fill"]),
-        (L("Работа и учёба"), ["briefcase.fill", "doc.text.fill", "folder.fill", "book.fill", "graduationcap.fill", "pencil",
-                            "paintbrush.fill", "hammer.fill", "wrench.and.screwdriver.fill", "chart.bar.fill", "calendar",
-                            "tray.full.fill", "archivebox.fill", "paperclip", "lock.fill", "key.fill"]),
-        (L("Медиа"), ["photo.fill", "camera.fill", "video.fill", "film.fill", "music.note", "headphones", "mic.fill",
-                   "gamecontroller.fill", "tv.fill", "play.rectangle.fill"]),
-        (L("Техника"), ["desktopcomputer", "laptopcomputer", "iphone", "keyboard", "server.rack", "externaldrive.fill",
-                     "cpu.fill", "terminal.fill", "chevron.left.forwardslash.chevron.right", "network", "wifi", "globe"]),
-        (L("Места и транспорт"), ["house.fill", "building.2.fill", "map.fill", "mappin.and.ellipse", "airplane", "car.fill",
-                               "bicycle", "tram.fill", "ferry.fill", "suitcase.fill"]),
-        (L("Покупки и деньги"), ["cart.fill", "bag.fill", "creditcard.fill", "banknote.fill", "gift.fill", "tag.fill"]),
+        (L("Люди"), ["person.fill", "person.2.fill", "person.crop.circle", "figure.stand", "figure.stand.dress", "figure.and.child.holdinghands",
+                  "figure.arms.open", "figure.2", "figure.2.and.child.holdinghands", "figure.walk", "figure.wave", "figure.2.arms.open",
+                  "figure", "face.smiling", "brain", "brain.head.profile", "eye", "eye.slash", "eyes", "eyebrow", "nose", "mustache",
+                  "mouth", "ear", "ear.fill", "lungs.fill", "hand.raised.fill", "hand.raised.fingers.spread.fill", "hand.wave.fill",
+                  "hand.thumbsup.fill", "hand.thumbsdown.fill", "hand.point.up.left.fill", "hand.tap.fill", "hand.point.right.fill",
+                  "hand.point.left.fill", "hand.point.up.fill", "hands.clap.fill", "heart.fill", "star.fill"]),
+        (L("Животные и природа"), ["hare.fill", "tortoise.fill", "dog.fill", "cat.fill", "lizard.fill", "bird.fill", "ant.fill",
+                                "ladybug.fill", "fish.fill", "pawprint.fill", "leaf.fill", "tree.fill", "camera.macro", "carrot.fill",
+                                "flame.fill", "drop.fill", "sun.max.fill", "moon.fill", "sparkles", "cloud.fill", "cloud.rain.fill",
+                                "snowflake", "bolt.fill", "tornado", "mountain.2.fill", "globe.europe.africa.fill"]),
+        (L("Работа и учёба"), ["briefcase.fill", "case.fill", "doc.text.fill", "doc.on.doc.fill", "folder.fill", "book.fill",
+                            "books.vertical.fill", "book.closed.fill", "graduationcap.fill", "backpack.fill", "pencil", "highlighter",
+                            "paintbrush.fill", "paintpalette.fill", "scissors", "ruler.fill", "hammer.fill", "wrench.and.screwdriver.fill",
+                            "chart.bar.fill", "chart.pie.fill", "calendar", "clock.fill", "tray.full.fill", "archivebox.fill",
+                            "paperclip", "lock.fill", "key.fill", "lightbulb.fill", "list.bullet.clipboard.fill", "signature"]),
+        (L("Медиа"), ["photo.fill", "photo.on.rectangle", "camera.fill", "video.fill", "film.fill", "music.note", "music.note.list",
+                   "headphones", "hifispeaker.fill", "mic.fill", "radio.fill", "guitars.fill", "pianokeys", "gamecontroller.fill",
+                   "tv.fill", "play.rectangle.fill", "theatermasks.fill", "ticket.fill", "popcorn.fill", "paintbrush.pointed.fill"]),
+        (L("Техника"), ["desktopcomputer", "laptopcomputer", "display", "iphone", "ipad", "applewatch", "keyboard", "computermouse.fill",
+                     "printer.fill", "server.rack", "externaldrive.fill", "internaldrive.fill", "cpu.fill", "memorychip.fill",
+                     "terminal.fill", "chevron.left.forwardslash.chevron.right", "network", "wifi", "antenna.radiowaves.left.and.right",
+                     "globe", "cloud.fill", "icloud.fill", "gearshape.fill", "cube.fill", "shippingbox.fill", "battery.100"]),
+        (L("Места и транспорт"), ["house.fill", "building.2.fill", "building.columns.fill", "storefront.fill", "tent.fill", "map.fill",
+                               "mappin.and.ellipse", "location.fill", "airplane", "car.fill", "bus.fill", "tram.fill", "bicycle",
+                               "scooter", "sailboat.fill", "ferry.fill", "suitcase.fill", "beach.umbrella.fill", "flag.fill", "signpost.right.fill"]),
+        (L("Покупки и деньги"), ["cart.fill", "bag.fill", "basket.fill", "creditcard.fill", "banknote.fill", "dollarsign.circle.fill",
+                              "eurosign.circle.fill", "giftcard.fill", "gift.fill", "tag.fill", "percent", "chart.line.uptrend.xyaxis",
+                              "wallet.pass.fill", "receipt.fill"]),
+        (L("Еда и здоровье"), ["fork.knife", "cup.and.saucer.fill", "mug.fill", "wineglass.fill", "birthday.cake.fill", "takeoutbag.and.cup.and.straw.fill",
+                            "heart.text.square.fill", "cross.case.fill", "pills.fill", "stethoscope", "figure.run", "dumbbell.fill",
+                            "sportscourt.fill", "soccerball", "basketball.fill", "tennis.racket"]),
     ]
 
     init(folder: URL) {
@@ -49,21 +65,21 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
 
     override func loadView() {
         preview.imageScaling = .scaleProportionallyUpOrDown
-        preview.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        preview.heightAnchor.constraint(equalToConstant: 96).isActive = true
+        preview.widthAnchor.constraint(equalToConstant: 128).isActive = true
+        preview.heightAnchor.constraint(equalToConstant: 128).isActive = true
         let name = NSTextField(labelWithString: folder.displayName)
-        name.font = .systemFont(ofSize: 14, weight: .medium)
+        name.font = .systemFont(ofSize: 15, weight: .medium)
         name.lineBreakMode = .byTruncatingMiddle
 
-        tagRow.spacing = 8
+        tagRow.spacing = 7
         tagRow.alignment = .centerY
 
         let grid = symbolGrid()
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
-        scroll.heightAnchor.constraint(equalToConstant: 300).isActive = true
-        scroll.widthAnchor.constraint(equalToConstant: 330).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 400).isActive = true
+        scroll.widthAnchor.constraint(equalToConstant: 316).isActive = true
         // Auto Layout document view: pinned to the top of the clip view, as tall as its content
         let clip = FlippedClipView()
         clip.drawsBackground = false
@@ -117,25 +133,26 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
             var row: [NSView] = []
             for name in symbols {
                 guard let image = NSImage(systemSymbolName: name, accessibilityDescription: name) else { continue }
-                let button = NSButton(image: image.withSymbolConfiguration(.init(pointSize: 20, weight: .regular)) ?? image,
+                let button = NSButton(image: image.withSymbolConfiguration(.init(pointSize: 21, weight: .regular)) ?? image,
                                       target: self, action: #selector(pickSymbol(_:)))
                 button.isBordered = false
                 button.identifier = NSUserInterfaceItemIdentifier(name)
                 button.toolTip = name
                 button.contentTintColor = .secondaryLabelColor
-                button.widthAnchor.constraint(equalToConstant: 44).isActive = true
-                button.heightAnchor.constraint(equalToConstant: 36).isActive = true
+                button.widthAnchor.constraint(equalToConstant: 46).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
                 row.append(button)
                 if row.count == columns { rows.append(row); row = [] }
             }
             if !row.isEmpty { rows.append(row + Array(repeating: NSGridCell.emptyContentView, count: columns - row.count)) }
         }
         let grid = NSGridView(views: rows)
-        grid.rowSpacing = 2
-        grid.columnSpacing = 6
+        grid.rowSpacing = 4
+        grid.columnSpacing = 4
         for i in 0..<grid.numberOfRows where rows[i].first is NSTextField {
             grid.row(at: i).mergeCells(in: NSRange(location: 0, length: columns))
-            grid.row(at: i).topPadding = 8
+            grid.row(at: i).topPadding = 12
+            grid.row(at: i).bottomPadding = 2
         }
         return grid
     }
@@ -176,7 +193,7 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
     // MARK: - Tags
 
     private func refresh() {
-        let color = tags.lazy.compactMap { FileTags.color(forIndex: $0.color) }.first
+        let color = tags.reversed().lazy.compactMap { FileTags.color(forIndex: $0.color) }.first
         preview.image = FolderIcon.render(tagColor: color, customization: customization)
         // Highlight the chosen symbol
         for case let button as NSButton in (view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews ?? []) {
@@ -184,42 +201,39 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         }
 
         tagRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        let removeAll = circleButton(image: NSImage(systemSymbolName: "tag.slash", accessibilityDescription: L("Снять теги"))!,
-                                     color: nil, checked: false, action: #selector(removeAllTags(_:)))
+        // As in Finder: «remove all» (just the symbol), the favourite colours in their order (✓ on
+        // the folder's), its other tags after them, «+» on a grey circle
+        let removeAll = NSButton(image: NSImage(systemSymbolName: "tag.slash", accessibilityDescription: L("Снять теги"))?
+            .withSymbolConfiguration(.init(pointSize: 17, weight: .regular)) ?? NSImage(), target: self, action: #selector(removeAllTags(_:)))
+        removeAll.isBordered = false
+        removeAll.contentTintColor = tags.isEmpty ? .tertiaryLabelColor : .secondaryLabelColor
         removeAll.toolTip = L("Снять все теги")
+        removeAll.widthAnchor.constraint(equalToConstant: 28).isActive = true
         tagRow.addArrangedSubview(removeAll)
-        let applied = tags
-        for tag in applied {
-            let button = circleButton(image: nil, color: tag.color, checked: true, action: #selector(toggleTag(_:)))
+        let favorites = FileTags.favorites.filter { $0.color > 0 }
+        let shown = favorites + tags.filter { tag in !favorites.contains { $0.name == tag.name } }
+        for tag in shown {
+            let applied = tags.contains { $0.name == tag.name }
+            let button = circleButton(image: nil, color: tag.color, checked: applied, action: #selector(toggleTag(_:)))
             button.toolTip = tag.name
             button.identifier = NSUserInterfaceItemIdentifier(tag.name)
             tagRow.addArrangedSubview(button)
         }
-        let divider = NSBox()
-        divider.boxType = .separator
-        divider.heightAnchor.constraint(equalToConstant: 22).isActive = true
-        tagRow.addArrangedSubview(divider)
-        for tag in FileTags.favorites where !applied.contains(where: { $0.name == tag.name }) {
-            let button = circleButton(image: nil, color: tag.color, checked: false, action: #selector(toggleTag(_:)))
-            button.toolTip = tag.name
-            button.identifier = NSUserInterfaceItemIdentifier(tag.name)
-            tagRow.addArrangedSubview(button)
-        }
-        let add = circleButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить тег"))!,
-                               color: nil, checked: false, action: #selector(addCustomTag(_:)))
+        let add = circleButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить тег"))?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold)), color: nil, checked: false, action: #selector(addCustomTag(_:)))
         add.toolTip = L("Добавить тег…")
         tagRow.addArrangedSubview(add)
     }
 
     private func circleButton(image: NSImage?, color: Int?, checked: Bool, action: Selector) -> NSButton {
-        let size: CGFloat = 26
+        let size: CGFloat = 30
         let picture = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
             if let color, let fill = FileTags.color(forIndex: color) {
                 fill.setFill()
                 circle.fill()
             } else {
-                NSColor.quaternaryLabelColor.setFill()
+                NSColor.labelColor.withAlphaComponent(0.22).setFill()   // «+»: a grey circle
                 circle.fill()
             }
             if checked, let check = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
@@ -230,7 +244,10 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
                 tinted.draw(in: DesktopView.aspectFit(tinted.size, in: rect.insetBy(dx: 7, dy: 7)))
             }
             if let image {
-                image.draw(in: DesktopView.aspectFit(image.size, in: rect.insetBy(dx: 6, dy: 6)))
+                let white = NSImage(size: image.size, flipped: false) { r in
+                    image.draw(in: r); NSColor.white.setFill(); r.fill(using: .sourceIn); return true
+                }
+                white.draw(in: DesktopView.aspectFit(image.size, in: rect.insetBy(dx: 9, dy: 9)))
             }
             return true
         }

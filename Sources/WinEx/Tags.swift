@@ -165,61 +165,10 @@ enum FileTags {
         }
     }
 
-    /// Context-menu "Теги ▸": favorites plus tags already used by the files; checkmark = every file has it.
-    @MainActor
-    static func menuItem(for urls: [URL], target: AnyObject, action: Selector) -> NSMenuItem {
-        let fileTags = urls.map { Set(tags(of: $0).map(\.name)) }
-        var all = favorites
-        for tag in urls.flatMap(tags(of:)) where !all.contains(where: { $0.name == tag.name }) { all.append(tag) }
-        let menu = NSMenu()
-        for tag in all {
-            let item = menu.addItem(withTitle: tag.name, action: action, keyEquivalent: "")
-            item.target = target
-            item.image = dotImage(color: tag.color)
-            let count = fileTags.filter { $0.contains(tag.name) }.count
-            item.state = count == 0 ? .off : (count == urls.count ? .on : .mixed)
-            item.representedObject = TagToggle(tag: tag, urls: urls, add: count < urls.count)
-        }
-        menu.addItem(.separator())
-        // A tag that isn't in the list yet
-        let new = menu.addItem(withTitle: L("Новый тег…"), action: #selector(TagPrompt.ask(_:)), keyEquivalent: "")
-        new.target = TagPrompt.shared
-        new.representedObject = urls as NSArray
-        let item = NSMenuItem(title: L("Теги"), action: nil, keyEquivalent: "")
-        item.image = NSImage(systemSymbolName: "tag", accessibilityDescription: nil)
-        item.submenu = menu
-        return item
-    }
-
     final class TagToggle: NSObject {
         let tag: Tag
         let urls: [URL]
         let add: Bool
         init(tag: Tag, urls: [URL], add: Bool) { self.tag = tag; self.urls = urls; self.add = add }
-    }
-}
-
-/// "Теги ▸ Новый тег…": asks for a name and puts the tag on the files.
-@MainActor
-final class TagPrompt: NSObject {
-    static let shared = TagPrompt()
-
-    @objc func ask(_ sender: NSMenuItem) {
-        guard let urls = sender.representedObject as? [URL], !urls.isEmpty else { return }
-        let alert = NSAlert()
-        alert.messageText = L("Новый тег")
-        alert.informativeText = urls.count == 1 ? L("Для «%@»", urls[0].lastPathComponent) : L("Для %@ объектов", urls.count)
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.placeholderString = L("Название тега")
-        alert.accessoryView = field
-        alert.addButton(withTitle: L("Добавить"))
-        alert.addButton(withTitle: L("Отмена"))
-        alert.window.initialFirstResponder = field
-        NSApp.activate()
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        FileTags.toggle(FileTags.tag(named: name, knownTags: []), on: urls, add: true)
-        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
     }
 }

@@ -499,9 +499,6 @@ enum English {
         "Извлечь": "Eject",
         "Новая вкладка (⌘T)": "New Tab (⌘T)",
         "Закрыть вкладку (⌘W)": "Close Tab (⌘W)",
-        "Новый тег…": "New Tag…",
-        "Для «%@»": "For “%@”",
-        "Для %@ объектов": "For %@ items",
         "Терминал": "Terminal",
         "Открыть в Терминале": "Open in Terminal",
         "Открыть в %@": "Open in %@",
@@ -714,5 +711,6 @@ enum English {
         "Перетащу сам": "I'll Drag It Myself",
         "Удалить тег «%@»": "Remove Tag “%@”",
         "Добавить тег «%@»": "Add Tag “%@”",
+        "Еда и здоровье": "Food and health",
     ]
 }
