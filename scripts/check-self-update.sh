@@ -4,11 +4,11 @@
 # it, quits and must come back as 99. Separate settings store; nothing touches the user's WinEx.
 set -uo pipefail
 cd "$(dirname "$0")/.."
-./build.sh debug >/dev/null 2>&1 || { echo "build failed"; exit 1; }
+APP=build/scenario/WinEx.app ./build.sh debug >/dev/null 2>&1 || { echo "build failed"; exit 1; }
 WORK=$(mktemp -d /tmp/winex-selfupdate.XXXXXX)
 OUT="$WORK/out"; mkdir -p "$OUT" "$WORK/old" "$WORK/new"
-cp -R build/WinEx.app "$WORK/old/WinEx.app"
-cp -R build/WinEx.app "$WORK/new/WinEx.app"
+cp -R build/scenario/WinEx.app "$WORK/old/WinEx.app"
+cp -R build/scenario/WinEx.app "$WORK/new/WinEx.app"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0" -c "Set :CFBundleVersion 1.0" "$WORK/old/WinEx.app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 99.0.0" -c "Set :CFBundleVersion 99.0.0" "$WORK/new/WinEx.app/Contents/Info.plist"
 security unlock-keychain -p "$(cat ~/.winex-signing/keychain-password)" ~/.winex-signing/signing.keychain-db

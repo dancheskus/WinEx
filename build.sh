@@ -1,12 +1,13 @@
 #!/bin/bash
-# Builds WinEx and packages it into build/WinEx.app
+# Builds WinEx and packages it into build/WinEx.app (or $APP: the scenario scripts build their
+# own copy, so the one you run from build/ is only replaced by ./build.sh itself)
 set -euo pipefail
 cd "$(dirname "$0")"
 
 CONFIG="${1:-release}"
 swift build -c "$CONFIG"
 
-APP="build/WinEx.app"
+APP="${APP:-build/WinEx.app}"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ".build/$CONFIG/WinEx" "$APP/Contents/MacOS/WinEx"
@@ -44,7 +45,10 @@ else
   codesign --force --sign - "$APP" >/dev/null
 fi
 
-# Register with LaunchServices so WinEx can become the folder handler
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
+# Register with LaunchServices so WinEx can become the folder handler (not the scenarios' copy:
+# "open -b" and the like must keep finding the real one)
+if [ "$APP" = "build/WinEx.app" ]; then
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
+fi
 
 echo "Built $APP"

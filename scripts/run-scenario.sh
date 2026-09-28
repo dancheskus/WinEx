@@ -8,9 +8,9 @@ cd "$(dirname "$0")/.."
 NAME="${1:?scenario name}"
 TIMEOUT="${2:-90}"
 OUT=$(mktemp -d /tmp/winex-scenario.XXXXXX)
-./build.sh debug >/dev/null 2>&1 || { echo "build failed"; ./build.sh debug 2>&1 | grep error: | head; exit 1; }
+APP=build/scenario/WinEx.app ./build.sh debug >/dev/null 2>&1 || { echo "build failed"; APP=build/scenario/WinEx.app ./build.sh debug 2>&1 | grep error: | head; exit 1; }
 CRASHES_BEFORE=$(ls ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -c -i winex)
-WINEX_SCENARIO="$NAME" WINEX_SCENARIO_OUT="$OUT" build/WinEx.app/Contents/MacOS/WinEx >"$OUT/stdout.txt" 2>&1 &
+WINEX_SCENARIO="$NAME" WINEX_SCENARIO_OUT="$OUT" build/scenario/WinEx.app/Contents/MacOS/WinEx >"$OUT/stdout.txt" 2>&1 &
 PID=$!
 for _ in $(seq 1 "$TIMEOUT"); do sleep 1; kill -0 $PID 2>/dev/null || break; done
 if kill -0 $PID 2>/dev/null; then echo "!! timeout — stopping pid $PID"; kill $PID; fi
