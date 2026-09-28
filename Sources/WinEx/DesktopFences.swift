@@ -268,8 +268,11 @@ final class FenceView: NSView, NSTextFieldDelegate {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        guard event.trackingArea?.userInfo?["hover"] != nil, let scrollView else { return super.mouseEntered(with: event) }
-        scrollView.flashScrollers()
+        guard event.trackingArea?.userInfo?["hover"] != nil else { return super.mouseEntered(with: event) }
+        // A zone's own scroll view, or a portal's (only when there's something to scroll)
+        if let scrollView { scrollView.flashScrollers() }
+        if let portalView, let document = portalView.documentView,
+           document.frame.height > portalView.contentView.bounds.height + 1 { portalView.flashScrollers() }
     }
 
     /// The desktop passes on scrolling over the fence's inside.
