@@ -64,7 +64,7 @@ enum FolderIcon {
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             base.draw(in: rect)
             // In the middle of the folder's front panel, large (as Finder draws it)
-            let badge = NSRect(x: rect.width * 0.3, y: rect.height * 0.26, width: rect.width * 0.4, height: rect.height * 0.36)
+            let badge = NSRect(x: rect.width * 0.24, y: rect.height * 0.2, width: rect.width * 0.52, height: rect.height * 0.46)
             switch customization {
             case .symbol(let name):
                 let config = NSImage.SymbolConfiguration(pointSize: badge.height * 0.8, weight: .medium)
@@ -104,12 +104,23 @@ final class TagRowMenuView: NSView {
         self.urls = urls
         self.onChange = onChange
         let width = Self.inset * 2 + CGFloat(tags.count) * Self.diameter + CGFloat(max(tags.count - 1, 0)) * Self.spacing
-        // Room under the circles for what a click will do (Finder: «Добавить тег «Зеленый»»)
-        super.init(frame: NSRect(x: 0, y: 0, width: max(width, 220), height: 46))
+        super.init(frame: NSRect(x: 0, y: 0, width: max(width, 220), height: Self.height(caption: false)))
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Just the circles; with the mouse on one, a line under them says what a click will do
+    /// (Finder: «Добавить тег «Зеленый»») — the menu grows for it, as Finder's does.
+    private static func height(caption: Bool) -> CGFloat { caption ? 46 : 28 }
+
+    private func setHovered(_ index: Int?) {
+        guard index != hovered else { return }
+        hovered = index
+        let height = Self.height(caption: index != nil)
+        if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
+        needsDisplay = true
+    }
 
     private func circleRect(_ index: Int) -> NSRect {
         NSRect(x: Self.inset + CGFloat(index) * (Self.diameter + Self.spacing), y: bounds.height - 6 - Self.diameter,
@@ -131,8 +142,14 @@ final class TagRowMenuView: NSView {
         for (i, tag) in tags.enumerated() {
             var rect = circleRect(i)
             if hovered == i { rect = rect.insetBy(dx: -2, dy: -2) }
-            FileTags.color(forIndex: tag.color)?.setFill()
+            let color = FileTags.color(forIndex: tag.color) ?? .gray
+            color.setFill()
             NSBezierPath(ovalIn: rect).fill()
+            // A thin darker rim, as Finder draws them
+            let rim = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            rim.lineWidth = 1
+            (color.shadow(withLevel: 0.25) ?? color).setStroke()
+            rim.stroke()
             let mark = NSBezierPath()
             mark.lineWidth = 2
             mark.lineCapStyle = .round
@@ -172,13 +189,11 @@ final class TagRowMenuView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let index = index(at: convert(event.locationInWindow, from: nil))
-        if index != hovered { hovered = index; needsDisplay = true }
+        setHovered(index(at: convert(event.locationInWindow, from: nil)))
     }
 
     override func mouseExited(with event: NSEvent) {
-        hovered = nil
-        needsDisplay = true
+        setHovered(nil)
     }
 
     override func mouseUp(with event: NSEvent) {

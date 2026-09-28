@@ -67,21 +67,32 @@ enum Scenarios {
             try? png.write(to: s.output.appendingPathComponent("icons.png"))
         }
         // The popover, on a folder with one tag and a symbol
-        let folder = s.makeFiles(["Папка/"], in: "custom").appendingPathComponent("Папка")
+        let folder = s.makeFiles(["Папка/", "alicorn-ui/", "dynamic_list/", "TorrServerMacInstaller/", "WinEx/",
+                                  "План действий для поездки.docx"], in: "custom").appendingPathComponent("Папка")
         try? FileTags.setTags([FileTags.Tag(name: "Желтый", color: 5)], on: folder)
         try? FolderCustomization.write(.symbol("person.crop.circle"), to: folder)
         s.window?.navigate(to: folder.deletingLastPathComponent())
         s.run([
-            (1.0, "popover", {
+            (1.0, "grid", {
+                // The icon grid (medium icons, one selected) for comparing with Finder's
+                s.setViewMode(.mediumIcons)
+                s.select("WinEx")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    if let number = s.window?.window?.windowNumber {
+                        try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                    }
+                }
+            }),
+            (2.0, "popover", {
                 guard let view = s.window?.window?.contentView else { return }
                 FolderCustomizationController.show(for: folder, relativeTo: NSRect(x: 300, y: 300, width: 10, height: 10), of: view)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                     if let popover = NSApp.windows.first(where: { $0.isVisible && $0.className.contains("Popover") }) {
-                        try? "\(popover.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                        try? "\(popover.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
                     }
                 }
             }),
-            (3.0, "done", {}),
+            (4.0, "done", {}),
         ])
     }
 

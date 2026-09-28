@@ -24,7 +24,7 @@ enum MenuStyle {
         "renameSelected:": ("pencil", "", []),
         "moveToTrash:": ("trash", String(Character(UnicodeScalar(NSBackspaceCharacter)!)), .command),
         "share:": ("square.and.arrow.up", "", []),
-        "customizeFolder:": ("paintbrush", "", []),
+        "customizeFolder:": ("tag", "", []),
         "showProperties:": ("info.circle", "i", .command),
         "putBackFromTrash:": ("arrow.uturn.backward", "", []),
         "deleteForever:": ("trash.slash", "", []),

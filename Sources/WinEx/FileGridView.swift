@@ -86,9 +86,10 @@ enum ViewMode: Int, CaseIterable {
 
     var itemSize: NSSize {
         switch self {
-        case .extraLargeIcons: NSSize(width: 228, height: 272)
-        case .largeIcons: NSSize(width: 136, height: 170)
-        case .mediumIcons: NSSize(width: 112, height: 136)
+        // Finder's grid: 112 pt apart both ways for 64 pt icons (the spacing between items is 0)
+        case .extraLargeIcons: NSSize(width: 234, height: 264)
+        case .largeIcons: NSSize(width: 142, height: 160)
+        case .mediumIcons: NSSize(width: 112, height: 112)
         case .smallIcons: NSSize(width: 220, height: 22)
         case .list: NSSize(width: 240, height: 22)
         case .tiles: NSSize(width: 280, height: 64)
@@ -212,10 +213,12 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
             itemView.labelTop = nil
             return
         }
-        let backing = iconView.frame.insetBy(dx: -8, dy: -8)
+        // Like Finder: the square hugs what the icon really shows, the name comes right under it
+        let icon = iconView.frame
+        let picture = iconView.image.map { DesktopView.visibleRect(of: $0, in: DesktopView.aspectFit($0.size, in: icon), flipped: false) } ?? icon
+        let backing = picture.insetBy(dx: -5, dy: -5)
         itemView.iconBacking = backing
-        // A clear gap between the icon's square and the name
-        itemView.labelTop = backing.minY - 6
+        itemView.labelTop = min(icon.minY - 7, backing.minY - 4)
     }
 
     func configure(with file: FileItem, mode: ViewMode, image: NSImage) {
@@ -259,6 +262,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
 
     func setImage(_ image: NSImage) {
         iconView.image = image
+        updateSelectionShapes()
     }
 
     /// Cut files look faded until they are pasted or the cut is cancelled.
@@ -293,7 +297,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     /// right under the icon's square.
     private func renameFrame() -> NSRect {
         let bounds = view.bounds
-        let top = iconView.frame.minY - 14
+        let top = (itemView.labelTop ?? iconView.frame.minY - 7) + 2
         let font = nameField.font ?? .systemFont(ofSize: 12)
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
         let maxWidth = bounds.width - 8

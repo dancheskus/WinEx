@@ -884,7 +884,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     /// The part of `rect` (where `image` is drawn) that the picture really covers — without the
     /// transparent margins icons have. Measured once per image, on a small copy.
-    static func visibleRect(of image: NSImage, in rect: NSRect) -> NSRect {
+    static func visibleRect(of image: NSImage, in rect: NSRect, flipped: Bool = true) -> NSRect {
         let unit: NSRect
         if let known = visibleBounds.object(forKey: image) {
             unit = known.rectValue
@@ -912,7 +912,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             visibleBounds.setObject(NSValue(rect: found), forKey: image)
             unit = found
         }
-        return NSRect(x: rect.minX + unit.minX * rect.width, y: rect.minY + unit.minY * rect.height,
+        let y = flipped ? unit.minY : 1 - unit.maxY
+        return NSRect(x: rect.minX + unit.minX * rect.width, y: rect.minY + y * rect.height,
                       width: unit.width * rect.width, height: unit.height * rect.height)
     }
 

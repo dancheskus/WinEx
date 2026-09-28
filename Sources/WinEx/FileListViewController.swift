@@ -241,8 +241,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         } else {
             flowLayout.itemSize = viewMode.itemSize
             flowLayout.scrollDirection = viewMode.scrollsHorizontally ? .horizontal : .vertical
-            flowLayout.minimumInteritemSpacing = viewMode.isHorizontalItem ? 2 : 6
-            flowLayout.minimumLineSpacing = viewMode.isHorizontalItem ? 2 : 6
+            flowLayout.minimumInteritemSpacing = viewMode.isHorizontalItem ? 2 : 0
+            flowLayout.minimumLineSpacing = viewMode.isHorizontalItem ? 2 : 0
             flowLayout.sectionInset = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
             gridScrollView.hasHorizontalScroller = viewMode.scrollsHorizontally
             gridScrollView.hasVerticalScroller = !viewMode.scrollsHorizontally

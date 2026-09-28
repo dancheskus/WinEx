@@ -16,6 +16,7 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
     private let preview = NSImageView()
     private let tagRow = NSStackView()
     private let emojiCatcher = NSTextField()
+    private var clearButton: NSButton?
     private var customization: FolderCustomization?
     private var tags: [FileTags.Tag]
 
@@ -65,21 +66,22 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
 
     override func loadView() {
         preview.imageScaling = .scaleProportionallyUpOrDown
-        preview.widthAnchor.constraint(equalToConstant: 128).isActive = true
-        preview.heightAnchor.constraint(equalToConstant: 128).isActive = true
+        // Sizes and gaps as Finder's popover in macOS 26
+        preview.widthAnchor.constraint(equalToConstant: 88).isActive = true
+        preview.heightAnchor.constraint(equalToConstant: 88).isActive = true
         let name = NSTextField(labelWithString: folder.displayName)
-        name.font = .systemFont(ofSize: 15, weight: .medium)
+        name.font = .systemFont(ofSize: 13, weight: .medium)
         name.lineBreakMode = .byTruncatingMiddle
 
-        tagRow.spacing = 7
+        tagRow.spacing = 8
         tagRow.alignment = .centerY
 
         let grid = symbolGrid()
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
-        scroll.heightAnchor.constraint(equalToConstant: 400).isActive = true
-        scroll.widthAnchor.constraint(equalToConstant: 316).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 420).isActive = true
+        scroll.widthAnchor.constraint(equalToConstant: 320).isActive = true
         // Auto Layout document view: pinned to the top of the clip view, as tall as its content
         let clip = FlippedClipView()
         clip.drawsBackground = false
@@ -88,7 +90,7 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         scroll.documentView = grid
         NSLayoutConstraint.activate([
             grid.topAnchor.constraint(equalTo: clip.topAnchor),
-            grid.leadingAnchor.constraint(equalTo: clip.leadingAnchor, constant: 4),
+            grid.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
             grid.trailingAnchor.constraint(lessThanOrEqualTo: clip.trailingAnchor),
         ])
 
@@ -98,6 +100,8 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         emoji.imagePosition = .imageLeading
         let buttons = NSStackView(views: [clear, emoji])
         buttons.distribution = .fillEqually
+        buttons.spacing = 11
+        clearButton = clear
 
         // Receives the character-palette input for "Эмодзи"
         emojiCatcher.delegate = self
@@ -113,10 +117,15 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         let stack = NSStackView(views: [preview, name, tagRow, separator, scroll, buttons, emojiCatcher])
         stack.orientation = .vertical
         stack.alignment = .centerX
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 14, bottom: 12, right: 14)
-        separator.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28).isActive = true
-        buttons.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -28).isActive = true
+        stack.spacing = 0
+        stack.edgeInsets = NSEdgeInsets(top: 20, left: 0, bottom: 7, right: 0)
+        stack.setCustomSpacing(8, after: preview)
+        stack.setCustomSpacing(11, after: name)
+        stack.setCustomSpacing(30, after: tagRow)
+        stack.setCustomSpacing(10, after: scroll)
+        separator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        name.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor, constant: -32).isActive = true
+        buttons.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -13).isActive = true
         view = stack
         refresh()
     }
@@ -124,35 +133,37 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
     // MARK: - Symbols
 
     private func symbolGrid() -> NSView {
+        // Six columns 44 pt apart after two narrow empty ones: the headers start after the first, the symbols after both
         let columns = 6
         var rows: [[NSView]] = []
         for (title, symbols) in Self.symbolSections {
             let header = NSTextField(labelWithString: title)
             header.font = .systemFont(ofSize: 13, weight: .semibold)
-            rows.append([header] + Array(repeating: NSGridCell.emptyContentView, count: columns - 1))
-            var row: [NSView] = []
+            rows.append([NSGridCell.emptyContentView, header] + Array(repeating: NSGridCell.emptyContentView, count: columns))
+            var row: [NSView] = [NSGridCell.emptyContentView, NSGridCell.emptyContentView]
             for name in symbols {
                 guard let image = NSImage(systemSymbolName: name, accessibilityDescription: name) else { continue }
-                let button = NSButton(image: image.withSymbolConfiguration(.init(pointSize: 21, weight: .regular)) ?? image,
+                let button = NSButton(image: image.withSymbolConfiguration(.init(pointSize: 18, weight: .regular)) ?? image,
                                       target: self, action: #selector(pickSymbol(_:)))
                 button.isBordered = false
                 button.identifier = NSUserInterfaceItemIdentifier(name)
                 button.toolTip = name
                 button.contentTintColor = .secondaryLabelColor
-                button.widthAnchor.constraint(equalToConstant: 46).isActive = true
-                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                button.widthAnchor.constraint(equalToConstant: 44).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 40).isActive = true
                 row.append(button)
-                if row.count == columns { rows.append(row); row = [] }
+                if row.count == columns + 2 { rows.append(row); row = [NSGridCell.emptyContentView, NSGridCell.emptyContentView] }
             }
-            if !row.isEmpty { rows.append(row + Array(repeating: NSGridCell.emptyContentView, count: columns - row.count)) }
+            if row.count > 2 { rows.append(row + Array(repeating: NSGridCell.emptyContentView, count: columns + 2 - row.count)) }
         }
         let grid = NSGridView(views: rows)
         grid.rowSpacing = 4
-        grid.columnSpacing = 4
-        for i in 0..<grid.numberOfRows where rows[i].first is NSTextField {
-            grid.row(at: i).mergeCells(in: NSRange(location: 0, length: columns))
-            grid.row(at: i).topPadding = 12
-            grid.row(at: i).bottomPadding = 2
+        grid.columnSpacing = 0
+        grid.column(at: 0).width = 10
+        grid.column(at: 1).width = 9.5
+        for i in 0..<grid.numberOfRows where rows[i][1] is NSTextField {
+            grid.row(at: i).mergeCells(in: NSRange(location: 1, length: columns + 1))
+            grid.row(at: i).topPadding = i == 0 ? 11 : 6
         }
         return grid
     }
@@ -195,6 +206,7 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
     private func refresh() {
         let color = tags.reversed().lazy.compactMap { FileTags.color(forIndex: $0.color) }.first
         preview.image = FolderIcon.render(tagColor: color, customization: customization)
+        clearButton?.isEnabled = customization != nil
         // Highlight the chosen symbol
         for case let button as NSButton in (view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews ?? []) {
             button.contentTintColor = customization == .symbol(button.identifier?.rawValue ?? "") ? .controlAccentColor : .secondaryLabelColor
@@ -208,30 +220,32 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
         removeAll.isBordered = false
         removeAll.contentTintColor = tags.isEmpty ? .tertiaryLabelColor : .secondaryLabelColor
         removeAll.toolTip = L("Снять все теги")
-        removeAll.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        removeAll.widthAnchor.constraint(equalToConstant: 22).isActive = true
         tagRow.addArrangedSubview(removeAll)
         let favorites = FileTags.favorites.filter { $0.color > 0 }
         let shown = favorites + tags.filter { tag in !favorites.contains { $0.name == tag.name } }
         for tag in shown {
             let applied = tags.contains { $0.name == tag.name }
-            let button = circleButton(image: nil, color: tag.color, checked: applied, action: #selector(toggleTag(_:)))
+            let button = circleButton(image: nil, color: tag.color, checked: applied, size: 26, action: #selector(toggleTag(_:)))
             button.toolTip = tag.name
             button.identifier = NSUserInterfaceItemIdentifier(tag.name)
             tagRow.addArrangedSubview(button)
         }
         let add = circleButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить тег"))?
-            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold)), color: nil, checked: false, action: #selector(addCustomTag(_:)))
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold)), color: nil, checked: false, size: 28, action: #selector(addCustomTag(_:)))
         add.toolTip = L("Добавить тег…")
         tagRow.addArrangedSubview(add)
     }
 
-    private func circleButton(image: NSImage?, color: Int?, checked: Bool, action: Selector) -> NSButton {
-        let size: CGFloat = 30
+    private func circleButton(image: NSImage?, color: Int?, checked: Bool, size: CGFloat, action: Selector) -> NSButton {
         let picture = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
-            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
             if let color, let fill = FileTags.color(forIndex: color) {
                 fill.setFill()
                 circle.fill()
+                circle.lineWidth = 1
+                (fill.shadow(withLevel: 0.25) ?? fill).setStroke()   // a thin darker rim, as Finder's
+                circle.stroke()
             } else {
                 NSColor.labelColor.withAlphaComponent(0.22).setFill()   // «+»: a grey circle
                 circle.fill()
@@ -241,7 +255,7 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
                 let tinted = NSImage(size: check.size, flipped: false) { r in
                     check.draw(in: r); NSColor.white.setFill(); r.fill(using: .sourceIn); return true
                 }
-                tinted.draw(in: DesktopView.aspectFit(tinted.size, in: rect.insetBy(dx: 7, dy: 7)))
+                tinted.draw(in: DesktopView.aspectFit(tinted.size, in: rect.insetBy(dx: 6, dy: 6)))
             }
             if let image {
                 let white = NSImage(size: image.size, flipped: false) { r in
