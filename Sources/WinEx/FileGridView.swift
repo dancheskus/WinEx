@@ -213,12 +213,12 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
             itemView.labelTop = nil
             return
         }
-        // Like Finder: the square hugs what the icon really shows, the name comes right under it
+        // Like Finder: a square just around the icon's frame, reaching down close to the name
         let icon = iconView.frame
-        let picture = iconView.image.map { DesktopView.visibleRect(of: $0, in: DesktopView.aspectFit($0.size, in: icon), flipped: false) } ?? icon
-        let backing = picture.insetBy(dx: -5, dy: -5)
+        let picture = iconView.image.map { DesktopView.aspectFit($0.size, in: icon) } ?? icon
+        let backing = picture.insetBy(dx: -4, dy: -4)
         itemView.iconBacking = backing
-        itemView.labelTop = min(icon.minY - 7, backing.minY - 4)
+        itemView.labelTop = icon.minY - 7
     }
 
     func configure(with file: FileItem, mode: ViewMode, image: NSImage) {

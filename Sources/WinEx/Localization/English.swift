@@ -301,11 +301,9 @@ enum English {
         "Изменение тегов": "Tag Change",
         "Люди": "People",
         "Животные и природа": "Animals & Nature",
-        "Работа и учёба": "Work & Study",
-        "Медиа": "Media",
-        "Техника": "Tech",
-        "Места и транспорт": "Places & Travel",
-        "Покупки и деньги": "Shopping & Money",
+        "Предметы": "Objects",
+        "Символы": "Symbols",
+        "Путешествия и места": "Travel & Places",
         "Эмодзи": "Emoji",
         "Снять теги": "Remove Tags",
         "Снять все теги": "Remove All Tags",
@@ -711,6 +709,7 @@ enum English {
         "Перетащу сам": "I'll Drag It Myself",
         "Удалить тег «%@»": "Remove Tag “%@”",
         "Добавить тег «%@»": "Add Tag “%@”",
-        "Еда и здоровье": "Food and health",
+        "Еда и напитки": "Food & Drink",
+        "Активность": "Activity",
     ]
 }

@@ -76,8 +76,12 @@ enum FileContextMenu {
         }
         menu.addItem(.separator())
         // Finder's row of tag colours (and, for a folder, «Настроить папку…» right under it)
-        menu.addItem(TagRowMenuView.menuItem(for: urls))
-        if customizableFolder { add(L("Настроить папку…"), #selector(FileMenuActions.customizeFolder(_:))) }
+        let tagRow = TagRowMenuView.menuItem(for: urls)
+        menu.addItem(tagRow)
+        if customizableFolder {
+            add(L("Настроить папку…"), #selector(FileMenuActions.customizeFolder(_:)))
+            (tagRow.view as? TagRowMenuView)?.captionItem = menu.items.last
+        }
         menu.addItem(.separator())
         add(L("Свойства"), #selector(FileMenuActions.showProperties(_:)))
         MenuStyle.decorate(menu)

@@ -64,20 +64,20 @@ enum FolderIcon {
         return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
             base.draw(in: rect)
             // In the middle of the folder's front panel, large (as Finder draws it)
-            let badge = NSRect(x: rect.width * 0.24, y: rect.height * 0.2, width: rect.width * 0.52, height: rect.height * 0.46)
+            let badge = NSRect(x: rect.width * 0.28, y: rect.height * 0.23, width: rect.width * 0.44, height: rect.height * 0.4)
             switch customization {
             case .symbol(let name):
                 let config = NSImage.SymbolConfiguration(pointSize: badge.height * 0.8, weight: .medium)
                 guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config) else { break }
                 // Embossed look: the folder's own color, a shade darker
-                let ink = (tagColor ?? NSColor(red: 0.16, green: 0.49, blue: 0.87, alpha: 1)).blended(withFraction: 0.35, of: .black) ?? .black
+                let ink = (tagColor ?? NSColor(red: 0.16, green: 0.49, blue: 0.87, alpha: 1)).blended(withFraction: 0.3, of: .black) ?? .black
                 let tinted = NSImage(size: symbol.size, flipped: false) { r in
                     symbol.draw(in: r)
                     ink.setFill()
                     r.fill(using: .sourceIn)
                     return true
                 }
-                tinted.draw(in: DesktopView.aspectFit(tinted.size, in: badge), from: .zero, operation: .sourceOver, fraction: 0.85)
+                tinted.draw(in: DesktopView.aspectFit(tinted.size, in: badge), from: .zero, operation: .sourceOver, fraction: 0.6)
             case .emoji(let emoji):
                 let font = NSFont.systemFont(ofSize: badge.height * 0.85)
                 let text = NSAttributedString(string: emoji, attributes: [.font: font])
@@ -104,22 +104,60 @@ final class TagRowMenuView: NSView {
         self.urls = urls
         self.onChange = onChange
         let width = Self.inset * 2 + CGFloat(tags.count) * Self.diameter + CGFloat(max(tags.count - 1, 0)) * Self.spacing
-        super.init(frame: NSRect(x: 0, y: 0, width: max(width, 220), height: Self.height(caption: false)))
+        super.init(frame: NSRect(x: 0, y: 0, width: max(width, 220), height: 46))
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// Just the circles; with the mouse on one, a line under them says what a click will do
-    /// (Finder: «Добавить тег «Зеленый»») — the menu grows for it, as Finder's does.
-    private static func height(caption: Bool) -> CGFloat { caption ? 46 : 28 }
+    /// With the mouse on a circle, a line under them says what a click will do (Finder: «Добавить
+    /// тег «Зеленый»»). With an item right under the row («Настроить папку…») the line takes its
+    /// place — the item shows the text instead of its own — so nothing moves; otherwise the row
+    /// keeps room for it.
+    weak var captionItem: NSMenuItem? {
+        didSet { setFrameSize(NSSize(width: frame.width, height: captionItem == nil ? 46 : 28)) }
+    }
+    private var captionItemTitle: NSAttributedString?
 
     private func setHovered(_ index: Int?) {
         guard index != hovered else { return }
         hovered = index
-        let height = Self.height(caption: index != nil)
-        if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
         needsDisplay = true
+        guard let item = captionItem else { return }
+        if captionItemTitle == nil { captionItemTitle = item.attributedTitle }
+        guard let index, let base = captionItemTitle else {
+            item.attributedTitle = captionItemTitle
+            return
+        }
+        item.attributedTitle = Self.caption(caption(for: index), in: base)
+    }
+
+    private func caption(for index: Int) -> String {
+        counts[index] == urls.count ? L("Удалить тег «%@»", tags[index].name) : L("Добавить тег «%@»", tags[index].name)
+    }
+
+    /// The item's (decorated) title with the caption, dimmed, for its text and no icon.
+    private static func caption(_ caption: String, in title: NSAttributedString) -> NSAttributedString {
+        let result = NSMutableAttributedString(attributedString: title)
+        // The text: what follows the attachments (icon, strut) and the spaces after them
+        let string = result.string as NSString
+        var start = 0
+        while start < string.length, let scalar = UnicodeScalar(string.character(at: start)),
+              scalar == "\u{FFFC}" || scalar == " " { start += 1 }
+        let tab = string.range(of: "\t", range: NSRange(location: start, length: string.length - start))
+        let end = tab.location == NSNotFound ? string.length : tab.location
+        result.replaceCharacters(in: NSRange(location: start, length: end - start), with: caption)
+        result.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: start, length: (caption as NSString).length))
+        // The icon: an empty picture of the same size
+        result.enumerateAttribute(.attachment, in: NSRange(location: 0, length: start)) { value, range, stop in
+            guard let icon = value as? NSTextAttachment, icon.bounds.width > 1 else { return }
+            let blank = NSTextAttachment()
+            blank.image = NSImage(size: icon.bounds.size)
+            blank.bounds = icon.bounds
+            result.addAttribute(.attachment, value: blank, range: range)
+            stop.pointee = true
+        }
+        return result
     }
 
     private func circleRect(_ index: Int) -> NSRect {
@@ -181,9 +219,8 @@ final class TagRowMenuView: NSView {
             mark.stroke()
         }
         // The caption: what a click on the circle under the mouse will do
-        guard let i = hovered, tags.indices.contains(i) else { return }
-        let caption = counts[i] == urls.count ? L("Удалить тег «%@»", tags[i].name) : L("Добавить тег «%@»", tags[i].name)
-        NSAttributedString(string: caption, attributes: [
+        guard captionItem == nil, let i = hovered, tags.indices.contains(i) else { return }
+        NSAttributedString(string: caption(for: i), attributes: [
             .font: NSFont.menuFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor,
         ]).draw(at: NSPoint(x: Self.inset, y: 3))
     }
@@ -199,6 +236,7 @@ final class TagRowMenuView: NSView {
     override func mouseUp(with event: NSEvent) {
         guard let i = index(at: convert(event.locationInWindow, from: nil)) else { return }
         FileTags.toggle(tags[i], on: urls, add: counts[i] < urls.count)
+        setHovered(nil)
         needsDisplay = true
         onChange()
         enclosingMenuItem?.menu?.cancelTracking()
