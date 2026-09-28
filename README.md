@@ -320,6 +320,11 @@ folders in WinEx” adds a small `open` function to `~/.zshrc` (and `~/.bash_pro
 that sends folders to WinEx and everything else — files, apps, packages, URLs, options — to the real
 `open`; unchecking it removes those lines.
 
+For places that always open Finder — the Dock's stacks, apps that talk to Finder directly —
+Settings ▸ Finder ▸ “Create the Open in WinEx Button…” makes a small applet in ~/Applications to ⌘-drag
+onto a Finder window's toolbar: a click closes that Finder window and opens the same folder in WinEx,
+with the same items selected (macOS asks once to let it control Finder).
+
 Quitting WinEx undoes all of it — except when the session ends (log out, restart, shut down)
 while WinEx opens at login: then Finder's desktop stays hidden, so after the next login WinEx's
 desktop is the first one seen (Finder isn't restarted either, so nothing flashes). If WinEx crashes or is killed, a watchdog — a separate process

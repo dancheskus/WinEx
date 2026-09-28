@@ -162,7 +162,49 @@ final class SettingsWindowController: NSWindowController {
             .gap,
             .row(L("Терминал:"), shellCheckbox),
             .row(nil, SettingsForm.hint(L("«open ~/Documents» и «open .» откроют папку в WinEx; файлы, программы и ссылки — как раньше. WinEx добавит небольшую функцию в ~/.zshrc (снимите флажок — уберёт). Действует в новых окнах Терминала."))),
+            .gap,
+            .row(L("Кнопка в Finder:"), finderButtonRow),
+            .row(nil, SettingsForm.hint(L("Стопки в Dock и некоторые программы открывают папки только в Finder. Перетащите «Открыть в WinEx» с зажатой ⌘ на панель инструментов окна Finder: нажатие закроет окно Finder и откроет ту же папку в WinEx, с выделенными файлами. При первом нажатии macOS спросит разрешение управлять Finder."))),
         ])
+    }
+
+    private let finderButtonInstall = NSButton(title: "", target: nil, action: nil)
+    private let finderButtonRemove = NSButton(title: L("Убрать"), target: nil, action: nil)
+
+    private lazy var finderButtonRow: NSView = {
+        finderButtonInstall.target = self
+        finderButtonInstall.action = #selector(installFinderButton(_:))
+        finderButtonRemove.target = self
+        finderButtonRemove.action = #selector(removeFinderButton(_:))
+        let row = NSStackView(views: [finderButtonInstall, finderButtonRemove])
+        row.spacing = 8
+        syncFinderButton()
+        return row
+    }()
+
+    private func syncFinderButton() {
+        let installed = FinderToolbarButton.isInstalled
+        finderButtonInstall.title = installed ? L("Показать кнопку в Finder…") : L("Создать кнопку «Открыть в WinEx»…")
+        finderButtonRemove.isHidden = !installed
+    }
+
+    @objc private func installFinderButton(_ sender: Any?) {
+        do {
+            // Made again each time: an update's WinEx gets an up-to-date button
+            try FinderToolbarButton.install()
+            FinderToolbarButton.showInFinder()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = L("Не удалось создать кнопку")
+            alert.informativeText = error.localizedDescription
+            if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        }
+        syncFinderButton()
+    }
+
+    @objc private func removeFinderButton(_ sender: Any?) {
+        FinderToolbarButton.remove()
+        syncFinderButton()
     }
 
     private func keyboardPane() -> NSView {

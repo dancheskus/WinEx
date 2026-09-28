@@ -46,9 +46,44 @@ enum Scenarios {
         "threecopies": threeCopies,
         "dragpreview": dragPreview,
         "replaylayout": replayLayout,
+        "finderbutton": finderButton,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// Finder's "Open in WinEx" button, made in the sandbox (not run: it would control Finder).
+    static func finderButton(_ s: Scenario) {
+        let app = s.sandbox.appendingPathComponent("Open in WinEx.app")
+        do {
+            try FinderToolbarButton.install(at: app)
+            let plist = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
+            let icon = FileManager.default.fileExists(atPath: app.appendingPathComponent("Contents/Resources/applet.icns").path)
+            let verify = Process()
+            verify.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            verify.arguments = ["--verify", "--deep", "--strict", app.path]
+            try verify.run(); verify.waitUntilExit()
+            let decompile = Process(), out = Pipe()
+            decompile.executableURL = URL(fileURLWithPath: "/usr/bin/osadecompile")
+            decompile.arguments = [app.appendingPathComponent("Contents/Resources/Scripts/main.scpt").path]
+            decompile.standardOutput = out
+            try decompile.run(); decompile.waitUntilExit()
+            let script = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            s.note("  built: no Dock icon \(plist?["LSUIElement"] as? Bool == true), asks for Finder \(plist?["NSAppleEventsUsageDescription"] != nil), WinEx icon \(icon), signed \(verify.terminationStatus == 0), opens WinEx \(script.contains("open -b \(Bundle.main.bundleIdentifier ?? "")"))  expect true ×5")
+        } catch {
+            s.note("  FAIL: \(error.localizedDescription)")
+        }
+        // What the button sends: two files of one folder → one window, both selected
+        let folder = s.makeFiles(["a.txt", "b.txt", "c.txt"], in: "sel")
+        AppDelegate.shared.windowControllers.forEach { $0.window?.close() }
+        let before = AppDelegate.shared.windowControllers.count
+        AppDelegate.shared.application(NSApp, open: [folder.appendingPathComponent("a.txt"), folder.appendingPathComponent("c.txt")])
+        s.run([
+            (1.5, "opened", {
+                let new = AppDelegate.shared.windowControllers.count - before
+                s.note("  windows opened: \(new), in \(AppDelegate.shared.windowControllers.last?.selectedTab.url.lastPathComponent ?? "-"), selected \(s.selectedNames.sorted())  expect 1, sel, [a.txt, c.txt]")
+            }),
+        ])
+    }
 
     /// A copy of a real desktop arrangement (WINEX_LAYOUT_FILE, the JSON of "desktopLayout") shown
     /// on the monitors connected now, in the scenario's own settings; the main desktop is photographed.

@@ -699,5 +699,13 @@ enum English {
         "операций": "operations",
         "Зоны по сетке значков": "Zones on the icon grid",
         "Когда значки выровнены по сетке, зоны занимают её ячейки целиком — без щелей и наездов рядом с ними.": "With icons aligned to the grid, zones take whole cells of it — no gaps and no overlaps beside them.",
+        "Кнопка в Finder:": "Finder button:",
+        "Не удалось создать кнопку": "Couldn't create the button",
+        "Открыть в WinEx": "Open in WinEx",
+        "Показать кнопку в Finder…": "Show the Button in Finder…",
+        "Создать кнопку «Открыть в WinEx»…": "Create the “Open in WinEx” Button…",
+        "Стопки в Dock и некоторые программы открывают папки только в Finder. Перетащите «Открыть в WinEx» с зажатой ⌘ на панель инструментов окна Finder: нажатие закроет окно Finder и откроет ту же папку в WinEx, с выделенными файлами. При первом нажатии macOS спросит разрешение управлять Finder.": "Dock stacks and some apps open folders in Finder only. ⌘-drag “Open in WinEx” onto the toolbar of a Finder window: a click closes the Finder window and opens the same folder in WinEx, with the selected files. On the first click macOS asks to let it control Finder.",
+        "Убрать": "Remove",
+        "Чтобы узнать, какая папка открыта в окне Finder, закрыть его и открыть ту же папку в WinEx.": "To find out which folder a Finder window shows, close it and open the same folder in WinEx.",
     ]
 }

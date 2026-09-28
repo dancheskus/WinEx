@@ -191,8 +191,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         openedByEvent = true
-        for url in urls {
-            if url.isBrowsableDirectory { openWindow(at: url) } else { reveal(url) }
+        for url in urls where url.isBrowsableDirectory { openWindow(at: url) }
+        // Files: one window per folder, all of them selected (several from Finder's button at once)
+        let files = urls.filter { !$0.isBrowsableDirectory }
+        for (folder, items) in Dictionary(grouping: files, by: { $0.deletingLastPathComponent() }) {
+            openWindow(at: folder, select: items)
         }
     }
 
