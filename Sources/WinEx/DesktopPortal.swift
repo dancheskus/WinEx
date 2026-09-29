@@ -350,10 +350,9 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
             let open = menu.addItem(withTitle: L("Открыть «%@» в WinEx", folder.displayName), action: #selector(openFolder(_:)), keyEquivalent: "")
             open.target = self
             open.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-            if FileClipboard.shared.canPaste {
-                menu.addItem(withTitle: L("Вставить"), action: #selector(paste(_:)), keyEquivalent: "").target = self
-            }
-            menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
+            menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
+            // Like Finder: «Новая папка» and «Вставить» first (paste only when there's something to paste)
+            NewItemTemplate.addFolderAndPaste(to: menu, target: self, action: #selector(createNewItem(_:)), paste: #selector(paste(_:)))
         }
         MenuStyle.decorate(menu)
     }

@@ -83,7 +83,18 @@ enum Scenarios {
                     }
                 }
             }),
-            (2.0, "popover", {
+            (1.2, "rename", {
+                // Finder's rename frame: just around the name, two lines for a long one
+                s.select("TorrServerMacInstaller")
+                s.send("renameSelected:")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if let number = s.window?.window?.windowNumber {
+                        try? "\(number)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
+                    }
+                }
+            }),
+            (1.5, "end rename", { s.window?.window?.makeFirstResponder(nil) }),
+            (1.0, "popover", {
                 guard let view = s.window?.window?.contentView else { return }
                 FolderCustomizationController.show(for: folder, relativeTo: NSRect(x: 300, y: 300, width: 10, height: 10), of: view)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -97,7 +108,7 @@ enum Scenarios {
                         let after = buttons(popover.contentView ?? NSView()).filter { $0.identifier != nil && $0.frame.width == 26 }
                             .first.map { $0.convert($0.bounds, to: nil).minX } ?? 0
                         s.note((abs(after - before) < 0.5 ? "ok" : "FAIL") + " tag circles after a click: \(before) → \(after)")
-                        try? "\(popover.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
+                        try? "\(popover.windowNumber)".write(to: s.output.appendingPathComponent("tab-2"), atomically: true, encoding: .utf8)
                     }
                 }
             }),

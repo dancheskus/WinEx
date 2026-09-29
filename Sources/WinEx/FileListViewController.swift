@@ -1065,17 +1065,16 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
             add(L("Обновить"), #selector(refresh(_:)))
             menu.addItem(.separator())
-            // Like Finder: only when there's something to paste (context menus hide what can't be done)
-            if FileClipboard.shared.canPaste {
-                add(L("Вставить"), #selector(paste(_:)))
-                menu.addItem(.separator())
-            }
-            menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
+            menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
             menu.addItem(.separator())
             add(L("Копировать путь к папке"), #selector(copyPath(_:)))
             if let directory, let terminal = TerminalLauncher.menuItem(for: [directory]) { menu.addItem(terminal) }
             if let directory { OpenWithMenu.mainMenuItems(for: [directory]).forEach(menu.addItem) }
             add(L("Свойства"), #selector(showProperties(_:)))
+            // Like Finder: «Новая папка» and «Вставить» first (paste only when there's something to paste)
+            if directory != nil {
+                NewItemTemplate.addFolderAndPaste(to: menu, target: self, action: #selector(createNewItem(_:)), paste: #selector(paste(_:)))
+            }
         }
     }
 

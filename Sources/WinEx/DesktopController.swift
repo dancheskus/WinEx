@@ -361,6 +361,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // Context menu / rename
     private var menuPoint: NSPoint?
     private var renameField: NSTextField?
+    private var renameLabel = NSRect.zero
     private var renamingName: String?
     private var renameCancelled = false
 
@@ -1353,12 +1354,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
         add(L("Обновить"), #selector(refreshAction(_:)))
         menu.addItem(.separator())
-        // Like Finder: only when there's something to paste (context menus hide what can't be done)
-        if FileClipboard.shared.canPaste {
-            add(L("Вставить"), #selector(paste(_:)))
-            menu.addItem(.separator())
-        }
-        menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:))))
+        menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
         if FenceStyle.enabled, fence(at: point) == nil {
             add(L("Создать зону"), #selector(createFence(_:)))
             add(L("Создать портал папки…"), #selector(createPortal(_:)))
@@ -1369,6 +1365,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         add(L("Обои…"), #selector(openWallpaperSettings(_:)))
         menu.addItem(withTitle: L("Настройки WinEx…"), action: #selector(AppDelegate.showSettings(_:)), keyEquivalent: "")
             .target = AppDelegate.shared
+        // Like Finder: «Новая папка» and «Вставить» first (paste only when there's something to paste)
+        NewItemTemplate.addFolderAndPaste(to: menu, target: self, action: #selector(createNewItem(_:)), paste: #selector(paste(_:)))
         return menu
     }
 
@@ -2474,15 +2472,21 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private func beginRename(_ index: Int) {
         endRename()
         let item = items[index]
-        let field = NSTextField(frame: labelRect(index).insetBy(dx: -8, dy: -2))
+        let field = NSTextField(frame: .zero)
+        field.cell = InlineRenameCell(textCell: "")
+        field.isEditable = true
+        field.isSelectable = true
         field.stringValue = item.name
         field.alignment = .center
         field.font = .systemFont(ofSize: 12)
         field.cell?.wraps = true
         field.cell?.isScrollable = false
+        InlineRename.style(field)
         field.delegate = self
         addSubview(field)
         renameField = field
+        renameLabel = labelRect(index)
+        fitRenameField()
         renamingName = item.url.lastPathComponent
         renameCancelled = false
         window?.makeKey()
@@ -2500,6 +2504,19 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     func controlTextDidEndEditing(_ obj: Notification) {
         endRename()
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        if (obj.object as? NSTextField) === renameField { fitRenameField() }
+    }
+
+    /// Finder's rename frame: just around the name, from the top of the label, growing as it's typed.
+    private func fitRenameField() {
+        guard let field = renameField else { return }
+        let size = InlineRename.size(of: field.stringValue, font: field.font ?? .systemFont(ofSize: 12),
+                                     maxWidth: max(renameLabel.width + 20, 140))
+        field.frame = NSRect(x: (renameLabel.midX - size.width / 2).rounded(), y: renameLabel.minY - InlineRename.padding.height,
+                             width: size.width, height: size.height)
     }
 
     private func endRename() {

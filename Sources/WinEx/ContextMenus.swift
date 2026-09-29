@@ -270,7 +270,7 @@ final class NewItemTemplate: NSObject {
 
     /// "Создать ▸ Папку / — / Текстовый документ / …"; the chosen template is the item's representedObject.
     @MainActor
-    static func menuItem(target: AnyObject, action: Selector) -> NSMenuItem {
+    static func menuItem(target: AnyObject, action: Selector, withFolder: Bool = true) -> NSMenuItem {
         let menu = NSMenu()
         func add(_ template: NewItemTemplate) {
             let item = menu.addItem(withTitle: template.title, action: action, keyEquivalent: "")
@@ -278,12 +278,35 @@ final class NewItemTemplate: NSObject {
             item.representedObject = template
             item.image = NSImage(systemSymbolName: template.symbol, accessibilityDescription: nil)
         }
-        add(folder)
-        menu.addItem(.separator())
+        if withFolder {
+            add(folder)
+            menu.addItem(.separator())
+        }
         availableFiles.forEach(add)
         let item = NSMenuItem(title: L("Создать"), action: nil, keyEquivalent: "")
         item.submenu = menu
         return item
+    }
+}
+
+extension NewItemTemplate {
+    /// A folder's background menu starts as Finder's does: «Новая папка», «Вставить» (when there's
+    /// something to paste), then the rest; «Создать ▸» holds just the documents.
+    @MainActor
+    static func addFolderAndPaste(to menu: NSMenu, target: AnyObject, action: Selector, paste: Selector) {
+        let folderItem = NSMenuItem(title: L("Новая папка"), action: action, keyEquivalent: "")
+        folderItem.target = target
+        folderItem.representedObject = folder
+        folderItem.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
+        menu.insertItem(folderItem, at: 0)
+        var next = 1
+        if FileClipboard.shared.canPaste {
+            let pasteItem = NSMenuItem(title: L("Вставить"), action: paste, keyEquivalent: "")
+            pasteItem.target = target
+            menu.insertItem(pasteItem, at: next)
+            next += 1
+        }
+        if menu.items.count > next { menu.insertItem(.separator(), at: next) }
     }
 }
 

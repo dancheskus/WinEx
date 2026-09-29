@@ -158,7 +158,17 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     static let identifier = NSUserInterfaceItemIdentifier("FileGridItem")
 
     private let iconView = NSImageView()
-    private let nameField = NSTextField(labelWithString: "")
+    private let nameField: NSTextField = {
+        let field = NSTextField(labelWithString: "")
+        let cell = InlineRenameCell(textCell: "")
+        cell.isEditable = false
+        cell.isSelectable = false
+        cell.isBordered = false
+        cell.isBezeled = false
+        cell.drawsBackground = false
+        field.cell = cell
+        return field
+    }()
     private let detailField = NSTextField(labelWithString: "")
     private var mode: ViewMode = .mediumIcons
     private var isFolder = false
@@ -297,15 +307,10 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     /// right under the icon's square.
     private func renameFrame() -> NSRect {
         let bounds = view.bounds
-        let top = (itemView.labelTop ?? iconView.frame.minY - 7) + 2
-        let font = nameField.font ?? .systemFont(ofSize: 12)
-        let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        let maxWidth = bounds.width - 8
-        let textWidth = ceil((plainName as NSString).size(withAttributes: [.font: font]).width) + 10
-        let lines: CGFloat = textWidth > maxWidth ? 2 : 1
-        let width = min(maxWidth, max(textWidth, 40))
-        let height = lineHeight * lines + 4
-        return NSRect(x: (bounds.width - width) / 2, y: max(2, top - height), width: width, height: height)
+        let top = (itemView.labelTop ?? iconView.frame.minY - 7) + InlineRename.padding.height
+        let text = itemView.isRenaming ? nameField.stringValue : plainName
+        let size = InlineRename.size(of: text, font: nameField.font ?? .systemFont(ofSize: 12), maxWidth: bounds.width + 10)
+        return NSRect(x: ((bounds.width - size.width) / 2).rounded(), y: top - size.height, width: size.width, height: size.height)
     }
 
     func beginRename(onCommit: @escaping (String) -> Void) {
@@ -319,8 +324,13 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         if !mode.isHorizontalItem { nameField.frame = renameFrame() }
         nameField.isEditable = true
         nameField.isSelectable = true
-        nameField.drawsBackground = true
-        nameField.backgroundColor = .textBackgroundColor
+        if !mode.isHorizontalItem {
+            InlineRename.style(nameField)
+            nameField.maximumNumberOfLines = 0
+        } else {
+            nameField.drawsBackground = true
+            nameField.backgroundColor = .textBackgroundColor
+        }
         nameField.delegate = self
         view.window?.makeFirstResponder(nameField)
         nameField.currentEditor()?.selectedRange = FileOps.baseNameRange(of: originalName, isFolder: isFolder)
@@ -334,10 +344,16 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         return true
     }
 
+    func controlTextDidChange(_ obj: Notification) {
+        // The frame grows (and wraps) with the name, as in Finder
+        if !mode.isHorizontalItem { nameField.frame = renameFrame() }
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         nameField.isEditable = false
         nameField.isSelectable = false
-        nameField.drawsBackground = false
+        InlineRename.unstyle(nameField)
+        if !mode.isHorizontalItem { nameField.maximumNumberOfLines = 2 }
         itemView.isRenaming = false
         let typed = nameField.stringValue
         let commit = onRename
@@ -756,4 +772,66 @@ final class FileCollectionView: NSCollectionView {
 extension Notification.Name {
     /// "Apply to all folders" was used; open windows switch to the new default view.
     static let folderViewDefaultsChanged = Notification.Name("WinExFolderViewDefaultsChanged")
+}
+
+/// The name field while renaming, as Finder draws it: just around the name (growing with it, one
+/// line or more), the text background, a thin rounded frame in the accent colour, no focus ring.
+enum InlineRename {
+    static let padding = NSSize(width: 7, height: 3)
+
+    static func style(_ field: NSTextField) {
+        (field.cell as? InlineRenameCell)?.inset = NSSize(width: padding.width - 2, height: padding.height)
+        field.isBordered = false
+        field.isBezeled = false
+        field.focusRingType = .none
+        field.drawsBackground = true
+        field.backgroundColor = .textBackgroundColor
+        field.wantsLayer = true
+        field.layer?.cornerRadius = 4
+        field.layer?.borderWidth = 2
+        field.effectiveAppearance.performAsCurrentDrawingAppearance {
+            field.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.65).cgColor
+        }
+    }
+
+    static func unstyle(_ field: NSTextField) {
+        (field.cell as? InlineRenameCell)?.inset = .zero
+        field.drawsBackground = false
+        field.layer?.borderWidth = 0
+    }
+
+    /// The field's size for `text`: as wide as its longest line (at most `maxWidth`), as many lines as it takes.
+    static func size(of text: String, font: NSFont, maxWidth: CGFloat) -> NSSize {
+        // Inside: the padding, and the text's own margins while it's edited (2 pt a side) and the caret
+        let extra = padding.width * 2 + 6
+        let inner = maxWidth - extra
+        let used = ((text.isEmpty ? " " : text) as NSString).boundingRect(
+            with: NSSize(width: inner, height: 10_000), options: [.usesLineFragmentOrigin],
+            attributes: [.font: font]).size
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        return NSSize(width: min(maxWidth, ceil(used.width) + extra),
+                      height: max(lineHeight, ceil(used.height)) + padding.height * 2)
+    }
+}
+
+/// A text cell with room inside its frame (the rename frame's padding), when drawn and edited.
+final class InlineRenameCell: NSTextFieldCell {
+    var inset = NSSize.zero
+
+    override func drawingRect(forBounds rect: NSRect) -> NSRect {
+        super.drawingRect(forBounds: rect.insetBy(dx: inset.width, dy: inset.height))
+    }
+
+    override func titleRect(forBounds rect: NSRect) -> NSRect {
+        super.titleRect(forBounds: rect.insetBy(dx: inset.width, dy: inset.height))
+    }
+
+    override func edit(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, event: NSEvent?) {
+        super.edit(withFrame: rect.insetBy(dx: inset.width, dy: inset.height), in: controlView, editor: textObj, delegate: delegate, event: event)
+    }
+
+    override func select(withFrame rect: NSRect, in controlView: NSView, editor textObj: NSText, delegate: Any?, start selStart: Int, length selLength: Int) {
+        super.select(withFrame: rect.insetBy(dx: inset.width, dy: inset.height), in: controlView, editor: textObj, delegate: delegate,
+                     start: selStart, length: selLength)
+    }
 }
