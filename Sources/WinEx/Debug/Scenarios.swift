@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import AVFoundation
 
 /// Regression scenarios for `scripts/run-scenario.sh <name>`.
 @MainActor
@@ -49,9 +50,95 @@ enum Scenarios {
         "finderbutton": finderButton,
         "tagwatch": tagWatch,
         "foldericon": folderIcon,
+        "video": video,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
+
+    /// A video in icon view: its preview, its length under the name, the play button on hover, and
+    /// playing in place; in the details view a small preview instead of the file type's icon.
+    static func video(_ s: Scenario) {
+        let folder = s.makeFiles(["notes.txt"], in: "videos")
+        let clip = folder.appendingPathComponent("clip.mov")
+        makeClip(at: clip, seconds: 3)
+        s.window?.navigate(to: folder)
+        func grid() -> FileCollectionView? {
+            func find(_ view: NSView) -> FileCollectionView? { (view as? FileCollectionView) ?? view.subviews.lazy.compactMap(find).first }
+            return s.window?.window?.contentView.flatMap(find)
+        }
+        func clipItem() -> FileGridItem? {
+            guard let grid = grid() else { return nil }
+            return (0..<grid.numberOfItems(inSection: 0)).lazy.compactMap { grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem }
+                .first { $0.textField?.stringValue.hasSuffix("clip.mov") == true }
+        }
+        func shot(_ n: Int) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if let number = s.window?.window?.windowNumber {
+                    try? "\(number)".write(to: s.output.appendingPathComponent("tab-\(n)"), atomically: true, encoding: .utf8)
+                }
+            }
+        }
+        s.run([
+            (1.0, "icons", { s.setViewMode(.largeIcons) }),
+            (1.5, "hover", {
+                guard let item = clipItem(), let event = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                                                windowNumber: s.window?.window?.windowNumber ?? 0, context: nil,
+                                                                                eventNumber: 0, trackingNumber: 0, userData: nil) else { s.note("  (no clip item: \(s.names()), grid \(grid() != nil), file \(FileManager.default.fileExists(atPath: clip.path)))"); return }
+                item.mouseEntered(with: event)
+                shot(0)
+            }),
+            (1.0, "play", {
+                guard let item = clipItem() else { return }
+                let button = item.view.subviews.first { $0 is VideoPlayButton }
+                let center = button.map { NSPoint(x: $0.frame.midX, y: $0.frame.midY) } ?? .zero
+                s.note("  play button shown: \(button?.isHidden == false); click plays: \(item.handlePlayClick(at: center))  expect true, true")
+            }),
+            (1.2, "playing", {
+                guard let item = clipItem() else { return }
+                let video = item.view.subviews.first { $0 is InlineVideoView } as? InlineVideoView
+                s.note("  playing in place: \(video != nil), at \(String(format: "%.1f", video?.player.currentTime().seconds ?? 0)) s  expect true, > 0")
+                shot(1)
+            }),
+            (1.0, "details", { s.setViewMode(.details) }),
+            (1.5, "details shot", { shot(2) }),
+            (1.0, "done", {}),
+        ])
+    }
+
+    /// A short video: coloured frames, `seconds` long.
+    private static func makeClip(at url: URL, seconds: Int) {
+        try? FileManager.default.removeItem(at: url)
+        guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mov) else { return }
+        let size = CGSize(width: 320, height: 180)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [AVVideoCodecKey: AVVideoCodecType.h264,
+                                                                           AVVideoWidthKey: size.width, AVVideoHeightKey: size.height])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
+        writer.add(input)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        let fps = 10
+        for frame in 0..<(seconds * fps) {
+            var buffer: CVPixelBuffer?
+            CVPixelBufferCreate(nil, Int(size.width), Int(size.height), kCVPixelFormatType_32ARGB, nil, &buffer)
+            guard let buffer else { continue }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            if let context = CGContext(data: CVPixelBufferGetBaseAddress(buffer), width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
+                                       bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue) {
+                context.setFillColor(NSColor.systemOrange.cgColor)
+                context.fill(CGRect(origin: .zero, size: size))
+                context.setFillColor(NSColor.systemBlue.cgColor)
+                context.fill(CGRect(x: CGFloat(frame) * 8, y: 40, width: 80, height: 100))
+            }
+            CVPixelBufferUnlockBaseAddress(buffer, [])
+            while !input.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.01) }
+            adaptor.append(buffer, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: CMTimeScale(fps)))
+        }
+        input.markAsFinished()
+        let done = DispatchSemaphore(value: 0)
+        writer.finishWriting { done.signal() }
+        done.wait()
+    }
 
     /// Customized folder icons (symbol, emoji, tag colors) as pictures, and the customization popover.
     static func folderIcon(_ s: Scenario) {

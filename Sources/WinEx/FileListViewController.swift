@@ -1,6 +1,7 @@
 import AppKit
 import Quartz
 import QuickLookThumbnailing
+import UniformTypeIdentifiers
 
 protocol FileListDelegate: AnyObject {
     func fileList(_ list: FileListViewController, open url: URL, in target: FileListViewController.OpenTarget)
@@ -1186,7 +1187,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             ?? makeCell(identifier: column)
         switch column {
         case "name":
-            cell.imageView?.image = item.icon
+            cell.imageView?.image = image(for: item)
             cell.imageView?.alphaValue = FileClipboard.shared.isCut(item.url) ? Self.cutAlpha : 1
             cell.textField?.stringValue = item.name
         case "folder":
@@ -1366,7 +1367,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     /// Big icon modes show previews (photos, documents…) like Explorer; everything else uses the file icon.
     private func image(for file: FileItem) -> NSImage {
-        guard viewMode.usesThumbnails, !file.isFolder else { return file.icon }
+        // Small icons: previews too, as in Finder's lists — for pictures, videos and PDFs
+        guard !file.isFolder, viewMode.usesThumbnails || Self.hasSmallPreview(file.url) else { return file.icon }
         let side = viewMode.iconSize
         let key = "\(Int(side))|\(file.url.path)" as NSString
         if let cached = thumbnails.object(forKey: key) { return cached }
@@ -1384,14 +1386,23 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.thumbnails.setObject(image, forKey: key)
-                guard self.viewMode.iconSize == side,
-                      let index = self.items.firstIndex(where: { $0.url.path == path }),
-                      let item = self.collectionView.item(at: IndexPath(item: index, section: 0)) as? FileGridItem
-                else { return }
+                guard self.viewMode.iconSize == side, let index = self.items.firstIndex(where: { $0.url.path == path }) else { return }
+                if self.viewMode == .details {
+                    if index < self.tableView.numberOfRows, let column = self.tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "name" }) {
+                        self.tableView.reloadData(forRowIndexes: [index], columnIndexes: [column])
+                    }
+                    return
+                }
+                guard let item = self.collectionView.item(at: IndexPath(item: index, section: 0)) as? FileGridItem else { return }
                 item.setImage(image)
             }
         }
         return file.icon
+    }
+
+    private static func hasSmallPreview(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .image) || type.conforms(to: .movie) || type.conforms(to: .pdf)
     }
 }
 

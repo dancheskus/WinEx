@@ -176,6 +176,11 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     private var plainName = ""
     private var onRename: ((String) -> Void)?
     private var renameCancelled = false
+    /// A video's file (icon views): hover shows `playButton`, a click on it plays in `playing`.
+    private var videoURL: URL?
+    private let playButton = VideoPlayButton()
+    private var playing: InlineVideoView?
+    private var isHovered = false
 
     private var itemView: GridItemView { view as! GridItemView }
 
@@ -185,10 +190,68 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         detailField.textColor = .secondaryLabelColor
         detailField.font = .systemFont(ofSize: 11)
         detailField.maximumNumberOfLines = 2
-        [iconView, nameField, detailField].forEach(view.addSubview)
+        [iconView, nameField, detailField, playButton].forEach(view.addSubview)
+        playButton.isHidden = true
         imageView = iconView
         textField = nameField
+        view.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                            owner: self, userInfo: nil))
     }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        updatePlayButton()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        updatePlayButton()
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        stopVideo()
+        videoURL = nil
+        isHovered = false
+        updatePlayButton()
+    }
+
+    /// Where the preview is drawn (the picture itself, not the icon's square).
+    private var pictureRect: NSRect {
+        iconView.image.map { DesktopView.aspectFit($0.size, in: iconView.frame) } ?? iconView.frame
+    }
+
+    private func updatePlayButton() {
+        let shown = videoURL != nil && !mode.isHorizontalItem && !itemView.isRenaming && (isHovered || playing != nil)
+        playButton.isHidden = !shown || (playing != nil && !isHovered)
+        let side = min(36, max(20, (mode.iconSize * 0.42).rounded()))
+        let picture = pictureRect
+        playButton.frame = NSRect(x: (picture.midX - side / 2).rounded(), y: (picture.midY - side / 2).rounded(), width: side, height: side)
+        playButton.isPlaying = playing?.player.rate ?? 0 > 0
+        playing?.frame = picture
+    }
+
+    /// A click in the item at `point` (its coordinates): true when it was on the play button.
+    func handlePlayClick(at point: NSPoint) -> Bool {
+        guard !playButton.isHidden, playButton.frame.insetBy(dx: -4, dy: -4).contains(point), let videoURL else { return false }
+        if let playing {
+            if playing.player.rate > 0 { playing.player.pause() } else { playing.player.play() }
+        } else {
+            let video = InlineVideoView(url: videoURL) { [weak self] in self?.stopVideo() }
+            view.addSubview(video, positioned: .above, relativeTo: iconView)
+            playing = video
+            video.player.play()
+        }
+        updatePlayButton()
+        return true
+    }
+
+    private func stopVideo() {
+        playing?.stop()
+        playing = nil
+        updatePlayButton()
+    }
+
 
     override var isSelected: Bool {
         didSet {
@@ -213,7 +276,18 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         if mode.isHorizontalItem {
             if !itemView.isRenaming { nameField.attributedStringValue = colored }
         } else {
-            itemView.labelLines = DesktopLabel.lines(colored, width: view.bounds.width - 12)
+            let lines = DesktopLabel.lines(colored, width: view.bounds.width - 12)
+            // With a line of info under it the name takes one line (shortened in the middle)
+            if itemView.detail != nil, lines.count > 1 {
+                let one = NSMutableAttributedString(attributedString: colored)
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.alignment = .center
+                paragraph.lineBreakMode = .byTruncatingMiddle
+                one.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: one.length))
+                itemView.labelLines = [one]
+            } else {
+                itemView.labelLines = lines
+            }
         }
     }
 
@@ -229,6 +303,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         let backing = picture.insetBy(dx: -4, dy: -4)
         itemView.iconBacking = backing
         itemView.labelTop = icon.minY - 7
+        updatePlayButton()
     }
 
     func configure(with file: FileItem, mode: ViewMode, image: NSImage) {
@@ -267,6 +342,20 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         applyLabelColor()
         detailField.isHidden = mode != .tiles
         detailField.stringValue = [file.typeDescription, file.sizeDescription].compactMap { $0 }.joined(separator: "\n")
+        // Videos: the length under the name (as Finder's item info) and the play button
+        let isVideo = !file.isFolder && InlineVideo.isVideo(file.url)
+        if videoURL != file.url { stopVideo() }
+        videoURL = isVideo ? file.url : nil
+        itemView.detail = nil
+        if isVideo, !mode.isHorizontalItem {
+            let url = file.url
+            itemView.detail = InlineVideo.duration(of: url) { [weak self] text in
+                guard let self, self.videoURL == url else { return }
+                self.itemView.detail = text
+                self.applyLabelColor()
+            }
+        }
+        updatePlayButton()
         view.needsLayout = true
     }
 
@@ -383,6 +472,8 @@ final class GridItemView: NSView {
     var labelLines: [NSAttributedString] = [] { didSet { needsDisplay = true } }
     var labelTop: CGFloat? { didSet { needsDisplay = true } }
     var labelFont: NSFont = .systemFont(ofSize: 12)
+    /// A line under the name in the accent colour (a video's length), as Finder's item info.
+    var detail: String? { didSet { needsDisplay = true } }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Clicks go straight to the collection view (it implements selection), except while renaming.
@@ -417,6 +508,15 @@ final class GridItemView: NSView {
                 NSBezierPath(roundedRect: rect.insetBy(dx: -5, dy: -1), xRadius: 5, yRadius: 5).fill()
             }
             line.draw(in: rect.insetBy(dx: -2, dy: 0))
+        }
+        if let detail {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let font = NSFont.systemFont(ofSize: max(labelFont.pointSize - 1, 10))
+            let height = ceil(font.ascender - font.descender)
+            let y = top - lineHeight * CGFloat(labelLines.count) - height - 1
+            NSAttributedString(string: detail, attributes: [.font: font, .foregroundColor: NSColor.controlAccentColor, .paragraphStyle: paragraph])
+                .draw(in: NSRect(x: 4, y: y, width: bounds.width - 8, height: height))
         }
     }
 }
@@ -515,6 +615,11 @@ final class FileCollectionView: NSCollectionView {
         let point = convert(event.locationInWindow, from: nil)
         let modifiers = event.modifierFlags.intersection([.shift, .command])
 
+        // The play button over a video's preview: plays / pauses it, nothing else
+        if let index = itemIndex(at: point), let item = item(at: IndexPath(item: index, section: 0)) as? FileGridItem,
+           item.handlePlayClick(at: item.view.convert(point, from: self)) {
+            return
+        }
         guard let index = itemIndex(at: point) else {
             // Empty space: selection rectangle (⌘/⇧ add to the current selection)
             mouseDownIndex = nil
