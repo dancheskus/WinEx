@@ -40,13 +40,32 @@ enum InlineVideo {
 /// Finder's round play / pause button over a video's preview.
 final class VideoPlayButton: NSView {
     var isPlaying = false { didSet { needsDisplay = true } }
+    /// How much has played (0…1), shown as a ring around the button; `nil` before it starts.
+    var progress: Double? { didSet { if progress != oldValue { needsDisplay = true } } }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }   // clicks are handled by the grid
 
     override func draw(_ dirtyRect: NSRect) {
         let circle = bounds.insetBy(dx: 1, dy: 1)
-        NSColor.black.withAlphaComponent(0.45).setFill()
+        // Finder's: a light, see-through disc
+        NSColor(white: 0.55, alpha: 0.6).setFill()
         NSBezierPath(ovalIn: circle).fill()
+        if let progress {
+            // The ring: a faint track and the part played, clockwise from the top
+            let lineWidth = max(2, (bounds.width * 0.07).rounded())
+            let ring = circle.insetBy(dx: lineWidth / 2 + 1, dy: lineWidth / 2 + 1)
+            let track = NSBezierPath(ovalIn: ring)
+            track.lineWidth = lineWidth
+            NSColor.white.withAlphaComponent(0.3).setStroke()
+            track.stroke()
+            let arc = NSBezierPath()
+            arc.appendArc(withCenter: NSPoint(x: ring.midX, y: ring.midY), radius: ring.width / 2,
+                          startAngle: 90, endAngle: 90 - 360 * CGFloat(min(max(progress, 0), 1)), clockwise: true)
+            arc.lineWidth = lineWidth
+            arc.lineCapStyle = .round
+            NSColor.white.setStroke()
+            arc.stroke()
+        }
         let symbol = NSImage(systemSymbolName: isPlaying ? "pause.fill" : "play.fill", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: bounds.height * 0.36, weight: .bold))
         guard let symbol else { return }
@@ -63,16 +82,23 @@ final class VideoPlayButton: NSView {
 final class InlineVideoView: NSView {
     let player: AVPlayer
     private var endObserver: NSObjectProtocol?
+    private var timeObserver: Any?
 
-    init(url: URL, onEnd: @escaping () -> Void) {
+    init(url: URL, onProgress: @escaping (Double) -> Void, onEnd: @escaping () -> Void) {
         player = AVPlayer(url: url)
         super.init(frame: .zero)
         wantsLayer = true
         let playerLayer = AVPlayerLayer(player: player)
-        playerLayer.videoGravity = .resizeAspect
+        // Fills the preview's own shape, with its rounded corners
+        playerLayer.videoGravity = .resizeAspectFill
         layer = playerLayer
-        layer?.cornerRadius = 4
         layer?.masksToBounds = true
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak player] time in
+            MainActor.assumeIsolated {
+                guard let duration = player?.currentItem?.duration, duration.isNumeric, duration.seconds > 0 else { return }
+                onProgress(time.seconds / duration.seconds)
+            }
+        }
         endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: player.currentItem,
                                                              queue: .main) { _ in MainActor.assumeIsolated { onEnd() } }
     }
@@ -81,8 +107,15 @@ final class InlineVideoView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = max(3, (min(bounds.width, bounds.height) * 0.06).rounded())
+    }
+
     func stop() {
         player.pause()
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
         removeFromSuperview()

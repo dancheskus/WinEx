@@ -228,7 +228,10 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         let picture = pictureRect
         playButton.frame = NSRect(x: (picture.midX - side / 2).rounded(), y: (picture.midY - side / 2).rounded(), width: side, height: side)
         playButton.isPlaying = playing?.player.rate ?? 0 > 0
-        playing?.frame = picture
+        if playing == nil { playButton.progress = nil }
+        // Over what the preview really shows (not its transparent margins)
+        playing?.frame = (iconView.image.map { DesktopView.visibleRect(of: $0, in: picture, flipped: false) } ?? picture)
+            .insetBy(dx: 1.5, dy: 1.5)   // (inside the preview's thin border)
     }
 
     /// A click in the item at `point` (its coordinates): true when it was on the play button.
@@ -237,7 +240,8 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         if let playing {
             if playing.player.rate > 0 { playing.player.pause() } else { playing.player.play() }
         } else {
-            let video = InlineVideoView(url: videoURL) { [weak self] in self?.stopVideo() }
+            let video = InlineVideoView(url: videoURL, onProgress: { [weak self] in self?.playButton.progress = $0 },
+                                        onEnd: { [weak self] in self?.stopVideo() })
             view.addSubview(video, positioned: .above, relativeTo: iconView)
             playing = video
             video.player.play()
