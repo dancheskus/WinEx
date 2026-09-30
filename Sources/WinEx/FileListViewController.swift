@@ -159,7 +159,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tableView.menu = menu
         tableView.setDraggingSourceOperationMask([.copy, .move, .link, .generic, .delete], forLocal: false)
         tableView.setDraggingSourceOperationMask([.copy, .move, .link, .generic], forLocal: true)
-        tableView.registerForDraggedTypes([.fileURL])
+        tableView.registerForDraggedTypes(FileDrop.types)
         tableView.onOpen = { [weak self] in self?.openSelected(nil) }
         tableView.onGoUp = { [weak self] in
             guard let self else { return }
@@ -215,7 +215,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             }
         }
 
-        collectionView.registerForDraggedTypes([.fileURL])
+        collectionView.registerForDraggedTypes(FileDrop.types)
         collectionView.dropTarget = { [weak self] point in
             guard let self, let directory = self.directory else { return nil }
             if let index = self.collectionView.itemIndex(at: point), self.items[index].isFolder {

@@ -2226,6 +2226,18 @@ enum Scenarios {
                 let frame = main.debugFenceView(zone.id)?.frame ?? .zero
                 let stored = main.layout.fences.first { $0.id == zone.id }
                 s.note("  shown \(Int(here.width - frame.maxX)) pt from the right edge; stored place kept: \(stored?.x == old.width - 310 && stored?.y == old.height - 220), measured on \(main.layout.recordedSize(ofScreen: id).map { "\(Int($0.width))×\(Int($0.height))" } ?? "-")  expect about 10 (beside what's there if needed), true, 1200×800")
+                // A new file arrives (a picture saved from a browser): the zone stays where it's shown
+                let icons = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                    .filter { name in !name.hasPrefix(".") && !main.layout.fences.contains { $0.members.contains(name) } }
+                let placesBefore = Dictionary(icons.compactMap { name in main.layout.place(for: name).map { (name, $0) } }, uniquingKeysWith: { a, _ in a })
+                if let newcomer = icons.first {
+                    main.layout.debugForgetPlace(of: newcomer)
+                    views().forEach { $0.reloadShared() }
+                    main.displayIfNeeded()
+                    let after = main.debugFenceView(zone.id)?.frame ?? .zero
+                    s.note("  a new file appears: zone moved \(Int(after.minX - frame.minX)),\(Int(after.minY - frame.minY)); measured on \(main.layout.recordedSize(ofScreen: id).map { "\(Int($0.width))×\(Int($0.height))" } ?? "-")  expect 0,0 and this monitor's size \(Int(here.width))×\(Int(here.height))")
+                    for (name, place) in placesBefore { main.layout.setPlace(place, for: name) }
+                }
                 var fences = main.layout.fences
                 fences.removeAll { $0.id == zone.id }
                 main.layout.fences = fences

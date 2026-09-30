@@ -471,15 +471,68 @@ enum OfficeFiles {
 
 @MainActor
 enum FileDrop {
+    /// What views taking files register for: files, and what browsers and apps drag — files they
+    /// promise to write (a picture from Safari or Chrome, a photo from Photos, a mail attachment)
+    /// and plain image data.
+    static let types: [NSPasteboard.PasteboardType] = [.fileURL] + NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) } + [.png, .tiff]
+
     static func urls(_ info: NSDraggingInfo) -> [URL] {
         info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+    }
+
+    /// Files promised by the app the drag comes from (they're written only when dropped).
+    private static func promises(_ info: NSDraggingInfo) -> [NSFilePromiseReceiver] {
+        info.draggingPasteboard.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver] ?? []
+    }
+
+    /// A picture with no file behind it (only its data).
+    private static func imageData(_ info: NSDraggingInfo) -> Data? {
+        let board = info.draggingPasteboard
+        if let png = board.data(forType: .png) { return png }
+        guard let tiff = board.data(forType: .tiff), let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+
+    /// Something to save that isn't a file yet (see `types`).
+    private static func hasNewFiles(_ info: NSDraggingInfo) -> Bool {
+        let board = info.draggingPasteboard
+        return board.canReadObject(forClasses: [NSFilePromiseReceiver.self], options: nil)
+            || board.availableType(from: [.png, .tiff]) != nil
+    }
+
+    private static let promiseQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
+
+    /// Writes what's promised (or the picture's data) into `directory`; `saved` gets each file made, on the main thread.
+    private static func saveNewFiles(_ info: NSDraggingInfo, into directory: URL, saved: ((URL) -> Void)?) -> Bool {
+        let receivers = promises(info)
+        if !receivers.isEmpty {
+            for receiver in receivers {
+                receiver.receivePromisedFiles(atDestination: directory, options: [:], operationQueue: promiseQueue) { url, error in
+                    guard error == nil else { return }
+                    DispatchQueue.main.async { saved?(url) }
+                }
+            }
+            return true
+        }
+        guard let data = imageData(info) else { return false }
+        let url = FileOps.newItemURL(named: L("Изображение") + ".png", in: directory)
+        guard (try? data.write(to: url, options: .withoutOverwriting)) != nil else { return false }
+        saved?(url)
+        return true
     }
 
     /// What dropping into `directory` would do: move within a volume, copy across volumes or with ⌥,
     /// nothing when the files are already there or a folder would go into itself.
     static func operation(for info: NSDraggingInfo, into directory: URL) -> NSDragOperation {
         let urls = urls(info)
-        guard !urls.isEmpty else { return [] }
+        guard !urls.isEmpty else {
+            // Nothing there yet: it's written here (a copy, whatever the app offers)
+            return hasNewFiles(info) && info.draggingSourceOperationMask != [] ? .copy : []
+        }
         let target = directory.standardizedFileURL.path
         if urls.contains(where: { let path = $0.standardizedFileURL.path; return target == path || target.hasPrefix(path + "/") }) {
             return []
@@ -501,9 +554,10 @@ enum FileDrop {
         return mask.contains(.copy) ? .copy : []
     }
 
-    static func perform(_ info: NSDraggingInfo, into directory: URL) -> Bool {
+    static func perform(_ info: NSDraggingInfo, into directory: URL, saved: ((URL) -> Void)? = nil) -> Bool {
         let operation = operation(for: info, into: directory)
         guard operation != [] else { return false }
+        if urls(info).isEmpty { return saveNewFiles(info, into: directory, saved: saved) }
         if operation == .link {
             FileCommands.makeAliases(urls(info), in: directory)
             return true

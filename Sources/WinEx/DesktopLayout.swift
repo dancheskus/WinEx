@@ -240,6 +240,14 @@ final class DesktopLayout {
         stored.screens?[name] = place.screenID
     }
 
+    #if DEBUG
+    /// As if the file were new (never placed).
+    func debugForgetPlace(of name: String) {
+        stored.positions[name] = nil
+        stored.screens?[name] = nil
+    }
+    #endif
+
     func renamePosition(from oldName: String, to newName: String) {
         stored.fences = stored.fences?.map { fence in
             var fence = fence

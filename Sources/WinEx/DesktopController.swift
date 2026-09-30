@@ -371,7 +371,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     func start() {
         wantsLayer = true
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(FileDrop.types)
         reload()
         watcher = DirectoryWatcher(url: desktopURL) { [weak self] in self?.reload() }
         // Tags changed elsewhere (Finder…): the folder doesn't change, the files' attributes do
@@ -525,6 +525,13 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             centers[i] = nearestFreeCell(to: centers[i], occupied: placed)
             placed.append(centers[i])
             if overlapped.contains(i) { storePosition(of: i) }
+        }
+        // A new file (a download, a saved picture) changes this monitor: first what's shown becomes
+        // what's stored — otherwise, shown adapted, the new icon would be counted in with the zones
+        // near it and move them (a new icon at the right edge took them all to the right edge)
+        if !unplaced.isEmpty {
+            rebaseIfResized()
+            adoptArrangementHere()
         }
         for i in unplaced {
             centers[i] = firstFreeCell(occupied: placed)
@@ -1159,8 +1166,17 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         } else {
             removeFromFences(urls.map(\.lastPathComponent))
         }
-        // Icons dragged over from another monitor: already on the desktop, only their place changes
-        if !FileDrop.perform(sender, into: desktopURL) { reload() }
+        // Icons dragged over from another monitor: already on the desktop, only their place changes.
+        // A picture from a browser (a file written only now): it goes where it was dropped too
+        let saved: (URL) -> Void = { [weak self] url in
+            guard let self else { return }
+            self.setPlacement(self.placement(near: point, occupied: self.centers), forName: url.lastPathComponent)
+            if let fenceHere { self.addToFence(fenceHere.id, names: [url.lastPathComponent], at: point, relayoutNow: false) }
+            self.layout.save()
+            self.reload()
+            self.sharedChange?(self)
+        }
+        if !FileDrop.perform(sender, into: desktopURL, saved: urls.isEmpty ? saved : nil) { reload() }
         sharedChange?(self)
         return true
     }

@@ -95,7 +95,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         self.cell = cell
         self.iconSide = iconSide
         super.init(frame: .zero)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes(FileDrop.types)
         watcher = DirectoryWatcher(url: folder) { [weak self] in self?.reload() }
         tagWatcher = TagChangeWatcher(url: folder) { [weak self] in self?.reload() }
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
