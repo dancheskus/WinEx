@@ -51,6 +51,7 @@ enum Scenarios {
         "tagwatch": tagWatch,
         "foldericon": folderIcon,
         "video": video,
+        "desktopvideo": desktopVideo,
         "selfupdate": selfUpdate,
         "updated": updated,
     ]
@@ -102,6 +103,37 @@ enum Scenarios {
             (1.0, "details", { s.setViewMode(.details) }),
             (1.5, "details shot", { shot(2) }),
             (1.0, "done", {}),
+        ])
+    }
+
+    /// A video on the desktop plays in place (a video already there is used, read only, muted);
+    /// no length under its name there.
+    static func desktopVideo(_ s: Scenario) {
+        let videos = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+            .filter { InlineVideo.isVideo(URL(fileURLWithPath: $0)) }
+        guard let name = videos.first else { s.note("  (no video on the desktop)"); return s.run([]) }
+        let controller = DesktopController()
+        controller.show()
+        func view() -> DesktopView? {
+            NSApp.windows.compactMap { $0.contentView as? DesktopView }.first { $0.debugCenter(of: name) != nil }
+        }
+        s.run([
+            (2.0, "play", {
+                guard let view = view() else { s.note("  (\(name) not shown)"); return }
+                let (shown, played) = view.debugPlayVideo(name)
+                s.note("  play button over \(name): \(shown); click plays: \(played)  expect true, true")
+            }),
+            (1.2, "playing", {
+                guard let state = view()?.debugVideoState() else { s.note("  not playing"); return }
+                s.note("  playing at \(String(format: "%.1f", state.seconds)) s over the preview: \(state.picture.insetBy(dx: 1.5, dy: 1.5) == state.frame)  expect > 0, true")
+                if let window = view()?.window {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.0, "done", {
+                view()?.debugStopVideo()
+                controller.hide()
+            }),
         ])
     }
 

@@ -840,10 +840,103 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         rubberBandView.frame = rubberBand ?? .zero
         rubberBandView.isHidden = rubberBand == nil
         if rubberBand != nil { addSubview(rubberBandView) } // on top of the icons
+        updateVideoOverlay()
     }
 
     private var tiles: [DesktopIconTile] = []
     private let rubberBandView = DesktopRubberBandView()
+
+    // MARK: Videos: play in place, as in Finder
+
+    /// The video icon under the mouse (by name), and the one playing.
+    private var hoveredVideo: String?
+    private var playingVideo: (name: String, view: InlineVideoView)?
+    private let playButton = VideoPlayButton()
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.filter { $0.userInfo?["video"] != nil }.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: ["video": true]))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        let point = convert(event.locationInWindow, from: nil)
+        let video = index(at: point).flatMap { isVideo($0) ? name(of: $0) : nil }
+        if video != hoveredVideo {
+            hoveredVideo = video
+            updateVideoOverlay()
+        }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard hoveredVideo != nil else { return }
+        hoveredVideo = nil
+        updateVideoOverlay()
+    }
+
+    private func isVideo(_ index: Int) -> Bool {
+        !items[index].isFolder && !isVolume(index) && InlineVideo.isVideo(items[index].url)
+    }
+
+    /// What the preview of an icon really shows, in this view.
+    private func pictureRect(_ index: Int) -> NSRect {
+        let picture = image(for: index)
+        return Self.visibleRect(of: picture, in: Self.aspectFit(picture.size, in: iconRect(at: centers[index])))
+    }
+
+    /// The play button over the hovered video, the playing one over its preview (they follow their icons).
+    private func updateVideoOverlay() {
+        let usable: (String?) -> Int? = { [self] key in
+            key.flatMap(index(named:)).flatMap { i in
+                iconsVisible && !quickHidden && !hiddenIcons.contains(i) && renamingName != key ? i : nil
+            }
+        }
+        if let playing = playingVideo, usable(playing.name) == nil { stopVideo() }
+        if let playing = playingVideo, let i = usable(playing.name) {
+            playing.view.frame = pictureRect(i).insetBy(dx: 1.5, dy: 1.5)
+        }
+        // On the hovered video; on the playing one only while the mouse is over it
+        guard let name = hoveredVideo, let i = usable(name) else {
+            playButton.isHidden = true
+            return
+        }
+        let picture = pictureRect(i)
+        let side = min(36, max(20, (iconSide * 0.42).rounded()))
+        playButton.frame = NSRect(x: (picture.midX - side / 2).rounded(), y: (picture.midY - side / 2).rounded(), width: side, height: side)
+        playButton.isPlaying = playingVideo?.name == name && (playingVideo?.view.player.rate ?? 0) > 0
+        if playingVideo?.name != name { playButton.progress = nil }
+        if playButton.superview == nil { addSubview(playButton) }
+        addSubview(playButton, positioned: .above, relativeTo: playingVideo?.view ?? tiles.last)
+        playButton.isHidden = false
+    }
+
+    /// A click on the play button: plays / pauses the video in place. True when it was one.
+    private func handleVideoClick(at point: NSPoint) -> Bool {
+        guard !playButton.isHidden, playButton.frame.insetBy(dx: -4, dy: -4).contains(point),
+              let name = hoveredVideo, let i = index(named: name) else { return false }
+        if let playing = playingVideo, playing.name == name {
+            if playing.view.player.rate > 0 { playing.view.player.pause() } else { playing.view.player.play() }
+        } else {
+            stopVideo()
+            let video = InlineVideoView(url: items[i].url, onProgress: { [weak self] in self?.playButton.progress = $0 },
+                                        onEnd: { [weak self] in self?.stopVideo() })
+            addSubview(video, positioned: .above, relativeTo: tiles.indices.contains(i) ? tiles[i] : nil)
+            playingVideo = (name, video)
+            video.player.play()
+        }
+        updateVideoOverlay()
+        return true
+    }
+
+    private func stopVideo() {
+        playingVideo?.view.stop()
+        playingVideo = nil
+        playButton.progress = nil
+        playButton.isPlaying = false
+    }
 
     fileprivate func drawIcon(_ i: Int) {
         guard items.indices.contains(i) else { return }
@@ -976,6 +1069,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     private var slowClickIndex: Int?
 
     override func mouseDown(with event: NSEvent) {
+        // The play button over a video: plays / pauses it, nothing else
+        if handleVideoClick(at: convert(event.locationInWindow, from: nil)) { return }
         emptyArea = nil
         if layout.recordedSize(ofScreen: screens.first?.id ?? "").map({ $0 != screens.first?.frame.size }) == true {
             rebaseIfResized()
@@ -2481,6 +2576,21 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return fence.id
     }
     func debugSelect(_ names: [String]) { selection = Set(names.compactMap(index(named:))); needsDisplay = true }
+    /// Hovers a video icon and clicks its play button (muted): (button shown, click played).
+    func debugPlayVideo(_ name: String) -> (Bool, Bool) {
+        hoveredVideo = name
+        updateVideoOverlay()
+        let shown = !playButton.isHidden
+        let played = handleVideoClick(at: NSPoint(x: playButton.frame.midX, y: playButton.frame.midY))
+        playingVideo?.view.player.volume = 0
+        return (shown, played)
+    }
+    /// The playing video: where it plays, the preview it covers, how far it's got.
+    func debugVideoState() -> (frame: NSRect, picture: NSRect, seconds: Double)? {
+        guard let playing = playingVideo, let i = index(named: playing.name) else { return nil }
+        return (playing.view.frame, pictureRect(i), playing.view.player.currentTime().seconds)
+    }
+    func debugStopVideo() { stopVideo(); hoveredVideo = nil; updateVideoOverlay() }
     #endif
 
     // MARK: - Inline rename
