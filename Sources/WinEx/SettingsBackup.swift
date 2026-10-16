@@ -10,7 +10,7 @@ enum SettingsBackup {
     /// Never saved or loaded: the restart hand-over, and AppKit's own bookkeeping.
     private static func isInternal(_ key: String) -> Bool {
         // The desktop's arrangement has its own backup: desktop snapshots
-        key == "restartSession" || key == "setupWizardStep" || key == "desktopLayout" || key == "desktopSnapshotLast"
+        key == "restartSession" || key == "liveSession" || key == "running" || key == "setupWizardStep" || key == "desktopLayout" || key == "desktopSnapshotLast"
             || key.hasPrefix("NS") || key.hasPrefix("com.apple")
     }
 

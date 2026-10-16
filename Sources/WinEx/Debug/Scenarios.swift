@@ -53,6 +53,7 @@ enum Scenarios {
         "video": video,
         "twowindows": twoWindows,
         "reopen": reopen,
+        "crashoffer": crashOffer,
         "desktopkeys": desktopKeys,
         "renamefield": renameField,
         "desktopvideo": desktopVideo,
@@ -261,6 +262,33 @@ enum Scenarios {
         ])
     }
 
+    /// Started after a crash (the "running" mark left, windows written down): WinEx offers them
+    /// back, and «Восстановить окна» opens them with their tabs and frames.
+    static func crashOffer(_ s: Scenario) {
+        let folder = s.makeFiles(["a.txt"], in: "crashed")
+        let store = AppDefaults.store
+        s.run([
+            (0.8, "a crash left two windows behind", {
+                AppDelegate.shared.windowControllers.forEach { $0.window?.close() }
+                store.set(true, forKey: "running")
+                store.set([["tabs": [folder.absoluteString, FileManager.default.homeDirectoryForCurrentUser.absoluteString], "selected": 1,
+                            "frame": NSStringFromRect(NSRect(x: 150, y: 150, width: 720, height: 480))],
+                           ["tabs": [folder.absoluteString], "selected": 0, "frame": NSStringFromRect(NSRect(x: 260, y: 220, width: 640, height: 420))]],
+                          forKey: "liveSession")
+                AppDelegate.shared.debugCrashAnswer = true
+                AppDelegate.shared.debugOfferWindowsAfterCrash()
+            }),
+            (1.2, "restored", {
+                let windows = AppDelegate.shared.windowControllers
+                s.note("  windows: \(windows.count); tabs: \(windows.map { $0.tabs.count }); first frame \(windows.first?.window.map { "\(Int($0.frame.width))×\(Int($0.frame.height))" } ?? "-")  expect 2, [2, 1], 720×480")
+                s.note("  marked as running again: \(store.bool(forKey: "running"))  expect true")
+                AppDelegate.shared.debugCrashAnswer = nil
+                windows.dropFirst().forEach { $0.window?.close() }
+            }),
+            (0.5, "done", {}),
+        ])
+    }
+
     /// A folder another app opens (as Chrome's «Show downloads»): already open in a tab → that
     /// window and tab come forward, no new window; WinEx's own «new window» opens one each time.
     static func reopen(_ s: Scenario) {
@@ -291,6 +319,28 @@ enum Scenarios {
             (0.8, "three new windows", {
                 s.note("  windows: \(count() - start) new  expect 3 new")
                 for controller in AppDelegate.shared.windowControllers.dropFirst() { controller.window?.close() }
+            }),
+            (0.5, "close the folder's tab, then ⇧⌘T", {
+                guard let window = s.window, let index = window.tabs.firstIndex(where: { $0.url.lastPathComponent == "reopen" }) else { return }
+                window.closeTab(at: index)
+                s.note("  tabs after closing: \(window.tabs.map(\.url.lastPathComponent))")
+                s.key("T", code: 17, modifiers: [.command, .shift], viaMenu: true)
+            }),
+            (0.6, "the tab is back where it was", {
+                s.note("  tabs: \(s.window?.tabs.map(\.url.lastPathComponent) ?? [])  expect [elsewhere, reopen]")
+            }),
+            (0.3, "a window with two tabs closed, then ⇧⌘T", {
+                let extra = AppDelegate.shared.openWindow(with: [ExplorerTab(url: folder), ExplorerTab(url: other)])
+                extra.window?.setFrame(NSRect(x: 200, y: 200, width: 700, height: 500), display: true)
+                start = count()
+                extra.window?.close()
+                s.window?.window?.makeKeyAndOrderFront(nil)
+                s.key("T", code: 17, modifiers: [.command, .shift], viaMenu: true)
+            }),
+            (0.8, "the window is back with its tabs", {
+                let back = AppDelegate.shared.windowControllers.last
+                s.note("  windows: \(count() - start + 1) back; its tabs: \(back?.tabs.map(\.url.lastPathComponent) ?? []); frame \(back?.window.map { "\(Int($0.frame.width))×\(Int($0.frame.height))" } ?? "-")  expect 1 back, [reopen, elsewhere], 700×500")
+                if back !== s.window { back?.window?.close() }
             }),
             (0.5, "done", {}),
         ])

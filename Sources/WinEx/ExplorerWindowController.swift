@@ -540,6 +540,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             return
         }
         let wasSelected = index == selectedIndex
+        AppDelegate.shared.noteClosedTab(tabs[index].url, in: self, at: index)
         tabs.remove(at: index)
         if index < selectedIndex || selectedIndex >= tabs.count { selectedIndex -= 1 }
         if wasSelected { showSelectedTab() } else { tabBar.reload() }
@@ -1016,8 +1017,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         if let window { WindowPlacement.remember(window) }
     }
 
+    /// Its tabs were dropped onto another window: closing it isn't closing them.
+    var mergedAway = false
+
     func windowWillClose(_ notification: Notification) {
         if !AppDelegate.shared.isTerminating { rememberPlacement() }
+        if !AppDelegate.shared.isTerminating && !mergedAway { AppDelegate.shared.noteClosedWindow(self) }
         fileList.stopWatching()
         AppDelegate.shared.windowControllerDidClose(self)
     }

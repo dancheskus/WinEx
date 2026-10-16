@@ -56,6 +56,7 @@ enum MainMenu {
             item(L("Новое окно"), #selector(AppDelegate.newWindow(_:)), "n"),
             item(L("Новая вкладка"), #selector(ExplorerWindowController.newTab(_:)), "t"),
             item(L("Закрыть вкладку"), #selector(ExplorerWindowController.closeCurrentTab(_:)), "w"),
+            item(L("Открыть закрытую вкладку"), #selector(AppDelegate.reopenClosed(_:)), "t", [.command, .shift]),
             .separator(),
             item(L("Открыть"), #selector(FileListViewController.openSelected(_:)), key(NSDownArrowFunctionKey)),
             {

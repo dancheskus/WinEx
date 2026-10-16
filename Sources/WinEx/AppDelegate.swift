@@ -54,6 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { TagLibrary.discover() }
         // Back from a restart (a new language): the same windows as before
         let restored = restoreSession()
+        #if DEBUG
+        if !Scenario.isRequested { offerWindowsAfterCrash() }
+        #else
+        offerWindowsAfterCrash()
+        #endif
         // The first launch (or back to the assistant after a restart it asked for)
         if SetupWizard.shouldShow { SetupWizard.show(); return }
         if restored { return }
@@ -76,19 +81,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func saveSession(settingsOpen: Bool) {
-        let windows: [[String: Any]] = windowControllers.compactMap { controller in
+        AppDefaults.store.set(["windows": openWindowsList(), "settings": settingsOpen] as [String: Any], forKey: Self.sessionKey)
+    }
+
+    /// The folder windows open now: their tabs, current tab and frames.
+    private func openWindowsList() -> [[String: Any]] {
+        windowControllers.compactMap { controller in
             guard let window = controller.window, window.isVisible else { return nil }
             return ["tabs": controller.tabs.map(\.url.absoluteString), "selected": controller.selectedIndex,
                     "frame": NSStringFromRect(window.frame)]
         }
-        AppDefaults.store.set(["windows": windows, "settings": settingsOpen] as [String: Any], forKey: Self.sessionKey)
     }
 
     /// Opens the windows saved by `restartKeepingWindows`; false when there are none.
     func restoreSession() -> Bool {
         guard let session = AppDefaults.store.dictionary(forKey: Self.sessionKey) else { return false }
         AppDefaults.store.removeObject(forKey: Self.sessionKey)
-        for saved in session["windows"] as? [[String: Any]] ?? [] {
+        restoreWindows(session["windows"] as? [[String: Any]] ?? [])
+        if session["settings"] as? Bool == true { showSettings(tab: .general) }
+        return true
+    }
+
+    // MARK: - After a crash: offer the windows back
+
+    /// While WinEx runs, the open windows are written down every few seconds; quitting normally
+    /// clears the "running" mark. Started with the mark still there, WinEx didn't quit normally
+    /// (it crashed or was force-quit): it offers to open those windows again.
+    private static let liveSessionKey = "liveSession", runningKey = "running"
+    private var lastWrittenWindows: NSArray?
+    private var sessionTimer: Timer?
+
+    #if DEBUG
+    /// Scenario runs: the answer to «Восстановить окна?» (no dialog), and the check run as at launch.
+    var debugCrashAnswer: Bool?
+    func debugOfferWindowsAfterCrash() { offerWindowsAfterCrash() }
+    #endif
+
+    private func offerWindowsAfterCrash() {
+        let store = AppDefaults.store
+        let crashed = store.bool(forKey: Self.runningKey)
+        let windows = store.array(forKey: Self.liveSessionKey) as? [[String: Any]] ?? []
+        store.set(true, forKey: Self.runningKey)
+        sessionTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.writeLiveSession() }
+        }
+        guard crashed, !windows.isEmpty, windowControllers.isEmpty else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            #if DEBUG
+            if let answer = self?.debugCrashAnswer {
+                if answer { self?.restoreWindows(windows) }
+                return
+            }
+            #endif
+            let alert = NSAlert()
+            alert.messageText = L("WinEx неожиданно завершил работу")
+            let tabs = windows.reduce(0) { $0 + (($1["tabs"] as? [String])?.count ?? 0) }
+            alert.informativeText = L("Открыть окна, которые были открыты (%@)?",
+                                      "\(windows.count) \(plural(windows.count, L("окно"), L("окна"), L("окон"))), \(tabs) \(plural(tabs, L("вкладка"), L("вкладки"), L("вкладок")))")
+            alert.addButton(withTitle: L("Восстановить окна"))
+            alert.addButton(withTitle: L("Не нужно"))
+            NSApp.activate()
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            self?.restoreWindows(windows)
+        }
+    }
+
+    /// Writes the open windows down when they've changed.
+    private func writeLiveSession() {
+        let windows = openWindowsList() as NSArray
+        guard windows != lastWrittenWindows else { return }
+        lastWrittenWindows = windows
+        AppDefaults.store.set(windows, forKey: Self.liveSessionKey)
+    }
+
+    private func restoreWindows(_ list: [[String: Any]]) {
+        for saved in list {
             let tabs = (saved["tabs"] as? [String] ?? []).compactMap(URL.init(string:)).map(ExplorerTab.init(url:))
             guard !tabs.isEmpty else { continue }
             let controller = openWindow(with: tabs)
@@ -98,8 +165,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             controller.selectTab(at: saved["selected"] as? Int ?? 0)
         }
-        if session["settings"] as? Bool == true { showSettings(tab: .general) }
-        return true
     }
 
     func applicationDidResignActive(_ notification: Notification) {
@@ -121,6 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationWillTerminate(_ notification: Notification) {
         // The window in front is the one to come back next time
         isTerminating = true
+        // Quitting normally: no "WinEx quit unexpectedly" next time
+        AppDefaults.store.set(false, forKey: Self.runningKey)
         if let front = frontExplorerWindow { WindowPlacement.remember(front) }
         // Restarting into an update: the new version keeps the desktop, no Finder in between
         guard FinderReplacement.isApplied, !Updater.shared.isRelaunching else { return }
@@ -318,6 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
               let target = mergeTarget(for: window, at: screenPoint) else { return }
         let index = target.tabBar.insertionIndex(forScreenPoint: screenPoint)
         let tabs = source.tabs
+        source.mergedAway = true   // (its tabs live on: not a closed window)
         source.window?.close()
         target.insertTabs(tabs, at: index)
         target.window?.makeKeyAndOrderFront(nil)
@@ -393,7 +461,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if menuItem.action == #selector(toggleHiddenFiles(_:)) {
             menuItem.state = Settings.showHidden ? .on : .off
         }
+        if menuItem.action == #selector(reopenClosed(_:)) {
+            // Says what it brings back: a tab or a whole window
+            if case .window = closed.last { menuItem.title = L("Открыть закрытое окно") } else { menuItem.title = L("Открыть закрытую вкладку") }
+            return !closed.isEmpty
+        }
         return true
+    }
+
+    // MARK: - Reopening what was closed (⇧⌘T, like a browser)
+
+    /// A closed tab (and the window it was in, if that's still open) or a closed window.
+    private enum Closed {
+        case tab(url: URL, in: WeakWindowController, at: Int)
+        case window(tabs: [URL], selected: Int, frame: NSRect)
+    }
+
+    final class WeakWindowController {
+        weak var controller: ExplorerWindowController?
+        init(_ controller: ExplorerWindowController) { self.controller = controller }
+    }
+
+    /// Last closed last; a few dozen kept.
+    private var closed: [Closed] = []
+
+    func noteClosedTab(_ url: URL, in controller: ExplorerWindowController, at index: Int) {
+        remember(.tab(url: url, in: WeakWindowController(controller), at: index))
+    }
+
+    func noteClosedWindow(_ controller: ExplorerWindowController) {
+        guard let window = controller.window, !controller.tabs.isEmpty else { return }
+        remember(.window(tabs: controller.tabs.map(\.url), selected: controller.selectedIndex, frame: window.frame))
+    }
+
+    private func remember(_ item: Closed) {
+        closed.append(item)
+        if closed.count > 30 { closed.removeFirst(closed.count - 30) }
+    }
+
+    /// ⇧⌘T: the tab or window closed last comes back — a tab into its window (where it was) if that
+    /// window is still open, otherwise in a window of its own; a window with all its tabs, where it was.
+    @objc func reopenClosed(_ sender: Any?) {
+        guard let item = closed.popLast() else { return NSSound.beep() }
+        switch item {
+        case let .tab(url, holder, index):
+            if let controller = holder.controller, let window = controller.window, window.isVisible {
+                controller.insertTabs([ExplorerTab(url: url)], at: index)
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                openWindow(at: url)
+            }
+        case let .window(tabs, selected, frame):
+            let controller = openWindow(with: tabs.map(ExplorerTab.init(url:)))
+            if frame.width > 0 {
+                controller.window?.setFrame(frame, display: true)
+                controller.keepOnScreen()
+            }
+            controller.selectTab(at: selected)
+        }
     }
 
     // MARK: - Settings

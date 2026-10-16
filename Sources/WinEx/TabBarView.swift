@@ -197,6 +197,7 @@ final class TabBarView: NSView {
         // window when it has a single tab (dragging the only tab drags the window).
         var floatingWindow: NSWindow?
         var windowGrabOffset = NSPoint.zero
+        var ownWindowGrab: WindowGrab?
         var lastMouse = startMouse
 
         while let event = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp],
@@ -211,11 +212,14 @@ final class TabBarView: NSView {
                 if controller.tabs.count == 1 {
                     floatingWindow = window
                     windowGrabOffset = NSPoint(x: mouse.x - window.frame.minX, y: mouse.y - window.frame.minY)
+                    ownWindowGrab = WindowGrab(window: window, mouse: startMouse)
                 }
             }
 
             if let floating = floatingWindow {
-                floating.setFrameOrigin(NSPoint(x: mouse.x - windowGrabOffset.x, y: mouse.y - windowGrabOffset.y))
+                // (The window's own: kept under the mouse from its top, its size may change on the way)
+                floating.setFrameOrigin(ownWindowGrab.map { $0.origin(for: floating, mouse: mouse) }
+                                        ?? NSPoint(x: mouse.x - windowGrabOffset.x, y: mouse.y - windowGrabOffset.y))
                 // Over another window's tabs: the window fades out and its tab snaps into that
                 // strip; away from it, the window comes back (Chrome)
                 let target = AppDelegate.shared.mergeTarget(for: floating, at: mouse)
@@ -357,6 +361,25 @@ final class TabItemView: NSView {
     override func mouseExited(with event: NSEvent) { hovering = false }
 }
 
+/// Where a window was grabbed, kept under the mouse while it's dragged: measured from its top
+/// edge, and across as a share of its width — macOS gives a window taken off half of the screen
+/// its own size back during the drag, and the grabbed point must stay under the mouse then too
+/// (kept from the bottom-left corner, the top went far below the mouse).
+struct WindowGrab {
+    private let fromTop: CGFloat
+    private let across: CGFloat
+
+    init(window: NSWindow, mouse: NSPoint) {
+        fromTop = window.frame.maxY - mouse.y
+        across = window.frame.width > 0 ? (mouse.x - window.frame.minX) / window.frame.width : 0
+    }
+
+    func origin(for window: NSWindow, mouse: NSPoint) -> NSPoint {
+        let size = window.frame.size
+        return NSPoint(x: mouse.x - across * size.width, y: mouse.y + fromTop - size.height)
+    }
+}
+
 /// Title bar behaviour for windows that aren't movable by the window server:
 /// drag moves the window, double-click zooms (or minimizes, per System Settings).
 final class WindowDragArea: NSView {
@@ -374,14 +397,12 @@ final class WindowDragArea: NSView {
             if action == "Minimize" { window.performMiniaturize(nil) } else if action != "None" { window.performZoom(nil) }
             return
         }
-        let start = NSEvent.mouseLocation
-        let origin = window.frame.origin
+        let grab = WindowGrab(window: window, mouse: NSEvent.mouseLocation)
         while let next = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantFuture,
                                          inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { break }
-            let mouse = NSEvent.mouseLocation
             var frame = window.frame
-            frame.origin = NSPoint(x: origin.x + mouse.x - start.x, y: origin.y + mouse.y - start.y)
+            frame.origin = grab.origin(for: window, mouse: NSEvent.mouseLocation)
             // Keep the title bar below the menu bar, like the system does
             if let screen = window.screen ?? NSScreen.main {
                 frame.origin.y = min(frame.origin.y, screen.visibleFrame.maxY - frame.height)
