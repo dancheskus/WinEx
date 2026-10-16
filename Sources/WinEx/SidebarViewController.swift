@@ -389,7 +389,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             if item.place == .trash { add(L("Очистить Корзину…"), #selector(emptyTrash(_:))) }
             if let place = item.place {
                 add(place == .internalDisks || place == .externalDisks || place == .servers
-                    ? L("Скрыть «%@»", place.title) : L("Убрать из боковой панели"), #selector(removeClicked(_:)))
+                    ? L("Скрыть «%@»", menuName(place.title)) : L("Убрать из боковой панели"), #selector(removeClicked(_:)))
             }
         case nil: break
         }

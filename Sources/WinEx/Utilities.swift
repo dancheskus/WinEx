@@ -376,6 +376,14 @@ enum FileOps {
     }
 }
 
+/// A file name for a menu item: a long one loses its middle (the start and the extension stay), so
+/// the menu keeps its width — «Инструкция_Пасса…кумента.docx».
+func menuName(_ name: String, limit: Int = 30) -> String {
+    guard name.count > limit else { return name }
+    let tail = max(8, limit / 3)
+    return String(name.prefix(limit - tail - 1)) + "…" + String(name.suffix(tail))
+}
+
 /// Russian plural: plural(5, "элемент", "элемента", "элементов") → "элементов"
 /// Russian forms for 1, 2–4 and 5+ ("файл", "файла", "файлов"); in English the singular for 1,
 /// the plural otherwise (the translations of `one` and `many`).

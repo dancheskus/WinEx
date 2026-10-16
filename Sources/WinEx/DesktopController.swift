@@ -1442,7 +1442,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             menu.addItem(.separator())
             add(L("Копировать путь"), #selector(copyPath(_:)))
             menu.addItem(.separator())
-            add(L("Извлечь «%@»", items[i].name), #selector(moveToTrash(_:)))
+            add(L("Извлечь «%@»", menuName(items[i].name)), #selector(moveToTrash(_:)))
             menu.addItem(.separator())
             add(L("Свойства"), #selector(showProperties(_:)))
             return menu

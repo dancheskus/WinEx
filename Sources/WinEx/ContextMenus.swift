@@ -69,7 +69,7 @@ enum FileContextMenu {
         add(L("Копировать путь"), #selector(FileMenuActions.copyPath(_:)))
         add(L("Дублировать"), #selector(FileMenuActions.duplicate(_:)))
         add(L("Создать псевдоним"), #selector(FileMenuActions.makeAlias(_:)))
-        add(single.map { L("Сжать «%@»", $0.lastPathComponent) } ?? L("Сжать %@ %@", urls.count, plural(urls.count, L("объект"), L("объекта"), L("объектов"))),
+        add(single.map { L("Сжать «%@»", menuName($0.lastPathComponent)) } ?? L("Сжать %@ %@", urls.count, plural(urls.count, L("объект"), L("объекта"), L("объектов"))),
             #selector(FileMenuActions.compress(_:)))
         if let single, FileCommands.isZip(single) {
             add(L("Распаковать"), #selector(FileMenuActions.extractArchive(_:)))

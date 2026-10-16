@@ -163,7 +163,7 @@ final class DrivesView: NSScrollView {
         add(L("Открыть в новой вкладке")) { [weak self] in self?.onOpenInNewTab?(drive.url) }
         if drive.ejectable {
             menu.addItem(.separator())
-            add(L("Извлечь «%@»", drive.name)) { SystemDesktop.eject(drive.url) }
+            add(L("Извлечь «%@»", menuName(drive.name))) { SystemDesktop.eject(drive.url) }
         }
         menu.addItem(.separator())
         add(L("Свойства")) { [weak self] in self?.onProperties?(drive.url) }

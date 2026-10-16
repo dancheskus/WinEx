@@ -347,7 +347,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
                                      customizableFolder: selection.count == 1 && items[i].isFolder)
         } else {
             selection = []
-            let open = menu.addItem(withTitle: L("Открыть «%@» в WinEx", folder.displayName), action: #selector(openFolder(_:)), keyEquivalent: "")
+            let open = menu.addItem(withTitle: L("Открыть «%@» в WinEx", menuName(folder.displayName)), action: #selector(openFolder(_:)), keyEquivalent: "")
             open.target = self
             open.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
