@@ -328,7 +328,8 @@ enum Scenarios {
         }
         // The popover, on a folder with one tag and a symbol
         let folder = s.makeFiles(["Папка/", "alicorn-ui/", "dynamic_list/", "TorrServerMacInstaller/", "WinEx/",
-                                  "План действий для поездки.docx"], in: "custom").appendingPathComponent("Папка")
+                                  "План действий для поездки.docx", "Инструкция_Пассажирская_таможенная_декларация_документ.docx"]
+                                  + (1...10).map { "файл \($0).txt" }, in: "custom").appendingPathComponent("Папка")
         try? FileTags.setTags([FileTags.Tag(name: "Желтый", color: 5)], on: folder)
         try? FolderCustomization.write(.symbol("person.crop.circle"), to: folder)
         s.window?.navigate(to: folder.deletingLastPathComponent())
@@ -344,8 +345,8 @@ enum Scenarios {
                 }
             }),
             (1.2, "rename", {
-                // Finder's rename frame: just around the name, two lines for a long one
-                s.select("TorrServerMacInstaller")
+                // Finder's rename frame: just around the name, several lines for a long one — over the row below
+                s.select("Инструкция_Пассажирская_таможенная_декларация_документ.docx")
                 s.send("renameSelected:")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     if let number = s.window?.window?.windowNumber {

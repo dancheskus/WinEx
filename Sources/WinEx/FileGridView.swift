@@ -425,6 +425,9 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
             nameField.backgroundColor = .textBackgroundColor
         }
         nameField.delegate = self
+        // A long name grows down over the next row: this item above the others meanwhile
+        view.wantsLayer = true
+        view.layer?.zPosition = 10
         view.window?.makeFirstResponder(nameField)
         InlineRename.began(nameField)
         nameField.currentEditor()?.selectedRange = FileOps.baseNameRange(of: originalName, isFolder: isFolder)
@@ -447,6 +450,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         nameField.isEditable = false
         nameField.isSelectable = false
         InlineRename.unstyle(nameField)
+        view.layer?.zPosition = 0
         if !mode.isHorizontalItem { nameField.maximumNumberOfLines = 2 }
         itemView.isRenaming = false
         let typed = nameField.stringValue
