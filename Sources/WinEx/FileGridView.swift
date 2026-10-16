@@ -451,6 +451,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         nameField.isSelectable = false
         InlineRename.unstyle(nameField)
         view.layer?.zPosition = 0
+        InlineRename.resetCursor(in: view.window)
         if !mode.isHorizontalItem { nameField.maximumNumberOfLines = 2 }
         itemView.isRenaming = false
         let typed = nameField.stringValue
@@ -903,6 +904,14 @@ enum InlineRename {
     nonisolated(unsafe) private static let active = NSHashTable<NSTextField>.weakObjects()
 
     static func began(_ field: NSTextField) { active.add(field) }
+
+    /// The rename ended: the text cursor the field showed goes back to the arrow at once (the field's
+    /// own cursor area is gone, so nothing else would change it until another one is crossed).
+    @MainActor static func resetCursor(in window: NSWindow?) {
+        window?.invalidateCursorRects(for: window?.contentView ?? NSView())
+        window?.resetCursorRects()
+        NSCursor.arrow.set()
+    }
 
     /// A name being edited in `window`.
     @MainActor static func isEditing(in window: NSWindow?) -> Bool {

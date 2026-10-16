@@ -2680,6 +2680,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         renamingName = nil
         field.removeFromSuperview()
         window?.makeFirstResponder(self)
+        InlineRename.resetCursor(in: window)
         needsDisplay = true
 
         let newName = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -804,6 +804,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     /// Table cells commit renames through their text field's action.
     @objc private func renameEdited(_ sender: NSTextField) {
+        InlineRename.resetCursor(in: view.window)
         let row = tableView.row(for: sender)
         guard items.indices.contains(row) else { return }
         rename(items[row].url, to: sender.stringValue)

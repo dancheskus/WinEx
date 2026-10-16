@@ -696,6 +696,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
         renameField = nil
         redraw()
         updateHover()
+        InlineRename.resetCursor(in: window)
         if !cancelled, !title.isEmpty, title != fence.title { onRename?(title) }
     }
 
