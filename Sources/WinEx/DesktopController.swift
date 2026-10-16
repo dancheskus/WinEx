@@ -406,6 +406,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
             observers.add(name, center: NSWorkspace.shared.notificationCenter) { [weak self] in self?.reload() }
         }
+        observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
         // System Settings has no change notification for these; poll cheaply
         settingsTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -1069,20 +1070,21 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// Previews for pictures, PDFs, documents… like Finder's "Show icon preview"; icons for folders and apps.
     private func image(for index: Int) -> NSImage {
         let item = items[index]
-        guard !item.isFolder, !isVolume(index), item.url.pathExtension != "app" else { return item.icon }
+        guard !item.isFolder, !isVolume(index), item.url.pathExtension != "app", !AliasIcon.isContainer(item) else { return item.icon }
         let side = iconSide
         let key = thumbnailKey(item)
         if let cached = thumbnails[key] { return cached }
         if !requestedThumbnails.contains(key) {
             requestedThumbnails.insert(key)
-            let request = QLThumbnailGenerator.Request(fileAt: item.url, size: CGSize(width: side, height: side),
+            let request = QLThumbnailGenerator.Request(fileAt: AliasIcon.previewSource(item), size: CGSize(width: side, height: side),
                                                        scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
             // Finder's look: documents as rounded pages, pictures as rounded cards
             request.iconMode = true
+            let isAlias = item.aliasTarget != nil
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
                 guard let image = representation?.nsImage else { return }
                 DispatchQueue.main.async {
-                    self?.thumbnails[key] = image
+                    self?.thumbnails[key] = isAlias ? AliasIcon.badged(image) : image
                     self?.needsDisplay = true
                 }
             }
@@ -2683,7 +2685,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         InlineRename.resetCursor(in: window)
         needsDisplay = true
 
-        let newName = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newName = typed.isEmpty ? typed : FileOps.fullName(typed, renaming: desktopURL.appendingPathComponent(oldName))
         guard !renameCancelled, !newName.isEmpty, newName != oldName, !newName.contains("/") else { return }
         do {
             try FileManager.default.moveItem(at: desktopURL.appendingPathComponent(oldName),

@@ -124,7 +124,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
                 item.toolTip = (try? url.resourceValues(forKeys: [.volumeURLForRemountingKey]))?.volumeURLForRemounting?.absoluteString
                 place = .servers
             } else {
-                let isInternal = values?.volumeIsInternal ?? true
+                // (A disk image doesn't say: it's taken as external when it can be ejected, like a USB disk)
+                let isInternal = values?.volumeIsInternal ?? !(values?.volumeIsEjectable == true || values?.volumeIsRemovable == true)
                 item = Item(title: name, url: url, symbol: isInternal ? "internaldrive" : "externaldrive")
                 place = isInternal ? .internalDisks : .externalDisks
             }

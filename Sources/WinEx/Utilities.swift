@@ -61,6 +61,26 @@ enum Settings {
         set { defaults.set(newValue, forKey: "windowsKeys") }
     }
 
+    /// Finder's «Показывать все расширения имён файлов»: on (the default), every name shows its
+    /// extension; off, a file whose extension was hidden (Свойства ▸ Скрыть расширение, or saved so)
+    /// shows its name without it.
+    static var showAllExtensions: Bool {
+        get { defaults.object(forKey: "showAllExtensions") as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: "showAllExtensions")
+            NotificationCenter.default.post(name: .extensionsShownChanged, object: nil)
+        }
+    }
+
+    /// Finder's «Показывать сведения об объекте» for folder windows in icon views (on by default).
+    static var showItemInfo: Bool {
+        get { defaults.object(forKey: "showItemInfo") as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: "showItemInfo")
+            NotificationCenter.default.post(name: .extensionsShownChanged, object: nil)
+        }
+    }
+
     static var showHidden: Bool {
         get { defaults.bool(forKey: "showHidden") }
         set { defaults.set(newValue, forKey: "showHidden") }
@@ -108,6 +128,7 @@ extension Notification.Name {
     /// WinEx started or stopped drawing the desktop.
     static let replaceFinderChanged = Notification.Name("WinExReplaceFinderChanged")
     static let showHiddenChanged = Notification.Name("WinExShowHiddenChanged")
+    static let extensionsShownChanged = Notification.Name("WinExExtensionsShownChanged")
     static let keyboardSettingsChanged = Notification.Name("WinExKeyboardSettingsChanged")
     static let commandBarSettingChanged = Notification.Name("WinExCommandBarSettingChanged")
 }
@@ -129,7 +150,7 @@ final class FileItem {
     static let keys: [URLResourceKey] = [
         .isDirectoryKey, .isPackageKey, .contentModificationDateKey,
         .localizedTypeDescriptionKey, .fileSizeKey, .localizedNameKey, .tagNamesKey,
-        .creationDateKey, .addedToDirectoryDateKey,
+        .creationDateKey, .addedToDirectoryDateKey, .isAliasFileKey, .isSymbolicLinkKey, .hasHiddenExtensionKey,
     ]
 
     let url: URL
@@ -142,6 +163,11 @@ final class FileItem {
     let typeDescription: String
     let size: Int?
     let tagNames: [String]
+    /// An alias (Finder's, not a symlink): what it points to — its icon or preview is shown, with
+    /// the alias arrow. Nil for other files and for a broken alias.
+    let aliasTarget: URL?
+    /// Shown without its extension (see `Settings.showAllExtensions`).
+    let hidesExtension: Bool
 
     /// A non-file item (a network server): fixed name and icon, opened by URL.
     init(virtual name: String, url: URL, icon: NSImage, kind: String) {
@@ -154,6 +180,8 @@ final class FileItem {
         typeDescription = kind
         size = nil
         tagNames = []
+        aliasTarget = nil
+        hidesExtension = false
         self.icon = icon
     }
 
@@ -163,13 +191,17 @@ final class FileItem {
         let isDirectory = values?.isDirectory ?? false
         isFolder = isDirectory && !(values?.isPackage ?? false)
         // Localized names for folders ("Загрузки"), real names for files so extensions stay visible
-        name = isFolder ? (values?.localizedName ?? url.lastPathComponent) : url.lastPathComponent
+        // (unless the file's extension is hidden and not every extension is to be shown)
+        hidesExtension = !isFolder && !url.pathExtension.isEmpty && values?.hasHiddenExtension == true && !Settings.showAllExtensions
+        name = isFolder ? (values?.localizedName ?? url.lastPathComponent)
+            : hidesExtension ? url.deletingPathExtension().lastPathComponent : url.lastPathComponent
         modified = values?.contentModificationDate
         created = values?.creationDate
         added = values?.addedToDirectoryDate
         typeDescription = values?.localizedTypeDescription ?? ""
         size = isDirectory ? nil : values?.fileSize
         tagNames = values?.tagNames ?? []
+        aliasTarget = values?.isAliasFile == true && values?.isSymbolicLink != true ? try? URL(resolvingAliasFileAt: url, options: [.withoutUI, .withoutMounting]) : nil
     }
 
     /// Finder tags with their colors (read lazily: only views that show tags ask).
@@ -179,6 +211,8 @@ final class FileItem {
 
     /// File icon; customized folders (tag color, symbol / emoji) are drawn like macOS 26 Finder does.
     lazy var icon: NSImage = {
+        // An alias: what it points to (a folder with its look, an app, the file's type), with the arrow
+        if let aliasTarget { return AliasIcon.badged(FileItem(url: aliasTarget).icon) }
         // The last tag put on it (with a color) colors it, as in Finder
         let tint = Settings.tintFoldersByTags ? tags.last(where: { FileTags.color(forIndex: $0.color) != nil })?.color : nil
         if isFolder, let custom = FolderIcon.icon(for: url, tagColor: tint, customization: FolderCustomization.read(url)) {
@@ -331,6 +365,16 @@ enum FileOps {
         return NSRange(location: 0, length: ns.length - (ext as NSString).length - 1)
     }
 
+    /// The new name typed for `url`: a file shown without its (hidden) extension keeps it — the name
+    /// typed gets it back unless it ends with it already.
+    static func fullName(_ typed: String, renaming url: URL) -> String {
+        let ext = url.pathExtension
+        guard !ext.isEmpty, !Settings.showAllExtensions,
+              (try? url.resourceValues(forKeys: [.hasHiddenExtensionKey]))?.hasHiddenExtension == true,
+              !typed.lowercased().hasSuffix("." + ext.lowercased()) else { return typed }
+        return typed + "." + ext
+    }
+
     static func copyPaths(_ urls: [URL]) {
         let pb = NSPasteboard.general
         pb.clearContents()
@@ -373,6 +417,31 @@ enum FileOps {
         // A local disk gets its Trash when something is first put in it; a network share has one only if it says so
         if (try? url.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal != false { return true }
         return (try? FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: url, create: false)) != nil
+    }
+}
+
+/// Finder's alias look: the original's icon (or preview) with the small curved arrow at its
+/// bottom-left corner — macOS's own badge.
+enum AliasIcon {
+    private static let badge = NSImage(contentsOfFile: "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/AliasBadgeIcon.icns")
+
+    static func badged(_ image: NSImage) -> NSImage {
+        guard let badge else { return image }
+        let side = max(image.size.width, image.size.height, 32)
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            image.draw(in: DesktopView.aspectFit(image.size, in: rect))
+            badge.draw(in: rect)
+            return true
+        }
+    }
+
+    /// Previews go to the original (an alias has none of its own).
+    static func previewSource(_ item: FileItem) -> URL { item.aliasTarget ?? item.url }
+
+    /// The original is a folder or an app: its icon is the picture (no preview).
+    static func isContainer(_ item: FileItem) -> Bool {
+        guard let target = item.aliasTarget else { return false }
+        return target.hasDirectoryPath || (try? target.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
     }
 }
 

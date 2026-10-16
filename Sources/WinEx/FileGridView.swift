@@ -180,6 +180,8 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     private var videoURL: URL?
     private let playButton = VideoPlayButton()
     private var playing: InlineVideoView?
+    /// The file the item info line is for (it arrives later; the item may show another file by then).
+    private var infoURL: URL?
     private var isHovered = false
 
     private var itemView: GridItemView { view as! GridItemView }
@@ -346,15 +348,17 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         applyLabelColor()
         detailField.isHidden = mode != .tiles
         detailField.stringValue = [file.typeDescription, file.sizeDescription].compactMap { $0 }.joined(separator: "\n")
-        // Videos: the length under the name (as Finder's item info) and the play button
+        // Videos and sounds: the play button
         let isVideo = !file.isFolder && InlineVideo.isVideo(file.url)
         if videoURL != file.url { stopVideo() }
         videoURL = isVideo ? file.url : nil
+        // Finder's item info under the name: a folder's count, a picture's size, a video's length
         itemView.detail = nil
-        if isVideo, !mode.isHorizontalItem {
+        infoURL = file.url
+        if Settings.showItemInfo, !mode.isHorizontalItem {
             let url = file.url
-            itemView.detail = InlineVideo.duration(of: url) { [weak self] text in
-                guard let self, self.videoURL == url else { return }
+            itemView.detail = ItemInfo.text(for: file) { [weak self] text in
+                guard let self, self.infoURL == url else { return }
                 self.itemView.detail = text
                 self.applyLabelColor()
             }

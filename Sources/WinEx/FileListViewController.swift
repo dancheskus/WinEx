@@ -111,6 +111,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         applyViewMode(previous: nil)
 
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
+        observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
         // Back from System Settings with access granted: try the Trash again
         observers.add(NSApplication.didBecomeActiveNotification) { [weak self] in
             if self?.location == .trash, self?.errorMessage != nil { self?.reload() }
@@ -811,7 +812,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func rename(_ url: URL, to rawName: String) {
-        let newName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // (Return, then the end of editing: the second time the file has its new name already)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let newName = trimmed.isEmpty ? trimmed : FileOps.fullName(trimmed, renaming: url)
         let destination = url.deletingLastPathComponent().appendingPathComponent(newName)
         if !newName.isEmpty, !newName.contains("/"), destination.path != url.path {
             do {
@@ -1344,6 +1348,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             text.isEditable = true
             text.target = self
             text.action = #selector(renameEdited(_:))
+            // A click elsewhere or another app keeps what was typed (as in icon views), not only Return
+            text.cell?.sendsActionOnEndEditing = true
             NSLayoutConstraint.activate([
                 image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
                 image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
@@ -1401,7 +1407,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// Big icon modes show previews (photos, documents…) like Explorer; everything else uses the file icon.
     private func image(for file: FileItem) -> NSImage {
         // Small icons: previews too, as in Finder's lists — for pictures, videos and PDFs
-        guard !file.isFolder, viewMode.usesThumbnails || Self.hasSmallPreview(file.url) else { return file.icon }
+        guard !file.isFolder, !AliasIcon.isContainer(file),
+              viewMode.usesThumbnails || Self.hasSmallPreview(AliasIcon.previewSource(file)) else { return file.icon }
         let side = viewMode.iconSize
         let key = "\(Int(side))|\(file.url.path)" as NSString
         if let cached = thumbnails.object(forKey: key) { return cached }
@@ -1409,13 +1416,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         requestedThumbnails.insert(key)
 
         let request = QLThumbnailGenerator.Request(
-            fileAt: file.url, size: CGSize(width: side, height: side),
+            fileAt: AliasIcon.previewSource(file), size: CGSize(width: side, height: side),
             scale: view.window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
         // Finder's look: documents as rounded pages, pictures as rounded cards
         request.iconMode = true
         let path = file.url.path
+        let isAlias = file.aliasTarget != nil
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
-            guard let image = representation?.nsImage else { return }
+            guard let shown = representation?.nsImage else { return }
+            let image = isAlias ? AliasIcon.badged(shown) : shown
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.thumbnails.setObject(image, forKey: key)

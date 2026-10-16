@@ -30,6 +30,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     private let appIcon = NSImageView()
     private let lockedSwitch = NSSwitch()
     private let hiddenSwitch = NSSwitch()
+    private let extensionSwitch = NSSwitch()
 
     private let tabBar = PropertiesTabBar()
     private let pageHolder = NSView()
@@ -181,7 +182,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
 
     private func generalPage() -> NSView {
         let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .creationDateKey, .contentModificationDateKey,
-                                         .contentAccessDateKey, .addedToDirectoryDateKey, .isUserImmutableKey, .isHiddenKey,
+                                         .contentAccessDateKey, .addedToDirectoryDateKey, .isUserImmutableKey, .isHiddenKey, .hasHiddenExtensionKey,
                                          .isVolumeKey, .volumeLocalizedFormatDescriptionKey]
         let values = urls.map { try? $0.resourceValues(forKeys: keys) }
         let page = PropertiesUI.stack()
@@ -245,11 +246,20 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         hiddenSwitch.action = #selector(toggleHidden(_:))
         // A leading dot hides a file by name; the flag can't change that
         hiddenSwitch.isEnabled = !urls.contains { $0.lastPathComponent.hasPrefix(".") }
-        for control in [lockedSwitch, hiddenSwitch] { control.controlSize = .small }
-        return PropertiesUI.card(L("Атрибуты"), [
+        extensionSwitch.state = state(values.map { $0?.hasHiddenExtension })
+        extensionSwitch.target = self
+        extensionSwitch.action = #selector(toggleExtension(_:))
+        for control in [lockedSwitch, hiddenSwitch, extensionSwitch] { control.controlSize = .small }
+        var rows = [
             PropertiesUI.row(L("Только чтение"), lockedSwitch, hint: L("Защищено от изменения и удаления")),
             PropertiesUI.row(L("Скрытый"), hiddenSwitch, hint: L("Не виден, пока скрытые файлы не показаны")),
-        ])
+        ]
+        // Files with an extension: shown without it (when not every extension is to be shown)
+        if urls.allSatisfy({ !$0.isBrowsableDirectory && !$0.pathExtension.isEmpty }) {
+            rows.append(PropertiesUI.row(L("Скрыть расширение"), extensionSwitch,
+                                         hint: L("Имя без расширения, если в настройках не включено «Показывать все расширения»")))
+        }
+        return PropertiesUI.card(L("Атрибуты"), rows)
     }
 
     /// "~/Desktop" for places in the home folder.
@@ -331,7 +341,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         let yours = [access.isReadableFile(atPath: single.path) ? L("читать") : nil,
                      access.isWritableFile(atPath: single.path) ? L("изменять") : nil,
                      access.isDeletableFile(atPath: single.path) ? L("удалять") : nil].compactMap { $0 }
-        let flags = try? single.resourceValues(forKeys: [.isUserImmutableKey, .isHiddenKey])
+        let flags = try? single.resourceValues(forKeys: [.isUserImmutableKey, .isHiddenKey, .hasHiddenExtensionKey])
         page.addArrangedSubview(attributesCard([flags]))
         page.addArrangedSubview(PropertiesUI.card(L("Ваши права"), [
             PropertiesUI.row(L("Вы можете"), PropertiesUI.value(yours.isEmpty ? L("Ничего") : yours.joined(separator: ", ").capitalizedFirst)),
@@ -454,6 +464,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func toggleHidden(_ sender: NSSwitch) {
         setFlag(\.isHidden, sender.state == .on)
+    }
+
+    @objc private func toggleExtension(_ sender: NSSwitch) {
+        setFlag(\.hasHiddenExtension, sender.state == .on)
     }
 
     private func setFlag(_ key: WritableKeyPath<URLResourceValues, Bool?>, _ on: Bool) {

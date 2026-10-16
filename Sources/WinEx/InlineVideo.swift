@@ -2,11 +2,13 @@ import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
 
-/// Videos in icon views, as in Finder: the length under the name, and on hover a play button over
-/// the preview — a click plays the video right there, another pauses it.
+/// Videos and audio in icon views, as in Finder: the length under the name, and on hover a play
+/// button over the preview — a click plays it right there, another pauses it.
 enum InlineVideo {
+    /// Videos and audio files: both play in place (a sound just over its icon, the ring showing how far).
     static func isVideo(_ url: URL) -> Bool {
-        UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .movie) || type.conforms(to: .audio)
     }
 
     nonisolated(unsafe) private static var durations: [String: String] = [:]
@@ -119,5 +121,50 @@ final class InlineVideoView: NSView {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
         removeFromSuperview()
+    }
+}
+
+/// Finder's «Показывать сведения об объекте»: a line under the name in icon views — how many items
+/// a folder holds, a picture's size in pixels, how long a video or a sound is.
+enum ItemInfo {
+    nonisolated(unsafe) private static var known: [String: String] = [:]
+    private static let lock = NSLock()
+
+    /// The line for `file`, or nil (nothing to say, or not known yet — then `ready` brings it).
+    static func text(for file: FileItem, ready: @escaping @MainActor (String) -> Void) -> String? {
+        let url = file.url
+        if !file.isFolder, InlineVideo.isVideo(url) { return InlineVideo.duration(of: url, ready: ready) }
+        let isImage = !file.isFolder && UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+        guard file.isFolder || isImage else { return nil }
+        // (A folder's count changes with what's in it: its date changes then too)
+        let key = url.path + "|" + String(file.modified?.timeIntervalSince1970 ?? 0)
+        lock.lock()
+        let cached = known[key]
+        if cached == nil { known[key] = "" }   // asked once
+        lock.unlock()
+        if let cached { return cached.isEmpty ? nil : cached }
+        Task.detached(priority: .utility) {
+            let text: String?
+            if isImage {
+                text = pixelSize(of: url)
+            } else {
+                let count = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]))?.count
+                text = count.map { "\($0.formatted()) " + plural($0, L("объект"), L("объекта"), L("объектов")) }
+            }
+            guard let text else { return }
+            lock.lock()
+            known[key] = text
+            lock.unlock()
+            await MainActor.run { ready(text) }
+        }
+        return nil
+    }
+
+    /// "1920 × 1080" (read from the file's header, without loading the picture).
+    private static func pixelSize(of url: URL) -> String? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return "\(width) × \(height)"
     }
 }

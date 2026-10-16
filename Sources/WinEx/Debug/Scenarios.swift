@@ -53,6 +53,9 @@ enum Scenarios {
         "video": video,
         "twowindows": twoWindows,
         "reopen": reopen,
+        "aliases": aliases,
+        "extensions": extensions,
+        "diskimage": diskImage,
         "crashoffer": crashOffer,
         "desktopkeys": desktopKeys,
         "renamefield": renameField,
@@ -67,6 +70,15 @@ enum Scenarios {
         let folder = s.makeFiles(["notes.txt"], in: "videos")
         let clip = folder.appendingPathComponent("clip.mov")
         makeClip(at: clip, seconds: 3)
+        // A sound too: a quiet two-second tone
+        let tone = folder.appendingPathComponent("tone.caf")
+        if let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1),
+           let file = try? AVAudioFile(forWriting: tone, settings: format.settings),
+           let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 88_200), let samples = buffer.floatChannelData?[0] {
+            buffer.frameLength = 88_200
+            for i in 0..<88_200 { samples[i] = 0.02 * sin(Float(i) * 2 * .pi * 440 / 44_100) }
+            try? file.write(from: buffer)
+        }
         s.window?.navigate(to: folder)
         func grid() -> FileCollectionView? {
             func find(_ view: NSView) -> FileCollectionView? { (view as? FileCollectionView) ?? view.subviews.lazy.compactMap(find).first }
@@ -104,6 +116,20 @@ enum Scenarios {
                 let video = item.view.subviews.first { $0 is InlineVideoView } as? InlineVideoView
                 s.note("  playing in place: \(video != nil), at \(String(format: "%.1f", video?.player.currentTime().seconds ?? 0)) s  expect true, > 0")
                 shot(1)
+            }),
+            (0.3, "the sound: play button and playing", {
+                guard let grid = grid(), let item = (0..<grid.numberOfItems(inSection: 0)).lazy
+                    .compactMap({ grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem })
+                    .first(where: { $0.textField?.stringValue.hasSuffix("tone.caf") == true }),
+                      let event = NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                         windowNumber: s.window?.window?.windowNumber ?? 0, context: nil,
+                                                         eventNumber: 0, trackingNumber: 0, userData: nil) else { s.note("  (no tone item)"); return }
+                item.mouseEntered(with: event)
+                let button = item.view.subviews.first { $0 is VideoPlayButton }
+                let center = button.map { NSPoint(x: $0.frame.midX, y: $0.frame.midY) } ?? .zero
+                let played = item.handlePlayClick(at: center)
+                (item.view.subviews.first { $0 is InlineVideoView } as? InlineVideoView)?.player.volume = 0
+                s.note("  sound: play button shown: \(button?.isHidden == false); click plays: \(played)  expect true, true")
             }),
             (1.0, "details", { s.setViewMode(.details) }),
             (1.5, "details shot", { shot(2) }),
@@ -259,6 +285,123 @@ enum Scenarios {
                 second.window?.close()
             }),
             (0.4, "done", {}),
+        ])
+    }
+
+    /// A disk image opened from WinEx: once mounted, its contents open in a WinEx window (the
+    /// image is mounted with hdiutil here, then detached).
+    static func diskImage(_ s: Scenario) {
+        let image = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("winex-scenario.dmg")
+        try? FileManager.default.removeItem(at: image)
+        func run(_ arguments: [String]) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+            process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
+            process.waitUntilExit()
+        }
+        run(["create", "-size", "2m", "-fs", "APFS", "-volname", "WinExScenario", image.path])
+        var before = 0
+        s.run([
+            (0.5, "opened from WinEx, then mounted", {
+                before = AppDelegate.shared.windowControllers.count
+                DiskImages.noteOpening(image)
+                DispatchQueue.global().async { run(["attach", image.path, "-quiet"]) }
+            }),
+            (3.0, "its window", {
+                let shown = AppDelegate.shared.windowControllers.last?.selectedTab.url.path ?? "-"
+                s.note("  new windows: \(AppDelegate.shared.windowControllers.count - before); showing \(shown)  expect 1, /Volumes/WinExScenario")
+                if AppDelegate.shared.windowControllers.count > before { AppDelegate.shared.windowControllers.last?.window?.close() }
+                DispatchQueue.global().async {
+                    run(["detach", "/Volumes/WinExScenario", "-quiet"])
+                    try? FileManager.default.removeItem(at: image)
+                }
+            }),
+            (1.5, "done", {}),
+        ])
+    }
+
+    /// Hidden extensions: a file whose extension is hidden shows without it once «Показывать все
+    /// расширения» is off; renamed, it keeps its extension.
+    static func extensions(_ s: Scenario) {
+        let folder = s.makeFiles(["report.pdf", "plain.txt"], in: "extensions")
+        var report = folder.appendingPathComponent("report.pdf")
+        var values = URLResourceValues()
+        values.hasHiddenExtension = true
+        try? report.setResourceValues(values)
+        let before = Settings.showAllExtensions
+        s.window?.navigate(to: folder)
+        s.setViewMode(.details)
+        s.run([
+            (0.8, "all extensions shown", { s.note("  \(s.names())  expect [plain.txt, report.pdf]") }),
+            (0.3, "not all", { Settings.showAllExtensions = false }),
+            (0.8, "the hidden one without it", { s.note("  \(s.names())  expect [plain.txt, report]") }),
+            (0.3, "rename it to «summary»", {
+                s.select("report")
+                s.send("renameSelected:")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    guard let editor = s.window?.window?.firstResponder as? NSTextView else { s.note("  not renaming"); return }
+                    editor.selectAll(nil)
+                    editor.insertText("summary", replacementRange: editor.selectedRange())
+                    editor.insertNewline(nil)   // Return
+                }
+            }),
+            (1.0, "kept its extension", {
+                let files = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
+                s.note("  on disk: \(files)  expect [plain.txt, summary.pdf]")
+            }),
+            (0.3, "details: rename, then a click elsewhere (no Return)", {
+                s.select("plain.txt")
+                s.send("renameSelected:")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    guard let editor = s.window?.window?.firstResponder as? NSTextView else { s.note("  not renaming"); return }
+                    editor.selectAll(nil)
+                    editor.insertText("clicked.txt", replacementRange: editor.selectedRange())
+                    s.window?.window?.makeFirstResponder(nil)
+                }
+            }),
+            (1.0, "kept what was typed", {
+                let files = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
+                s.note("  on disk: \(files)  expect [clicked.txt, summary.pdf]")
+                Settings.showAllExtensions = before
+            }),
+            (0.5, "done", {}),
+        ])
+    }
+
+    /// Aliases look like what they point to, with the alias arrow: a folder, an app, a picture's
+    /// preview, a text file, Downloads (with its glyph).
+    static func aliases(_ s: Scenario) {
+        let base = s.makeFiles(["note.txt", "Папка/"], in: "aliases-originals")
+        let picture = base.appendingPathComponent("pic.png")
+        let image = NSImage(size: NSSize(width: 200, height: 120), flipped: false) { rect in
+            NSColor.systemOrange.setFill(); rect.fill()
+            NSColor.systemBlue.setFill(); NSRect(x: 0, y: 0, width: 80, height: 120).fill()
+            return true
+        }
+        if let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: picture)
+        }
+        let folder = s.makeFiles([], in: "aliases")
+        let originals = [base.appendingPathComponent("Папка"), URL(fileURLWithPath: "/System/Applications/Calculator.app"), picture,
+                         base.appendingPathComponent("note.txt"), FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]]
+        for original in originals {
+            let alias = folder.appendingPathComponent(original.deletingPathExtension().lastPathComponent + " псевдоним")
+            if let data = try? original.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil) {
+                try? URL.writeBookmarkData(data, to: alias)
+            }
+        }
+        s.window?.navigate(to: folder)
+        s.run([
+            (1.0, "icons", { s.setViewMode(.largeIcons) }),
+            (1.5, "shot", {
+                if let number = s.window?.window?.windowNumber {
+                    try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.5, "done", {}),
         ])
     }
 

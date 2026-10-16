@@ -371,7 +371,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func open(_ url: URL) {
         let url = FileCommands.resolved(url)
         if FileCommands.isZip(url) { return FileCommands.extract(url) }
-        if url.isBrowsableDirectory { openWindow(at: url) } else { NSWorkspace.shared.open(url) }
+        if url.isBrowsableDirectory { openWindow(at: url) } else { DiskImages.noteOpening(url); NSWorkspace.shared.open(url) }
     }
 
     func reveal(_ url: URL) {

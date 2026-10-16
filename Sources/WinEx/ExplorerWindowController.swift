@@ -352,6 +352,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let hidden = show.addItem(withTitle: L("Скрытые файлы"), action: #selector(AppDelegate.toggleHiddenFiles(_:)), keyEquivalent: "")
         hidden.target = AppDelegate.shared
         hidden.state = Settings.showHidden ? .on : .off
+        let info = show.addItem(withTitle: L("Сведения об объекте"), action: #selector(toggleItemInfo(_:)), keyEquivalent: "")
+        info.target = self
+        info.state = Settings.showItemInfo ? .on : .off
         let bar = show.addItem(withTitle: L("Панель команд"), action: #selector(toggleCommandBar(_:)), keyEquivalent: "")
         bar.target = self
         bar.state = Settings.showCommandBar ? .on : .off
@@ -572,6 +575,11 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     // MARK: - Actions
+
+    /// «Просмотреть ▸ Показать ▸ Сведения об объекте»: the line under names in icon views.
+    @objc private func toggleItemInfo(_ sender: Any?) {
+        Settings.showItemInfo.toggle()
+    }
 
     @objc func newTab(_ sender: Any?) {
         // The place new windows open at (Settings ▸ Основные)
@@ -922,6 +930,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             return
         }
         guard url.isBrowsableDirectory else {
+            DiskImages.noteOpening(url)
             NSWorkspace.shared.open(url)
             return
         }

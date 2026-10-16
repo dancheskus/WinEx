@@ -15,6 +15,7 @@ final class SettingsWindowController: NSWindowController {
     private let hotKeyPopup = NSPopUpButton()
     private let hotKeyHint = SettingsForm.hint("")
     private let hiddenCheckbox = NSButton(checkboxWithTitle: L("Показывать скрытые файлы"), target: nil, action: nil)
+    private let extensionsCheckbox = NSButton(checkboxWithTitle: L("Показывать все расширения имён файлов"), target: nil, action: nil)
     private let terminalCheckbox = NSButton(checkboxWithTitle: L("«Открыть в терминале» в контекстном меню"), target: nil, action: nil)
     private let terminalPopup = NSPopUpButton()
     private let commandBarCheckbox = NSButton(checkboxWithTitle: L("Панель команд под адресной строкой"), target: nil, action: nil)
@@ -90,6 +91,8 @@ final class SettingsWindowController: NSWindowController {
         hotKeyPopup.action = #selector(changeHotKey(_:))
         hiddenCheckbox.target = self
         hiddenCheckbox.action = #selector(toggleHidden(_:))
+        extensionsCheckbox.target = self
+        extensionsCheckbox.action = #selector(toggleExtensions(_:))
         commandBarCheckbox.target = self
         commandBarCheckbox.action = #selector(toggleCommandBar(_:))
         terminalCheckbox.target = self
@@ -127,6 +130,7 @@ final class SettingsWindowController: NSWindowController {
             .row(L("Вид папок по умолчанию:"), viewModePopup),
             .row(L("Окно:"), commandBarCheckbox),
             .row(L("Файлы:"), hiddenCheckbox),
+            .row(nil, extensionsCheckbox),
             .gap,
             .row(L("Окно WinEx из любой программы:"), hotKeyPopup),
             .row(nil, hotKeyHint),
@@ -325,6 +329,7 @@ final class SettingsWindowController: NSWindowController {
         shellCheckbox.state = ShellIntegration.isInstalled ? .on : .off
         resetDesktopButton.isEnabled = Settings.replaceFinder
         hiddenCheckbox.state = Settings.showHidden ? .on : .off
+        extensionsCheckbox.state = Settings.showAllExtensions ? .on : .off
         commandBarCheckbox.state = Settings.showCommandBar ? .on : .off
         terminalCheckbox.state = Settings.terminalInMenu ? .on : .off
         syncTerminal()
@@ -531,6 +536,10 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func toggleHidden(_ sender: NSButton) {
         AppDelegate.shared.setShowHidden(sender.state == .on)
+    }
+
+    @objc private func toggleExtensions(_ sender: NSButton) {
+        Settings.showAllExtensions = sender.state == .on
     }
 }
 

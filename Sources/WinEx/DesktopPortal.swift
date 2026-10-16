@@ -99,6 +99,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         watcher = DirectoryWatcher(url: folder) { [weak self] in self?.reload() }
         tagWatcher = TagChangeWatcher(url: folder) { [weak self] in self?.reload() }
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
+        observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
         let menu = NSMenu()
         menu.delegate = self
@@ -235,18 +236,19 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
 
     private func image(for index: Int) -> NSImage {
         let item = items[index]
-        guard !item.isFolder, item.url.pathExtension != "app" else { return item.icon }
+        guard !item.isFolder, item.url.pathExtension != "app", !AliasIcon.isContainer(item) else { return item.icon }
         let key = thumbnailKey(item)
         if let cached = thumbnails[key] { return cached }
         if !requested.contains(key) {
             requested.insert(key)
-            let request = QLThumbnailGenerator.Request(fileAt: item.url, size: CGSize(width: iconSide, height: iconSide),
+            let request = QLThumbnailGenerator.Request(fileAt: AliasIcon.previewSource(item), size: CGSize(width: iconSide, height: iconSide),
                                                        scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
             request.iconMode = true
+            let isAlias = item.aliasTarget != nil
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
                 guard let image = representation?.nsImage else { return }
                 DispatchQueue.main.async {
-                    self?.thumbnails[key] = image
+                    self?.thumbnails[key] = isAlias ? AliasIcon.badged(image) : image
                     self?.needsDisplay = true
                 }
             }
