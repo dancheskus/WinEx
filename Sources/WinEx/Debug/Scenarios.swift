@@ -52,6 +52,7 @@ enum Scenarios {
         "foldericon": folderIcon,
         "video": video,
         "twowindows": twoWindows,
+        "reopen": reopen,
         "desktopkeys": desktopKeys,
         "renamefield": renameField,
         "desktopvideo": desktopVideo,
@@ -257,6 +258,41 @@ enum Scenarios {
                 second.window?.close()
             }),
             (0.4, "done", {}),
+        ])
+    }
+
+    /// A folder another app opens (as Chrome's «Show downloads»): already open in a tab → that
+    /// window and tab come forward, no new window; WinEx's own «new window» opens one each time.
+    static func reopen(_ s: Scenario) {
+        let folder = s.makeFiles(["a.txt", "b.txt"], in: "reopen")
+        let other = s.makeFiles(["c.txt"], in: "elsewhere")
+        s.window?.navigate(to: other)
+        func count() -> Int { AppDelegate.shared.windowControllers.count }
+        var start = 0
+        s.run([
+            (0.8, "the folder in a second tab", {
+                start = count()
+                s.window?.addTab(url: folder, select: false)
+            }),
+            (0.5, "another app opens it", {
+                AppDelegate.shared.application(NSApp, open: [folder])
+            }),
+            (0.6, "shown, not opened again", {
+                let shown = s.window?.selectedTab.url.lastPathComponent ?? "?"
+                s.note("  windows: \(count() - start) new; front tab: \(shown)  expect 0 new, reopen")
+            }),
+            (0.3, "a file in it is revealed", {
+                AppDelegate.shared.application(NSApp, open: [folder.appendingPathComponent("b.txt")])
+            }),
+            (0.8, "selected in that tab", {
+                s.note("  windows: \(count() - start) new; selected \(s.selectedNames)  expect 0 new, [b.txt]")
+            }),
+            (0.3, "⌘N three times", { for _ in 0..<3 { s.send("newWindow:") } }),
+            (0.8, "three new windows", {
+                s.note("  windows: \(count() - start) new  expect 3 new")
+                for controller in AppDelegate.shared.windowControllers.dropFirst() { controller.window?.close() }
+            }),
+            (0.5, "done", {}),
         ])
     }
 

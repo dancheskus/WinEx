@@ -513,6 +513,16 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         showSelectedTab()
     }
 
+    /// Brings a tab forward (shown again even if it's the current one), with `urls` selected in it.
+    func showTab(at index: Int, selecting urls: [URL]) {
+        guard tabs.indices.contains(index) else { return }
+        // Already in front and nothing to select: left as it is (scrolled where it was)
+        if index == selectedIndex && urls.isEmpty { return }
+        tabs[index].pendingSelection = urls
+        selectedIndex = index
+        showSelectedTab()
+    }
+
     func addTab(url: URL, select: Bool = true) {
         tabs.insert(ExplorerTab(url: url), at: selectedIndex + 1)
         if select {

@@ -215,12 +215,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard !rest.isEmpty else { return }
             return self.application(application, open: rest)
         }
-        for url in urls where url.isBrowsableDirectory { openWindow(at: url) }
+        // (Opened from another app: a folder already open is shown, not opened again)
+        for url in urls where url.isBrowsableDirectory { showOrOpenWindow(at: url) }
         // Files: one window per folder, all of them selected (several from Finder's button at once)
         let files = urls.filter { !$0.isBrowsableDirectory }
         for (folder, items) in Dictionary(grouping: files, by: { $0.deletingLastPathComponent() }) {
-            openWindow(at: folder, select: items)
+            showOrOpenWindow(at: folder, select: items)
         }
+    }
+
+    /// A folder another app asks for (Chrome's «Show downloads», the Dock, «Show in Finder»): if a
+    /// window already shows it (in any tab), that window comes forward with that tab — the items
+    /// selected; otherwise a new window. WinEx's own «new window» (⌘N, the hotkey) always opens one.
+    func showOrOpenWindow(at folder: URL, select: [URL] = []) {
+        func key(_ url: URL) -> String { url.resolvingSymlinksInPath().standardizedFileURL.path }
+        let wanted = key(folder)
+        // The frontmost window showing it first
+        let ordered = NSApp.orderedWindows.compactMap { window in windowControllers.first { $0.window === window } }
+        let candidates = ordered + windowControllers.filter { controller in !ordered.contains { $0 === controller } }
+        for controller in candidates {
+            guard let index = controller.tabs.firstIndex(where: { Location($0.url).directory.map(key) == wanted }) else { continue }
+            controller.showTab(at: index, selecting: select)
+            if controller.window?.isMiniaturized == true { controller.window?.deminiaturize(nil) }
+            controller.window?.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            return
+        }
+        openWindow(at: folder, select: select)
     }
 
     @objc private func handleRevealEvent(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
@@ -236,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
         // One window per parent folder, with all revealed items selected
         for (parent, items) in Dictionary(grouping: urls, by: { $0.deletingLastPathComponent() }) {
-            openWindow(at: parent, select: items)
+            showOrOpenWindow(at: parent, select: items)
         }
     }
 
