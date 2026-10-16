@@ -142,7 +142,8 @@ enum Scenarios {
 
     /// Renaming: F2 again doesn't end it; clicks reach the name field — in icon view and in the details view.
     static func renameField(_ s: Scenario) {
-        let folder = s.makeFiles(["report.txt"], in: "rename")
+        let long = "Инструкция_Пассажирская_таможенная_декларация_документ.docx"
+        let folder = s.makeFiles(["report.txt", long] + (1...12).map { "файл \($0).txt" }, in: "rename")
         s.window?.navigate(to: folder)
         func editor() -> NSTextView? { s.window?.window?.firstResponder as? NSTextView }
         func check(_ mode: String) {
@@ -175,6 +176,25 @@ enum Scenarios {
                     let editing = s.window?.window.map { InlineRename.isEditing(in: $0) } ?? false
                     s.note("  still renaming in the first window: \(editing)  expect false")
                     other.window?.close()
+                }
+            }),
+            (0.8, "a long name: a click on its last line, over the row below", {
+                s.setViewMode(.largeIcons); s.select(long); s.send("renameSelected:")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    guard let editor = editor(), let field = editor.delegate as? NSTextField, let item = field.superview,
+                          let window = editor.window, let layout = editor.layoutManager, let container = editor.textContainer else {
+                        s.note("  not renaming"); return
+                    }
+                    let last = layout.glyphRange(forCharacterRange: NSRange(location: editor.string.count - 2, length: 1), actualCharacterRange: nil)
+                    var rect = layout.boundingRect(forGlyphRange: last, in: container)
+                    rect.origin.x += editor.textContainerOrigin.x
+                    rect.origin.y += editor.textContainerOrigin.y
+                    let point = editor.convert(NSPoint(x: rect.midX, y: rect.midY), to: item)
+                    s.note("  the last line is outside the item: \(!item.bounds.contains(point))  expect true")
+                    s.click(item, at: point)
+                    let still = window.firstResponder === editor
+                    s.note("  still renaming: \(still); caret at \(editor.selectedRange().location) of \(editor.string.count)  expect true, near the end")
+                    window.makeFirstResponder(nil)
                 }
             }),
             (1.0, "done", {}),

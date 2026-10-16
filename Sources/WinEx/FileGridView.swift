@@ -487,8 +487,14 @@ final class GridItemView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Clicks go straight to the collection view (it implements selection), except while renaming.
         // Taking them here and letting them bubble up delivered each click to the grid twice.
-        guard !isRenaming else { return super.hitTest(point) }
-        return nil
+        guard isRenaming else { return nil }
+        // A long name being edited reaches out of the item (over the row below): the field takes
+        // the clicks there too — the stock test stops at the item's own bounds
+        let local = convert(point, from: superview)
+        for subview in subviews.reversed() where !subview.isHidden && subview is NSTextField && subview.frame.contains(local) {
+            if let hit = subview.hitTest(local) { return hit }
+        }
+        return super.hitTest(point)
     }
 
     override func draw(_ dirtyRect: NSRect) {
