@@ -101,6 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
+    func applicationDidResignActive(_ notification: Notification) {
+        InlineRename.endAll()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // The window in front is the one to come back next time
         isTerminating = true
@@ -191,6 +195,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         openedByEvent = true
+        // A WinEx settings file double-clicked: offer to load it
+        if let settings = urls.first(where: SettingsBackup.isSettingsFile) {
+            DispatchQueue.main.async { SettingsBackup.open(settings) }
+            let rest = urls.filter { !SettingsBackup.isSettingsFile($0) }
+            guard !rest.isEmpty else { return }
+            return self.application(application, open: rest)
+        }
         for url in urls where url.isBrowsableDirectory { openWindow(at: url) }
         // Files: one window per folder, all of them selected (several from Finder's button at once)
         let files = urls.filter { !$0.isBrowsableDirectory }

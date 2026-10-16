@@ -243,7 +243,7 @@ final class NewItemTemplate: NSObject {
             guard !hidden.contains(template.id) else { return false }
             guard let type = template.contentType else { return true }
             return NSWorkspace.shared.urlForApplication(toOpen: type) != nil
-        } + AppsConfig.templates.map(custom)
+        } + AppsConfig.templates.filter { !hidden.contains($0.id) }.map(custom)
     }
 
     /// Settings ▸ Программы ▸ Создать: an entry of the user's.

@@ -282,8 +282,17 @@ final class FenceView: NSView, NSTextFieldDelegate {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: ["hover": true]))
     }
 
+    /// The mouse over the zone: its title bar lights up and shows the roll-up arrow (hidden otherwise).
+    private var hovered = false { didSet { if hovered != oldValue { overlay.needsDisplay = true } } }
+
+    override func mouseExited(with event: NSEvent) {
+        guard event.trackingArea?.userInfo?["hover"] != nil else { return super.mouseExited(with: event) }
+        hovered = false
+    }
+
     override func mouseEntered(with event: NSEvent) {
         guard event.trackingArea?.userInfo?["hover"] != nil else { return super.mouseEntered(with: event) }
+        hovered = true
         // A zone's own scroll view, or a portal's (only when there's something to scroll)
         if let scrollView { scrollView.flashScrollers() }
         if let portalView, let document = portalView.documentView,
@@ -638,6 +647,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
         field.delegate = self
         addSubview(field)
         renameField = field
+        InlineRename.began(field)
         window?.makeKey()
         window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
@@ -683,6 +693,14 @@ final class FenceView: NSView, NSTextFieldDelegate {
             NSRect(x: 0, y: titleRect.maxY - 1, width: bounds.width, height: 1).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
+        if hovered && renameField == nil {
+            // Under the mouse: the title bar a touch lighter
+            NSGraphicsContext.saveGraphicsState()
+            shape.addClip()
+            NSColor.white.withAlphaComponent(0.08).setFill()
+            NSRect(x: 0, y: 0, width: bounds.width, height: min(DesktopFence.titleHeight, bounds.height)).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
         if renameField != nil {
             // Editing: a soft field behind the text (the text itself doesn't move)
             NSColor.black.withAlphaComponent(0.35).setFill()
@@ -712,8 +730,8 @@ final class FenceView: NSView, NSTextFieldDelegate {
             count.draw(at: NSPoint(x: badge.minX + 6, y: badge.midY - size.height / 2))
         }
         text.draw(in: titleTextRect)
-        // Roll-up chevron at the left
-        if let chevron = NSImage(systemSymbolName: fence.collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
+        // Roll-up chevron at the left — only with the mouse over the zone
+        if hovered, let chevron = NSImage(systemSymbolName: fence.collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 9, weight: .bold)) {
             let tinted = NSImage(size: chevron.size, flipped: false) { rect in
                 chevron.draw(in: rect)

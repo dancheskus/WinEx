@@ -380,6 +380,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// Items directly in the (single) folder, hidden ones not counted — as Finder shows it.
+    private lazy var topLevelCount: Int? = (try? FileManager.default.contentsOfDirectory(at: single, includingPropertiesForKeys: nil,
+                                                                                         options: [.skipsHiddenFiles]))?.count
+
     private func showSizes(_ values: (size: Int64, allocated: Int64, files: Int, folders: Int), done: Bool) {
         let suffix = done ? "" : "…"
         sizeValue.stringValue = Self.bytes(values.size) + suffix
@@ -387,7 +391,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         // The selected folders themselves aren't "contained"
         let folders = max(0, values.folders - urls.filter { $0.isBrowsableDirectory }.count)
         let files = isSingle && !single.isBrowsableDirectory ? 0 : values.files - (isSingle ? 0 : urls.filter { !$0.isBrowsableDirectory }.count)
-        containsValue.stringValue = "\(files) \(plural(files, L("файл"), L("файла"), L("файлов"))), \(folders) \(plural(folders, L("папка"), L("папки"), L("папок")))" + suffix
+        let total = "\(files.formatted()) \(plural(files, L("файл"), L("файла"), L("файлов"))), \(folders.formatted()) \(plural(folders, L("папка"), L("папки"), L("папок")))"
+        // A single folder: what's in it itself first — the totals count everything nested (a project's
+        // thousands of library files too)
+        if isSingle, single.isBrowsableDirectory, let top = topLevelCount {
+            containsValue.stringValue = L("%@ (всего внутри: %@)", "\(top.formatted()) \(plural(top, L("объект"), L("объекта"), L("объектов")))", total) + suffix
+        } else {
+            containsValue.stringValue = total + suffix
+        }
         if done { subtitle.stringValue = typeDescription + " · " + ByteCountFormatter.string(fromByteCount: values.size, countStyle: .file) }
     }
 

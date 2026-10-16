@@ -218,6 +218,28 @@ final class DesktopWindow: NSWindow {
     }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// A click on the desktop while another app is in front: WinEx comes forward and makes its last
+    /// window key — so keys (Delete) would go to that window while the clicked icon looks selected
+    /// here. The desktop takes the keys back once WinEx is active.
+    private var activation: NSObjectProtocol?
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown || event.type == .rightMouseDown, !NSApp.isActive, activation == nil {
+            activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                                                queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if let activation = self.activation { NotificationCenter.default.removeObserver(activation) }
+                    self.activation = nil
+                    self.makeKey()
+                    // (AppKit may still be ordering the app's windows in this turn)
+                    DispatchQueue.main.async { self.makeKey() }
+                }
+            }
+        }
+        super.sendEvent(event)
+    }
 }
 
 final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuItemValidation,
@@ -1655,6 +1677,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     @objc func paste(_ sender: Any?) { FileClipboard.shared.paste(into: desktopURL) }
 
     @objc func renameSelected(_ sender: Any?) {
+        guard renameField == nil else { return }   // F2 again while renaming: keeps renaming
         if let i = selection.sorted().first(where: { !isVolume($0) }) { beginRename(i) }
     }
 
@@ -2611,6 +2634,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         field.delegate = self
         addSubview(field)
         renameField = field
+        InlineRename.began(field)
         renameLabel = labelRect(index)
         fitRenameField()
         renamingName = item.url.lastPathComponent

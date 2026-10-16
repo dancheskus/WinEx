@@ -19,6 +19,7 @@ final class CommandBar: NSView {
     let pasteButton = CommandButton(symbol: "doc.on.clipboard", tip: L("Вставить (⌘V)"))
     let renameButton = CommandButton(symbol: "character.cursor.ibeam", tip: L("Переименовать"))
     let shareButton = CommandButton(symbol: "square.and.arrow.up", tip: L("Поделиться"))
+    let airDropButton = CommandButton(symbol: "finder:SidebarAirDrop", tip: L("Отправить через AirDrop"))
     let deleteButton = CommandButton(symbol: "trash", tip: L("Удалить (⌘⌫)"))
     let sortButton = CommandButton(symbol: "arrow.up.arrow.down", title: L("Сортировать"), tip: L("Порядок файлов"), menu: true)
     let viewButton = CommandButton(symbol: "square.grid.2x2", title: L("Просмотреть"), tip: L("Вид"), menu: true)
@@ -33,7 +34,7 @@ final class CommandBar: NSView {
 
         let stack = NSStackView(views: [
             newButton, Self.divider(),
-            cutButton, copyButton, pasteButton, renameButton, shareButton, deleteButton, Self.divider(),
+            cutButton, copyButton, pasteButton, renameButton, shareButton, airDropButton, deleteButton, Self.divider(),
             sortButton, viewButton, Self.divider(), moreButton,
         ])
         stack.orientation = .horizontal
@@ -118,8 +119,7 @@ final class CommandButton: NSView {
         toolTip = tip
         setAccessibilityRole(.button)
         setAccessibilityLabel(title ?? tip)
-        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 15, weight: .regular)) ?? NSImage())
+        let icon = NSImageView(image: SidebarConfig.icon(symbol, pointSize: 15) ?? NSImage())
         icon.contentTintColor = .labelColor
         var views: [NSView] = [icon]
         if let title {

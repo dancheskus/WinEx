@@ -74,8 +74,7 @@ final class SidebarSettingsView: NSView {
     private func row(_ title: String, symbol: String, on: Bool, _ change: @escaping (Bool) -> Void) {
         let checkbox = ClosureCheckbox(change)
         checkbox.state = on ? .on : .off
-        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 14, weight: .regular)) ?? NSImage())
+        let icon = NSImageView(image: SidebarConfig.icon(symbol, pointSize: 14) ?? NSImage())
         icon.contentTintColor = .secondaryLabelColor
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
         let label = NSTextField(labelWithString: title)
@@ -513,9 +512,8 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         let entry = rows[row]
         switch id {
         case "on":
-            let box = checkbox(!AppsConfig.hiddenTemplates.contains(entry.builtin?.id ?? ""), tag: row, action: #selector(toggleTemplate(_:)))
-            box.isEnabled = entry.builtin != nil
-            return box
+            // The user's own types can be switched off too (kept, not shown in «Создать»)
+            return checkbox(!AppsConfig.hiddenTemplates.contains(entry.builtin?.id ?? entry.custom?.id ?? ""), tag: row, action: #selector(toggleTemplate(_:)))
         case "title":
             if let builtin = entry.builtin { return label(builtin.title) }
             let field = editable(entry.custom?.title ?? "", tag: row, placeholder: "")
@@ -652,7 +650,7 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     }
 
     @objc private func toggleTemplate(_ sender: NSButton) {
-        guard rows.indices.contains(sender.tag), let id = rows[sender.tag].builtin?.id else { return }
+        guard rows.indices.contains(sender.tag), let id = rows[sender.tag].builtin?.id ?? rows[sender.tag].custom?.id else { return }
         var off = AppsConfig.hiddenTemplates.filter { $0 != id }
         if sender.state == .off { off.append(id) }
         AppsConfig.hiddenTemplates = off
@@ -676,6 +674,10 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     @objc private func chooseSample(_ sender: NSButton) {
         guard rows.indices.contains(sender.tag), let custom = rows[sender.tag].custom else { return }
         let panel = NSOpenPanel()
+        // WinEx's folder of sample files (made if it isn't there yet)
+        let examples = SettingsBackup.samplesFolder
+        try? FileManager.default.createDirectory(at: examples, withIntermediateDirectories: true)
+        panel.directoryURL = examples
         panel.canChooseDirectories = false
         panel.treatsFilePackagesAsDirectories = false
         panel.prompt = L("Выбрать")

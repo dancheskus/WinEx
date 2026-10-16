@@ -20,6 +20,42 @@
 				<string>public.folder</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>WinEx Settings</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>CFBundleTypeIconFile</key>
+			<string>WinExSettings</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>dev.winex.settings</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>dev.winex.settings</string>
+			<key>UTTypeDescription</key>
+			<string>WinEx Settings</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeIconFile</key>
+			<string>WinExSettings</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>winexsettings</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>WinEx</string>

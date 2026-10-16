@@ -307,6 +307,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             (commandBar.pasteButton, #selector(FileListViewController.paste(_:))),
             (commandBar.renameButton, #selector(FileListViewController.renameSelected(_:))),
             (commandBar.shareButton, #selector(FileListViewController.share(_:))),
+            (commandBar.airDropButton, #selector(FileListViewController.sendViaAirDrop(_:))),
             (commandBar.deleteButton, #selector(FileListViewController.moveToTrash(_:))),
         ]
         for (button, action) in buttons {

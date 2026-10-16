@@ -51,6 +51,7 @@ enum Scenarios {
         "tagwatch": tagWatch,
         "foldericon": folderIcon,
         "video": video,
+        "renamefield": renameField,
         "desktopvideo": desktopVideo,
         "selfupdate": selfUpdate,
         "updated": updated,
@@ -134,6 +135,37 @@ enum Scenarios {
                 view()?.debugStopVideo()
                 controller.hide()
             }),
+        ])
+    }
+
+    /// Renaming: F2 again doesn't end it; clicks reach the name field — in icon view and in the details view.
+    static func renameField(_ s: Scenario) {
+        let folder = s.makeFiles(["report.txt"], in: "rename")
+        s.window?.navigate(to: folder)
+        func editor() -> NSTextView? { s.window?.window?.firstResponder as? NSTextView }
+        func check(_ mode: String) {
+            guard let editor = editor(), let layout = editor.layoutManager, let container = editor.textContainer else {
+                s.note("  \(mode): not renaming"); return
+            }
+            s.send("renameSelected:")   // F2 again
+            let still = editor === s.window?.window?.firstResponder
+            // A double click on "txt": where the last character is drawn
+            let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: editor.string.count - 2, length: 1), actualCharacterRange: nil)
+            var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+            rect.origin.x += editor.textContainerOrigin.x
+            rect.origin.y += editor.textContainerOrigin.y
+            // A click in the extension puts the caret there (the mouse works in the field)
+            s.click(editor, at: NSPoint(x: rect.maxX + 1, y: rect.midY))
+            let caret = editor.selectedRange()
+            s.note("  \(mode): still renaming after F2: \(still); a click after the «x» of «txt» puts the caret at \(caret.location)  expect true, \(editor.string.count - 1)")
+            s.window?.window?.makeFirstResponder(nil)
+        }
+        s.run([
+            (0.8, "icons: rename", { s.setViewMode(.largeIcons); s.select("report.txt"); s.send("renameSelected:") }),
+            (0.5, "icons: F2 and the mouse", { check("icons") }),
+            (0.5, "details: rename", { s.setViewMode(.details); s.select("report.txt"); s.send("renameSelected:") }),
+            (0.5, "details: F2 and the mouse", { check("details") }),
+            (0.5, "done", {}),
         ])
     }
 
@@ -2094,7 +2126,13 @@ enum Scenarios {
         }
         var cpuStart = 0.0
         Settings.searchWholeMac = false
+        // (The crash of 0.9.4: the table, hidden in icon view, still counting the rows of a bigger folder)
+        let big = s.makeFiles((1...30).map { "file \($0).txt" }, in: "big")
         s.run([
+            (0.6, "a big folder in the details view", { s.window?.navigate(to: big) }),
+            (0.8, "icons, then a smaller folder", { s.setViewMode(.largeIcons); s.window?.navigate(to: base) }),
+            (0.8, "search from icon view (crashed in 0.9.4)", { type("test") }),
+            (1.5, "still running", { s.note("  searched from icon view: no crash") ; type(""); s.setViewMode(.details) }),
             (0.8, "type «отчёт»", { type("отчёт") }),
             (2.5, "results", {
                 s.note("  \(s.window?.selectedTab.title ?? "?") | \(status())")

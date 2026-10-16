@@ -426,6 +426,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         }
         nameField.delegate = self
         view.window?.makeFirstResponder(nameField)
+        InlineRename.began(nameField)
         nameField.currentEditor()?.selectedRange = FileOps.baseNameRange(of: originalName, isFolder: isFolder)
     }
 
@@ -887,6 +888,25 @@ extension Notification.Name {
 /// line or more), the text background, a thin rounded frame in the accent colour, no focus ring.
 enum InlineRename {
     static let padding = NSSize(width: 7, height: 3)
+
+    /// Name fields being edited (files, the desktop, zone titles).
+    nonisolated(unsafe) private static let active = NSHashTable<NSTextField>.weakObjects()
+
+    static func began(_ field: NSTextField) { active.add(field) }
+
+    /// A name being edited in `window`.
+    @MainActor static func isEditing(in window: NSWindow?) -> Bool {
+        active.allObjects.contains { $0.window === window && $0.currentEditor() != nil }
+    }
+
+    /// WinEx went to the background: a rename in progress ends (what's typed is kept, as when
+    /// clicking elsewhere) — the field doesn't stay open waiting behind another app.
+    @MainActor static func endAll() {
+        for field in active.allObjects where field.currentEditor() != nil {
+            field.window?.makeFirstResponder(nil)
+        }
+        active.removeAllObjects()
+    }
 
     static func style(_ field: NSTextField) {
         (field.cell as? InlineRenameCell)?.inset = NSSize(width: padding.width - 2, height: padding.height)

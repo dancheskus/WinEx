@@ -340,7 +340,31 @@ enum FileOps {
     @MainActor
     static func trash(_ urls: [URL]) {
         // Files may already be gone (e.g. the Dock trashed them after a drag)
-        FileOperations.start(.trash, urls)
+        // A volume without a Trash (a NAS share, some USB disks): like Finder, those are deleted
+        // right away — after saying so
+        let (trashable, noTrash) = urls.reduce(into: ([URL](), [URL]())) { result, url in
+            if hasTrash(for: url) { result.0.append(url) } else { result.1.append(url) }
+        }
+        if !trashable.isEmpty { FileOperations.start(.trash, trashable) }
+        guard !noTrash.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = noTrash.count == 1
+            ? L("«%@» будет удалён сразу.", noTrash[0].lastPathComponent)
+            : L("%@ объектов будут удалены сразу.", noTrash.count)
+        alert.informativeText = L("На этом диске нет Корзины. Это действие нельзя отменить.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L("Удалить"))
+        alert.addButton(withTitle: L("Отменить"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        FileOperations.start(.delete, noTrash)
+    }
+
+    /// Whether the volume of `url` has a Trash to move it into.
+    private static func hasTrash(for url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return true }   // (gone: nothing to ask about)
+        // A local disk gets its Trash when something is first put in it; a network share has one only if it says so
+        if (try? url.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal != false { return true }
+        return (try? FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: url, create: false)) != nil
     }
 }
 

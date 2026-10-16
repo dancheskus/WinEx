@@ -216,8 +216,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         guard let item = item as? Item else { return nil }
         let cell = NSTableCellView()
         let image = NSImageView(image: item.tagColor.map { FileTags.dotImage(color: $0, size: 14) }
-            ?? NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(.init(pointSize: 17, weight: .regular)) ?? NSImage())
+            ?? SidebarConfig.icon(item.symbol, pointSize: 17) ?? NSImage())
         if item.tagColor == nil { image.contentTintColor = tint(for: item) }
         let label = NSTextField(labelWithString: item.title)
         label.font = .systemFont(ofSize: 13)

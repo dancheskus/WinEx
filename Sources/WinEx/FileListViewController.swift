@@ -145,14 +145,19 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let header = FileHeaderView()
         header.menu = headerMenu
         tableView.headerView = header
-        for name in [NSTableView.columnDidResizeNotification, NSTableView.columnDidMoveNotification] {
-            observers.add(name, object: tableView) { [weak self] in self?.saveColumns() }
+        observers.add(NSTableView.columnDidMoveNotification, object: tableView) { [weak self] in self?.saveColumns() }
+        // Widths the user set by dragging a column's edge — not the last column following the window
+        observers.add(NSTableView.columnDidResizeNotification, object: tableView) { [weak self] in
+            guard let self, self.view.window?.inLiveResize != true,
+                  [.leftMouseDragged, .leftMouseUp].contains(NSApp.currentEvent?.type) else { return }
+            self.saveColumns()
         }
         tableView.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
         tableView.style = .fullWidth
         tableView.rowHeight = 24
         tableView.allowsMultipleSelection = true
-        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        // A bigger or smaller window changes only the last column: «Имя» keeps the width it was given
+        tableView.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
@@ -450,6 +455,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// Results come from many folders: show where each one is.
     private func updateFolderColumn() {
         // (Its own rule: shown in search results only; not a user choice)
+        // Showing a column makes the table ask for its rows at once: it must know the current ones
+        tableView.reloadData()
         tableView.tableColumn(withIdentifier: .init("folder"))?.isHidden = search == nil
     }
 
@@ -635,9 +642,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         selectedIndexes.compactMap { items.indices.contains($0) ? items[$0].url : nil }
     }
 
+    /// The item under the right click while its context menu is open (and its action runs) — not
+    /// otherwise: the table keeps the row of any last click, and a key (Delete) must act on the
+    /// selection, not on a row clicked before in another folder.
     private var clickedIndex: Int {
-        keyboardMenuIndex ?? (viewMode == .details ? tableView.clickedRow : collectionView.clickedIndex)
+        if let keyboardMenuIndex { return keyboardMenuIndex }
+        guard contextMenuOpen else { return -1 }
+        return viewMode == .details ? tableView.clickedRow : collectionView.clickedIndex
     }
+    private var contextMenuOpen = false
 
     /// The item a context menu opened from the keyboard (⇧F10) is for.
     private var keyboardMenuIndex: Int?
@@ -763,7 +776,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     @objc func renameSelected(_ sender: Any?) {
-        guard let index = targetRows.first else { return }
+        // F2 again while renaming: keeps renaming (it only starts it)
+        guard !InlineRename.isEditing(in: view.window), let index = targetRows.first else { return }
         beginRename(at: index)
     }
 
@@ -771,6 +785,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let file = items[index]
         if viewMode == .details {
             tableView.editColumn(0, row: index, with: nil, select: true)
+            if let field = (tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? NSTableCellView)?.textField {
+                InlineRename.began(field)
+            }
             // The table selects the whole name once editing starts; narrow it to the name without extension
             // (view-based tables edit in the cell's text field, so use the window's field editor)
             DispatchQueue.main.async { [weak self] in
@@ -945,6 +962,16 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
     }
 
+    /// AirDrop: the selected files to a nearby device; with nothing selected, Finder's AirDrop window.
+    @objc func sendViaAirDrop(_ sender: Any?) {
+        let urls = targetURLs
+        guard !urls.isEmpty, let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: urls) else {
+            Places.openAirDrop()
+            return
+        }
+        service.perform(withItems: urls)
+    }
+
     @objc func customizeFolder(_ sender: Any?) {
         guard let index = targetRows.first ?? selectedIndexes.first, items.indices.contains(index) else { return }
         let anchor: NSView, rect: NSRect
@@ -1014,6 +1041,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         if menu === headerMenu { return fillHeaderMenu(menu) }
+        contextMenuOpen = true
         // Like Explorer: right-clicking an item selects it (the menu acts on the selection)
         let clicked = clickedIndex
         if clicked >= 0 && !selectedIndexes.contains(clicked) { setSelection(IndexSet(integer: clicked)) }
@@ -1134,7 +1162,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func menuDidClose(_ menu: NSMenu) {
         // Menu actions are sent after the menu closes; forget the clicked item afterwards
-        DispatchQueue.main.async { [weak self] in self?.collectionView.clearClickedIndex() }
+        DispatchQueue.main.async { [weak self] in
+            self?.collectionView.clearClickedIndex()
+            self?.contextMenuOpen = false
+        }
     }
 
     // MARK: - NSTableViewDataSource
@@ -1146,7 +1177,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        items[row].url as NSURL
+        items.indices.contains(row) ? items[row].url as NSURL : nil
     }
 
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
@@ -1181,7 +1212,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     // MARK: - NSTableViewDelegate
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let column = tableColumn?.identifier.rawValue else { return nil }
+        // (The table may still count the rows of what it showed last: hidden in icon views, it isn't reloaded)
+        guard let column = tableColumn?.identifier.rawValue, items.indices.contains(row) else { return nil }
         let item = items[row]
         let cell = tableView.makeView(withIdentifier: .init(column), owner: self) as? NSTableCellView
             ?? makeCell(identifier: column)
@@ -1335,7 +1367,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
-        tableColumn?.identifier.rawValue == "name" ? items[row].name : nil
+        tableColumn?.identifier.rawValue == "name" && items.indices.contains(row) ? items[row].name : nil
     }
 
     // MARK: - NSCollectionViewDataSource

@@ -23,6 +23,8 @@ else
 fi
 # Dock icon (regenerate with: swift Resources/make-icon.swift)
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Settings files' document icon (regenerate with: swift Resources/make-settings-icon.swift)
+cp Resources/WinExSettings.icns "$APP/Contents/Resources/WinExSettings.icns"
 # The languages (texts are in the code, see Sources/WinEx/Localization): the folders tell macOS
 # which languages the app speaks, so its own buttons and units follow the chosen one
 for lang in en ru; do

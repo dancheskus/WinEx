@@ -32,8 +32,7 @@ enum SettingsBackup {
         let date = DateFormatter()
         date.dateFormat = "yyyy-MM-dd"
         panel.nameFieldStringValue = "WinEx \(date.string(from: Date())).\(fileExtension)"
-        // No content type: the extension isn't registered with macOS, and the panel would add it
-        // a second time ("….winexsettings.winexsettings")
+        // (No content type set: the panel would then add the extension a second time)
         panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         panel.message = L("Все настройки WinEx: вид, боковое меню, теги, программы… (расстановка рабочего стола — в снимках рабочего стола)")
         guard panel.runModal() == .OK, var url = panel.url else { return }
@@ -78,6 +77,14 @@ enum SettingsBackup {
         panel.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
         panel.message = L("Файл настроек WinEx")
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        open(url)
+    }
+
+    static let isSettingsFile: (URL) -> Bool = { $0.pathExtension.lowercased() == fileExtension }
+
+    /// A settings file (chosen here, or double-clicked in Finder / WinEx): after asking, its
+    /// settings replace the current ones and WinEx restarts with the same windows.
+    static func open(_ url: URL) {
         guard let data = try? Data(contentsOf: url), let (saved, savedDate, savedExtras) = read(data) else {
             let alert = NSAlert()
             alert.messageText = L("Это не файл настроек WinEx")
@@ -123,14 +130,14 @@ enum SettingsBackup {
         if let login = extras["openAtLogin"] as? Bool, login != LoginItem.isEnabled { try? LoginItem.set(login) }
     }
 
-    /// ~/Library/Application Support/WinEx/Templates (the scenario runs: their own folder).
+    /// ~/Library/Application Support/WinEx/FileExamples (the scenario runs: their own folder).
     static var samplesFolder: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
         #if DEBUG
         if Scenario.isRequested { return FileManager.default.temporaryDirectory.appendingPathComponent("winex-scenario-templates") }
         #endif
-        return base.appendingPathComponent("WinEx/Templates")
+        return base.appendingPathComponent("WinEx/FileExamples")
     }
 
     // MARK: Reset

@@ -31,7 +31,7 @@ enum SidebarConfig {
             folder(.picturesDirectory, "photo"),
             folder(.musicDirectory, "music.note"),
             folder(.moviesDirectory, "film"),
-            Standard(title: L("Программы"), url: URL(fileURLWithPath: "/Applications"), symbol: "square.grid.3x3"),
+            Standard(title: L("Программы"), url: URL(fileURLWithPath: "/Applications"), symbol: "finder:SidebarApplicationsFolder"),
         ].compactMap { $0 }
     }
 
@@ -75,6 +75,20 @@ enum SidebarConfig {
         let after = order[..<rank]
         let index = (paths.lastIndex { after.contains($0) }).map { $0 + 1 } ?? 0
         pin(standard.url, at: index)
+    }
+
+    /// A sidebar icon: an SF Symbol, or (`finder:<name>`) one of Finder's own sidebar glyphs where
+    /// no symbol matches (Applications' «A») — as a template, tinted like the symbols.
+    static func icon(_ symbol: String, pointSize: CGFloat) -> NSImage? {
+        guard symbol.hasPrefix("finder:") else {
+            return NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular))
+        }
+        let path = "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/\(symbol.dropFirst(7)).icns"
+        guard let glyph = NSImage(contentsOfFile: path) else { return NSImage(systemSymbolName: "folder", accessibilityDescription: nil) }
+        let side = (pointSize * 1.15).rounded()
+        glyph.size = NSSize(width: side, height: side)
+        glyph.isTemplate = true
+        return glyph
     }
 
     static func symbol(for url: URL) -> String {
