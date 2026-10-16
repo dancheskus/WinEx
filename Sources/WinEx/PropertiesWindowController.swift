@@ -380,9 +380,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// Items directly in the (single) folder, hidden ones not counted — as Finder shows it.
-    private lazy var topLevelCount: Int? = (try? FileManager.default.contentsOfDirectory(at: single, includingPropertiesForKeys: nil,
-                                                                                         options: [.skipsHiddenFiles]))?.count
+    /// Files and folders directly in the (single) folder, hidden ones not counted (a package — an
+    /// app — counts as a file, as Finder shows it).
+    private lazy var topLevelCounts: (files: Int, folders: Int)? = {
+        guard let items = try? FileManager.default.contentsOfDirectory(at: single, includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+                                                                         options: [.skipsHiddenFiles]) else { return nil }
+        let folders = items.filter { $0.isBrowsableDirectory }.count
+        return (items.count - folders, folders)
+    }()
 
     private func showSizes(_ values: (size: Int64, allocated: Int64, files: Int, folders: Int), done: Bool) {
         let suffix = done ? "" : "…"
@@ -391,13 +396,15 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         // The selected folders themselves aren't "contained"
         let folders = max(0, values.folders - urls.filter { $0.isBrowsableDirectory }.count)
         let files = isSingle && !single.isBrowsableDirectory ? 0 : values.files - (isSingle ? 0 : urls.filter { !$0.isBrowsableDirectory }.count)
-        let total = "\(files.formatted()) \(plural(files, L("файл"), L("файла"), L("файлов"))), \(folders.formatted()) \(plural(folders, L("папка"), L("папки"), L("папок")))"
-        // A single folder: what's in it itself first — the totals count everything nested (a project's
-        // thousands of library files too)
-        if isSingle, single.isBrowsableDirectory, let top = topLevelCount {
-            containsValue.stringValue = L("%@ (всего внутри: %@)", "\(top.formatted()) \(plural(top, L("объект"), L("объекта"), L("объектов")))", total) + suffix
+        func counts(_ files: Int, _ folders: Int) -> String {
+            "\(files.formatted()) \(plural(files, L("файл"), L("файла"), L("файлов"))), \(folders.formatted()) \(plural(folders, L("папка"), L("папки"), L("папок")))"
+        }
+        // A single folder: what's in it itself, not everything nested (a project's thousands of
+        // library files); the size still counts everything
+        if isSingle, single.isBrowsableDirectory, let top = topLevelCounts {
+            containsValue.stringValue = counts(top.files, top.folders)
         } else {
-            containsValue.stringValue = total + suffix
+            containsValue.stringValue = counts(files, folders) + suffix
         }
         if done { subtitle.stringValue = typeDescription + " · " + ByteCountFormatter.string(fromByteCount: values.size, countStyle: .file) }
     }

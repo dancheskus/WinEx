@@ -219,24 +219,29 @@ final class DesktopWindow: NSWindow {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// A click on the desktop while another app is in front: WinEx comes forward and makes its last
-    /// window key — so keys (Delete) would go to that window while the clicked icon looks selected
-    /// here. The desktop takes the keys back once WinEx is active.
+    /// A click on the desktop while another app is in front: like Finder's desktop, it makes WinEx
+    /// the active app — otherwise the keys (Delete) still go to that other app while the icon looks
+    /// selected here. The desktop is the key window then, not WinEx's last window.
     private var activation: NSObjectProtocol?
 
     override func sendEvent(_ event: NSEvent) {
-        if event.type == .leftMouseDown || event.type == .rightMouseDown, !NSApp.isActive, activation == nil {
-            activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
-                                                                queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    if let activation = self.activation { NotificationCenter.default.removeObserver(activation) }
-                    self.activation = nil
-                    self.makeKey()
-                    // (AppKit may still be ordering the app's windows in this turn)
-                    DispatchQueue.main.async { self.makeKey() }
+        if event.type == .leftMouseDown || event.type == .rightMouseDown, !NSApp.isActive {
+            if activation == nil {
+                activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
+                                                                    queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        if let activation = self.activation { NotificationCenter.default.removeObserver(activation) }
+                        self.activation = nil
+                        self.makeKey()
+                        // (AppKit may still be ordering the app's windows in this turn)
+                        DispatchQueue.main.async { self.makeKey() }
+                    }
                 }
             }
+            makeKey()
+            // (The click is the user's: macOS lets the app come forward for it)
+            NSApp.activate(ignoringOtherApps: true)
         }
         super.sendEvent(event)
     }

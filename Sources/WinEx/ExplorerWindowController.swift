@@ -563,7 +563,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     // MARK: - Actions
 
     @objc func newTab(_ sender: Any?) {
-        addTab(url: FileManager.default.homeDirectoryForCurrentUser)
+        // The place new windows open at (Settings ▸ Основные)
+        addTab(url: Settings.startURL)
     }
 
     @objc func closeCurrentTab(_ sender: Any?) {
@@ -1079,6 +1080,12 @@ final class ExplorerWindow: NSWindow {
         let routed: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .otherMouseUp]
         guard routed.contains(event.type), let target = titleBarTarget(for: event) else {
             return super.sendEvent(event)
+        }
+        // Handed to the title bar's controls directly, the click wouldn't make this window the key
+        // one (AppKit does that in its own handling): keys (Delete!) would still go to the other window
+        if !isKeyWindow {
+            NSApp.activate()
+            makeKeyAndOrderFront(nil)
         }
         switch event.type {
         case .leftMouseDown: target.mouseDown(with: event)

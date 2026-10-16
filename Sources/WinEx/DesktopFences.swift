@@ -282,8 +282,19 @@ final class FenceView: NSView, NSTextFieldDelegate {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: ["hover": true]))
     }
 
-    /// The mouse over the zone: its title bar lights up and shows the roll-up arrow (hidden otherwise).
-    private var hovered = false { didSet { if hovered != oldValue { overlay.needsDisplay = true } } }
+    /// The mouse over the zone: its title bar darkens and shows the roll-up arrow (hidden otherwise).
+    private var hovered = false { didSet { if hovered != oldValue { updateHover() } } }
+
+    /// Fades the title bar's shade and the arrow in or out (quickly).
+    private func updateHover() {
+        let shown: CGFloat = hovered && renameField == nil ? 1 : 0
+        guard hoverShade.alphaValue != shown || chevronView.alphaValue != (hovered ? 1 : 0) else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            hoverShade.animator().alphaValue = shown
+            chevronView.animator().alphaValue = hovered ? 1 : 0
+        }
+    }
 
     override func mouseExited(with event: NSEvent) {
         guard event.trackingArea?.userInfo?["hover"] != nil else { return super.mouseExited(with: event) }
@@ -349,6 +360,9 @@ final class FenceView: NSView, NSTextFieldDelegate {
 
     private let blur = NSVisualEffectView()
     private let overlay = FenceOverlay()
+    /// Under the mouse: the title bar darkens and the roll-up arrow appears — fading in and out.
+    private let hoverShade = FencePassThroughView()
+    private let chevronView = FencePassThroughImageView()
     private static let edge: CGFloat = 6
 
     init(fence: DesktopFence) {
@@ -370,6 +384,12 @@ final class FenceView: NSView, NSTextFieldDelegate {
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
         addSubview(overlay, positioned: .above, relativeTo: blur)
+        hoverShade.wantsLayer = true
+        hoverShade.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.16).cgColor
+        hoverShade.alphaValue = 0
+        chevronView.alphaValue = 0
+        addSubview(hoverShade, positioned: .above, relativeTo: overlay)
+        addSubview(chevronView, positioned: .above, relativeTo: hoverShade)
         updateBlur()
     }
 
@@ -481,6 +501,18 @@ final class FenceView: NSView, NSTextFieldDelegate {
 
     override func layout() {
         super.layout()
+        // The title bar's shade: its top corners rounded like the zone (all four when rolled up)
+        let titleHeight = min(DesktopFence.titleHeight, bounds.height)
+        hoverShade.frame = NSRect(x: 0, y: 0, width: bounds.width, height: titleHeight)
+        hoverShade.layer?.cornerRadius = min(FenceStyle.cornerRadius, bounds.height / 2)
+        hoverShade.layer?.maskedCorners = fence.collapsed ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        if let chevron = NSImage(systemSymbolName: fence.collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold)) {
+            chevronView.image = chevron
+            chevronView.contentTintColor = NSColor.white.withAlphaComponent(0.7)
+            chevronView.frame = NSRect(x: 12, y: ((titleHeight - chevron.size.height) / 2).rounded(), width: chevron.size.width, height: chevron.size.height)
+        }
         portalView?.frame = NSRect(x: DesktopFence.padding / 2, y: DesktopFence.titleHeight,
                                    width: bounds.width - DesktopFence.padding, height: max(0, bounds.height - DesktopFence.titleHeight - DesktopFence.padding / 2))
     }
@@ -652,6 +684,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
         window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
         redraw()
+        updateHover()
     }
 
     /// Return, or a click anywhere else: the new title is kept. Esc: the old one stays.
@@ -662,6 +695,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
         field.removeFromSuperview()
         renameField = nil
         redraw()
+        updateHover()
         if !cancelled, !title.isEmpty, title != fence.title { onRename?(title) }
     }
 
@@ -693,14 +727,6 @@ final class FenceView: NSView, NSTextFieldDelegate {
             NSRect(x: 0, y: titleRect.maxY - 1, width: bounds.width, height: 1).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
-        if hovered && renameField == nil {
-            // Under the mouse: the title bar a touch lighter
-            NSGraphicsContext.saveGraphicsState()
-            shape.addClip()
-            NSColor.white.withAlphaComponent(0.08).setFill()
-            NSRect(x: 0, y: 0, width: bounds.width, height: min(DesktopFence.titleHeight, bounds.height)).fill()
-            NSGraphicsContext.restoreGraphicsState()
-        }
         if renameField != nil {
             // Editing: a soft field behind the text (the text itself doesn't move)
             NSColor.black.withAlphaComponent(0.35).setFill()
@@ -730,18 +756,6 @@ final class FenceView: NSView, NSTextFieldDelegate {
             count.draw(at: NSPoint(x: badge.minX + 6, y: badge.midY - size.height / 2))
         }
         text.draw(in: titleTextRect)
-        // Roll-up chevron at the left — only with the mouse over the zone
-        if hovered, let chevron = NSImage(systemSymbolName: fence.collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold)) {
-            let tinted = NSImage(size: chevron.size, flipped: false) { rect in
-                chevron.draw(in: rect)
-                NSColor.white.withAlphaComponent(0.7).set()
-                rect.fill(using: .sourceAtop)
-                return true
-            }
-            tinted.draw(in: NSRect(x: 12, y: (DesktopFence.titleHeight - chevron.size.height) / 2,
-                                   width: chevron.size.width, height: chevron.size.height))
-        }
         // Portal buttons: back (in a subfolder) and "open in WinEx"
         func symbol(_ name: String, in rect: NSRect) {
             guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
@@ -885,4 +899,13 @@ final class FenceHintButton: NSView {
         x += title.size().width + 10
         shortcut.draw(at: NSPoint(x: x, y: (bounds.height - shortcut.size().height) / 2))
     }
+}
+
+/// Part of a zone's look that leaves the mouse to the zone.
+final class FencePassThroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+final class FencePassThroughImageView: NSImageView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

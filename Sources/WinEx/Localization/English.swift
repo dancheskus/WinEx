@@ -346,7 +346,6 @@ enum English {
         "«%@» будет удалён сразу.": "“%@” will be deleted immediately.",
         "%@ объектов будут удалены сразу.": "%@ items will be deleted immediately.",
         "На этом диске нет Корзины. Это действие нельзя отменить.": "This disk has no Trash. You can’t undo this action.",
-        "%@ (всего внутри: %@)": "%@ (%@ in all)",
         "Отправить через AirDrop": "Send with AirDrop",
         "Очистить Корзину?": "Empty the Trash?",
         "%@ объектов": "%@ items",

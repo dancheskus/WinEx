@@ -908,6 +908,14 @@ enum InlineRename {
         active.removeAllObjects()
     }
 
+    /// Another window (WinEx's or the desktop) was clicked: a rename in `window` ends the same way.
+    @MainActor static func end(in window: NSWindow) {
+        for field in active.allObjects where field.window === window && field.currentEditor() != nil {
+            window.makeFirstResponder(nil)
+            active.remove(field)
+        }
+    }
+
     static func style(_ field: NSTextField) {
         (field.cell as? InlineRenameCell)?.inset = NSSize(width: padding.width - 2, height: padding.height)
         field.isBordered = false

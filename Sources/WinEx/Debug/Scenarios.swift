@@ -51,6 +51,8 @@ enum Scenarios {
         "tagwatch": tagWatch,
         "foldericon": folderIcon,
         "video": video,
+        "twowindows": twoWindows,
+        "desktopkeys": desktopKeys,
         "renamefield": renameField,
         "desktopvideo": desktopVideo,
         "selfupdate": selfUpdate,
@@ -165,7 +167,114 @@ enum Scenarios {
             (0.5, "icons: F2 and the mouse", { check("icons") }),
             (0.5, "details: rename", { s.setViewMode(.details); s.select("report.txt"); s.send("renameSelected:") }),
             (0.5, "details: F2 and the mouse", { check("details") }),
-            (0.5, "done", {}),
+            (0.5, "rename, then another WinEx window", {
+                s.setViewMode(.largeIcons); s.select("report.txt"); s.send("renameSelected:")
+                let other = AppDelegate.shared.openWindow(at: folder)
+                other.window?.makeKeyAndOrderFront(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    let editing = s.window?.window.map { InlineRename.isEditing(in: $0) } ?? false
+                    s.note("  still renaming in the first window: \(editing)  expect false")
+                    other.window?.close()
+                }
+            }),
+            (1.0, "done", {}),
+        ])
+    }
+
+    /// Two windows on one folder, a selection in each; back in the first, Delete trashes the first
+    /// window's selection — with ⌘⌫ (through the menu) and with the Delete key (Windows keys).
+    static func twoWindows(_ s: Scenario) {
+        let names = (1...6).map { "тест\($0).txt" }
+        let folder = s.makeFiles(names, in: "two")
+        s.window?.navigate(to: folder)
+        let second = AppDelegate.shared.openWindow(at: folder)
+        var trashed: [String] = []
+        FileOps.debugTrashed = { urls in trashed = urls.map(\.lastPathComponent).sorted() }
+        func grid(_ controller: ExplorerWindowController?) -> FileCollectionView? {
+            func find(_ view: NSView) -> FileCollectionView? { (view as? FileCollectionView) ?? view.subviews.lazy.compactMap(find).first }
+            return controller?.window?.contentView.flatMap(find)
+        }
+        func select(_ wanted: [String], in controller: ExplorerWindowController?) {
+            guard let grid = grid(controller) else { s.note("  (no grid)"); return }
+            let indexes = (0..<grid.numberOfItems(inSection: 0)).filter { i in
+                (grid.item(at: IndexPath(item: i, section: 0)) as? FileGridItem)?.textField.map { field in wanted.contains { field.stringValue.hasSuffix($0) } } == true
+            }
+            controller?.window?.makeKeyAndOrderFront(nil)
+            controller?.window?.makeFirstResponder(grid)
+            grid.setSelection(IndexSet(indexes), anchor: indexes.first)
+        }
+        func press(_ code: UInt16, _ characters: String, _ modifiers: NSEvent.ModifierFlags) {
+            guard let window = NSApp.keyWindow,
+                  let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: characters,
+                                               charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code) else { return }
+            NSApp.sendEvent(event)
+        }
+        func check(_ how: String) {
+            s.note("  \(how): key window is the first: \(NSApp.keyWindow === s.window?.window); trashed \(trashed)  expect true, [тест1.txt, тест2.txt, тест3.txt]")
+            trashed = []
+        }
+        let windowsKeys = Settings.windowsKeys
+        s.run([
+            (1.0, "select", {
+                for controller in [s.window, second] { controller?.selectViewMode({ let item = NSMenuItem(); item.tag = ViewMode.largeIcons.rawValue; return item }()) }
+            }),
+            (0.8, "1–3 in the first window, 4–6 in the second", {
+                select(Array(names[0..<3]), in: s.window)
+                select(Array(names[3..<6]), in: second)
+            }),
+            (0.4, "back to the first window (a click on its tab bar)", {
+                guard let window = s.window?.window, let tabs = s.find(TabBarView.self, in: window.contentView) else { s.note("  (no tab bar)"); return }
+                s.click(tabs, at: NSPoint(x: tabs.bounds.maxX - 40, y: tabs.bounds.midY))
+            }),
+            (0.4, "⌘⌫", { press(51, "\u{7f}", .command) }),
+            (0.4, "check ⌘⌫", { check("⌘⌫") }),
+            (0.2, "Delete with Windows keys", { Settings.windowsKeys = true; press(117, String(Character(UnicodeScalar(NSDeleteFunctionKey)!)), .function) }),
+            (0.4, "check Delete", {
+                check("Delete")
+                Settings.windowsKeys = windowsKeys
+                FileOps.debugTrashed = nil
+                second.window?.close()
+            }),
+            (0.4, "done", {}),
+        ])
+    }
+
+    /// WinEx in the background, a window of it open: a click on a desktop icon makes WinEx active
+    /// with the desktop as key window, and ⌘⌫ trashes that icon (caught here: nothing is trashed).
+    static func desktopKeys(_ s: Scenario) {
+        let controller = DesktopController()
+        controller.show()
+        var trashed: [String] = []
+        FileOps.debugTrashed = { urls in trashed = urls.map(\.lastPathComponent) }
+        func view() -> DesktopView? { NSApp.windows.compactMap { $0.contentView as? DesktopView }.first { $0.window?.screen == NSScreen.screens.first } }
+        let name = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? []).filter { !$0.hasPrefix(".") }
+            .first { view()?.debugCenter(of: $0) != nil }
+        s.run([
+            (1.5, "WinEx to the background", {
+                s.window?.window?.makeKeyAndOrderFront(nil)
+                // Another app in front (Finder: only brought forward, nothing in it touched)
+                NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+            }),
+            (1.0, "click a desktop icon", {
+                guard let view = view(), let name, let center = view.debugCenter(of: name) else { s.note("  (no desktop icon)"); return }
+                s.note("  active before the click: \(NSApp.isActive)  expect false")
+                s.click(view, at: center)
+            }),
+            (1.0, "⌘⌫", {
+                s.note("  active: \(NSApp.isActive); key window is the desktop: \(NSApp.keyWindow is DesktopWindow)  expect true, true")
+                guard let window = NSApp.keyWindow,
+                      let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
+                                                   windowNumber: window.windowNumber, context: nil, characters: "\u{7f}", charactersIgnoringModifiers: "\u{7f}",
+                                                   isARepeat: false, keyCode: 51) else { return }
+                NSApp.sendEvent(event)
+            }),
+            (0.6, "check", {
+                s.note("  trashed \(trashed)  expect [\(name ?? "?")]")
+                FileOps.debugTrashed = nil
+                controller.hide()
+            }),
+            (0.4, "done", {}),
         ])
     }
 

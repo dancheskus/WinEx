@@ -337,8 +337,16 @@ enum FileOps {
         pb.setString(urls.map(\.path).joined(separator: "\n"), forType: .string)
     }
 
+    #if DEBUG
+    /// Scenario runs: what would go to the Trash, instead of trashing it.
+    nonisolated(unsafe) static var debugTrashed: (([URL]) -> Void)?
+    #endif
+
     @MainActor
     static func trash(_ urls: [URL]) {
+        #if DEBUG
+        if let debugTrashed { return debugTrashed(urls) }
+        #endif
         // Files may already be gone (e.g. the Dock trashed them after a drag)
         // A volume without a Trash (a NAS share, some USB disks): like Finder, those are deleted
         // right away — after saying so

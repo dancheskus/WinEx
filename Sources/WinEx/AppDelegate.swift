@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        endRenamesOnWindowSwitch()
         SetupWizard.markExistingUser()
         setupStatusItem()
         // Logging out / restarting / shutting down (sent before the apps are asked to quit)
@@ -103,6 +104,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidResignActive(_ notification: Notification) {
         InlineRename.endAll()
+    }
+
+    /// A rename ends when its window stops being the key one (another WinEx window, the desktop).
+    private var resignKeyObserver: NSObjectProtocol?
+    private func endRenamesOnWindowSwitch() {
+        resignKeyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { note in
+            MainActor.assumeIsolated {
+                // (Only while WinEx stays active: going to another app is handled above, the same way)
+                guard NSApp.isActive, let window = note.object as? NSWindow else { return }
+                InlineRename.end(in: window)
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
