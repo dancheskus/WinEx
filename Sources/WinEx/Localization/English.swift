@@ -366,6 +366,8 @@ enum English {
         "Открывать все папки в виде «%@»?": "Open all folders as “%@”?",
         "Этот вид станет видом по умолчанию для всех папок.": "This view becomes the default for all folders.",
         "Применить ко всем": "Apply to All",
+        "Всегда открывать файлы «%@» в выбранной программе": "Always open “%@” files in the chosen app",
+        "Автоматический снимок сохраняется, только если расстановка изменилась с прошлого.": "An automatic snapshot is saved only when the arrangement has changed since the last one.",
         "Очистить Корзину?": "Empty the Trash?",
         "%@ объектов": "%@ items",
         "Удалить %@ навсегда?": "Delete %@ permanently?",

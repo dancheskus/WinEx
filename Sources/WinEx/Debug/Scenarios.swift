@@ -57,6 +57,7 @@ enum Scenarios {
         "extensions": extensions,
         "diskimage": diskImage,
         "finderlook": finderLook,
+        "openwith": openWith,
         "crashoffer": crashOffer,
         "desktopkeys": desktopKeys,
         "renamefield": renameField,
@@ -297,6 +298,17 @@ enum Scenarios {
             }),
             (0.4, "done", {}),
         ])
+    }
+
+    /// «Открыть с помощью»: for files of one type, the checkbox «Всегда открывать…» under the apps
+    /// (nothing is opened, no default changed).
+    static func openWith(_ s: Scenario) {
+        let folder = s.makeFiles(["a.txt", "b.txt", "c.pdf"], in: "openwith")
+        func hasCheckbox(_ names: [String]) -> Bool {
+            OpenWithMenu.item(for: names.map { folder.appendingPathComponent($0) })?.submenu?.items.contains { $0.view is AlwaysOpenWithView } ?? false
+        }
+        s.note("  two .txt: checkbox \(hasCheckbox(["a.txt", "b.txt"])); .txt and .pdf: checkbox \(hasCheckbox(["a.txt", "c.pdf"]))  expect true, false")
+        s.run([(0.3, "done", {})])
     }
 
     /// A disk image styled for Finder (WINEX_DMG, mounted read-only and hidden here): its window in

@@ -143,6 +143,18 @@ final class OpenWithMenu: NSObject {
         let other = menu.addItem(withTitle: L("Выбрать другую программу…"), action: #selector(chooseOther(_:)), keyEquivalent: "")
         other.target = shared
         other.representedObject = Request(urls: urls, app: nil)
+        // Files of one type: the app chosen can become the one for all of them (the menu stays open
+        // for the checkbox)
+        shared.makeDefault = false
+        let types = Set(urls.map { (try? $0.resourceValues(forKeys: [.contentTypeKey]))?.contentType })
+        if types.count == 1, let type = types.first ?? nil, !urls.contains(where: \.isBrowsableDirectory) {
+            shared.type = type
+            let ext = first.pathExtension.isEmpty ? (type.localizedDescription ?? type.identifier) : "." + first.pathExtension.lowercased()
+            menu.addItem(.separator())
+            let always = NSMenuItem()
+            always.view = AlwaysOpenWithView(title: L("Всегда открывать файлы «%@» в выбранной программе", ext)) { shared.makeDefault = $0 }
+            menu.addItem(always)
+        }
 
         let item = NSMenuItem(title: L("Открыть с помощью"), action: nil, keyEquivalent: "")
         item.submenu = menu
@@ -174,9 +186,23 @@ final class OpenWithMenu: NSObject {
         return name.hasSuffix(".app") ? String(name.dropLast(4)) : name
     }
 
+    /// The checkbox under the apps: the app chosen opens this type from now on.
+    private var makeDefault = false
+    private var type: UTType?
+
     @objc private func openWith(_ sender: NSMenuItem) {
         guard let request = sender.representedObject as? Request, let app = request.app else { return }
+        rememberIfAsked(app)
         NSWorkspace.shared.open(request.urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    private func rememberIfAsked(_ app: URL) {
+        guard makeDefault, let type else { return }
+        makeDefault = false
+        NSWorkspace.shared.setDefaultApplication(at: app, toOpen: type) { error in
+            guard let error else { return }
+            DispatchQueue.main.async { NSAlert(error: error).runModal() }
+        }
     }
 
     @objc private func chooseOther(_ sender: NSMenuItem) {
@@ -189,8 +215,31 @@ final class OpenWithMenu: NSObject {
         panel.canChooseDirectories = false
         NSApp.activate()
         guard panel.runModal() == .OK, let app = panel.url else { return }
+        rememberIfAsked(app)
         NSWorkspace.shared.open(request.urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
     }
+}
+
+/// A checkbox inside a menu (clicking it leaves the menu open).
+final class AlwaysOpenWithView: NSView {
+    private let checkbox: NSButton
+    private let changed: (Bool) -> Void
+
+    init(title: String, changed: @escaping (Bool) -> Void) {
+        checkbox = NSButton(checkboxWithTitle: title, target: nil, action: nil)
+        self.changed = changed
+        checkbox.font = .menuFont(ofSize: 13)
+        checkbox.sizeToFit()
+        super.init(frame: NSRect(x: 0, y: 0, width: checkbox.frame.width + 40, height: 28))
+        checkbox.frame.origin = NSPoint(x: 20, y: (28 - checkbox.frame.height) / 2)
+        checkbox.target = self
+        checkbox.action = #selector(toggled(_:))
+        addSubview(checkbox)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc private func toggled(_ sender: NSButton) { changed(sender.state == .on) }
 }
 
 // MARK: - "Создать"

@@ -153,8 +153,18 @@ enum DesktopSnapshots {
     static func takeIfDue() {
         guard intervalHours > 0, Settings.replaceFinder else { return }
         let last = defaults.object(forKey: "desktopSnapshotLast") as? Date ?? .distantPast
-        guard Date().timeIntervalSince(last) >= Double(intervalHours) * 3600 else { return }
+        guard isDue(last: last, now: Date(), hours: intervalHours) else { return }
         take(automatic: true)
+    }
+
+    /// Daily: once a calendar day (not 24 hours after the last one — that crept later every day and
+    /// could skip one); weekly: once in seven days; hourly ones by the hours.
+    nonisolated static func isDue(last: Date, now: Date, hours: Int, calendar: Calendar = .current) -> Bool {
+        switch hours {
+        case 24: return !calendar.isDate(last, inSameDayAs: now) && now > last
+        case 168: return calendar.dateComponents([.day], from: calendar.startOfDay(for: last), to: calendar.startOfDay(for: now)).day ?? 0 >= 7
+        default: return now.timeIntervalSince(last) >= Double(hours) * 3600
+        }
     }
 
     static func describe(_ snapshot: Snapshot) -> String {
@@ -204,7 +214,8 @@ final class SnapshotsSection: NSView {
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let header = NSStackView(views: [title, spacer, label, interval, reveal, take])
         header.spacing = 8
-        let hint = SettingsForm.wideHint(L("Снимок хранит, где лежат значки, зоны и порталы на всех мониторах. Перед восстановлением WinEx спросит, сохранить ли текущую расстановку."))
+        let hint = SettingsForm.wideHint(L("Снимок хранит, где лежат значки, зоны и порталы на всех мониторах. Перед восстановлением WinEx спросит, сохранить ли текущую расстановку.")
+                                         + " " + L("Автоматический снимок сохраняется, только если расстановка изменилась с прошлого."))
 
         strip.orientation = .horizontal
         strip.alignment = .top
