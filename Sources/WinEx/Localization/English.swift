@@ -55,6 +55,7 @@ enum English {
         "Выберите программу": "Choose an App",
         "Папку": "Folder",
         "Новая папка": "New Folder",
+        "Дата последнего открытия": "Date Last Opened",
         "Только в iCloud": "In iCloud Only",
         "Папки сверху при сортировке": "Keep folders on top when sorting",
         "Импортировать с iPhone": "Import from iPhone",

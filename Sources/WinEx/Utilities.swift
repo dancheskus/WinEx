@@ -225,6 +225,11 @@ final class FileItem {
     /// Finder tags with their colors (read lazily: only views that show tags ask).
     lazy var tags: [FileTags.Tag] = tagNames.isEmpty ? [] : FileTags.tags(of: url)
 
+    /// When it was last opened, as Spotlight keeps it (Finder's «Дата последнего открытия»; nil
+    /// where Spotlight doesn't index, as on most servers). Read only when shown or sorted by.
+    lazy var lastOpened: Date? = MDItemCreateWithURL(nil, url as CFURL)
+        .flatMap { MDItemCopyAttribute($0, kMDItemLastUsedDate) as? Date }
+
     var tagColors: [NSColor] { tags.compactMap { FileTags.color(forIndex: $0.color) } }
 
     /// File icon; customized folders (tag color, symbol / emoji) are drawn like macOS 26 Finder does.
@@ -279,6 +284,15 @@ final class FileItem {
             case "date": result = compare(a.modified ?? .distantPast, b.modified ?? .distantPast)
             case "created": result = compare(a.created ?? .distantPast, b.created ?? .distantPast)
             case "added": result = compare(a.added ?? .distantPast, b.added ?? .distantPast)
+            case "opened": result = compare(a.lastOpened ?? .distantPast, b.lastOpened ?? .distantPast)
+            case "tags":
+                // By the first tag's name; untagged items after the tagged ones (A to Z)
+                switch (a.tags.first?.name, b.tags.first?.name) {
+                case let (x?, y?): result = x.localizedStandardCompare(y)
+                case (.some, nil): result = .orderedAscending
+                case (nil, .some): result = .orderedDescending
+                case (nil, nil): result = .orderedSame
+                }
             case "type": result = a.typeDescription.localizedStandardCompare(b.typeDescription)
             case "size": result = compare(a.size ?? -1, b.size ?? -1)
             case "folder": result = a.url.deletingLastPathComponent().path.localizedStandardCompare(b.url.deletingLastPathComponent().path)

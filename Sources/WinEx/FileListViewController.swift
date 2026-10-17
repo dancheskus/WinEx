@@ -1349,7 +1349,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.state = (current?.key ?? "name") == key.rawValue ? .on : .off
         }
         // All keys on one level, in Finder's order: the dates together
-        for key in [FileColumn.name, .type, .added, .date, .created, .size] { addKey(key, to: sortMenu) }
+        for key in [FileColumn.name, .type, .opened, .added, .date, .created, .size, .tags] { addKey(key, to: sortMenu) }
         sortMenu.addItem(.separator())
         for (ascending, title) in [(true, L("По возрастанию")), (false, L("По убыванию"))] {
             let item = sortMenu.addItem(withTitle: title, action: #selector(sortOrder(_:)), keyEquivalent: "")
@@ -1482,6 +1482,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         case .date: item.modified.map(Self.dateFormatter.string(from:)) ?? ""
         case .created: item.created.map(Self.dateFormatter.string(from:)) ?? ""
         case .added: item.added.map(Self.dateFormatter.string(from:)) ?? ""
+        case .opened: item.lastOpened.map(Self.dateFormatter.string(from:)) ?? ""
         case .type: item.typeDescription
         case .size: item.sizeDescription ?? ""
         case .tags: item.tags.map(\.name).joined(separator: ", ")
@@ -1932,7 +1933,7 @@ private final class PlaceBar: NSView {
 
 /// The columns of the "Таблица" view.
 enum FileColumn: String, CaseIterable {
-    case name, date, created, added, type, size, tags, folder
+    case name, date, created, added, opened, type, size, tags, folder
 
     var title: String {
         switch self {
@@ -1940,6 +1941,7 @@ enum FileColumn: String, CaseIterable {
         case .date: L("Дата изменения")
         case .created: L("Дата создания")
         case .added: L("Дата добавления")
+        case .opened: L("Дата последнего открытия")
         case .type: L("Тип")
         case .size: L("Размер")
         case .tags: L("Теги")
@@ -1950,7 +1952,7 @@ enum FileColumn: String, CaseIterable {
     var defaultWidth: CGFloat {
         switch self {
         case .name: 320
-        case .date, .created, .added: 150
+        case .date, .created, .added, .opened: 150
         case .type: 160
         case .size: 90
         case .tags: 70
@@ -1958,7 +1960,7 @@ enum FileColumn: String, CaseIterable {
         }
     }
 
-    var isSortable: Bool { self != .tags }
+    var isSortable: Bool { true }
 
     struct Layout {
         var order: [FileColumn]

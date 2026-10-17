@@ -101,6 +101,16 @@ enum Scenarios {
             (1.0, "", { s.note("  B: \(shown())  expect x, y, z (by name)") }),
             (0.2, "back to A", { s.window?.navigate(to: a) }),
             (1.0, "", { s.note("  A: \(shown())  expect c, b, a (by date again)") }),
+            // By tags: tagged first, by the tag's name; then the rest
+            (0.2, "B by tags", {
+                try? (b.appendingPathComponent("z.txt") as NSURL).setResourceValue(["Зелёный"], forKey: .tagNamesKey)
+                try? (b.appendingPathComponent("y.txt") as NSURL).setResourceValue(["Апельсин"], forKey: .tagNamesKey)
+                s.window?.navigate(to: b)
+            }),
+            (1.0, "", { s.table?.sortDescriptors = [NSSortDescriptor(key: "tags", ascending: true)] }),
+            (0.6, "", { s.note("  B by tags: \(shown())  expect y (Апельсин), z (Зелёный), x") }),
+            (0.2, "", { s.table?.sortDescriptors = [NSSortDescriptor(key: "opened", ascending: false)] }),
+            (0.6, "", { s.note("  B by last opened: \(shown().count) items  expect 3 (no dates here: by name)") }),
         ])
     }
 
