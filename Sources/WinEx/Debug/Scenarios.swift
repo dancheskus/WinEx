@@ -70,7 +70,114 @@ enum Scenarios {
         "updated": updated,
         "nas": nas,
         "releasenotes": releaseNotes,
+        "deviceimport": deviceImport,
+        "cloudprogress": cloudProgress,
     ]
+
+    /// iCloud's uploads: a bar on the file's icon (list and icons) and a circle by «iCloud Drive»
+    /// in the sidebar — first with a made-up 40 %, then for real: a file written into iCloud Drive
+    /// (and one in a folder there) is followed while it uploads, then deleted.
+    static func cloudProgress(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt", "b.txt"])
+        let file = base.appendingPathComponent("a.txt")
+        s.window?.navigate(to: base)
+        s.window?.window?.setFrame(NSRect(x: 150, y: 200, width: 900, height: 500), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        let fake = Progress(totalUnitCount: 100)
+        fake.completedUnitCount = 40
+        func picture(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name + ".png"))
+        }
+        let cloud = CloudProgress.root.appendingPathComponent("WinEx scenario.bin")
+        let folder = CloudProgress.root.appendingPathComponent("WinEx scenario")
+        let inner = folder.appendingPathComponent("inner.bin")
+        var seen: [String: Double] = [:]
+        var watch: Timer?
+        s.run([
+            (1.2, "40 % in the list", {
+                s.setViewMode(.details)
+                CloudProgress.shared.debugSet(fake, for: file)
+            }),
+            (0.8, "", {
+                s.note("  fraction \(CloudProgress.shared.fraction(for: file) ?? -1), total \(CloudProgress.shared.total ?? -1)  expect 0.4, 0.4")
+                picture("list")
+            }),
+            (0.2, "big icons", { s.setViewMode(.largeIcons) }),
+            (0.8, "", { picture("icons") }),
+            (0.2, "done: bar gone", { CloudProgress.shared.debugSet(nil, for: file) }),
+            (0.6, "", {
+                s.note("  active \(CloudProgress.shared.isActive)  expect false")
+                picture("icons-done")
+            }),
+            (0.2, "open a folder in iCloud Drive", {
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                s.setViewMode(.details)
+                s.window?.navigate(to: folder)
+            }),
+            (1.0, "real upload", {
+                var data = Data(count: 12_000_000)
+                data.withUnsafeMutableBytes { if let p = $0.baseAddress { arc4random_buf(p, 12_000_000) } }
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try? data.write(to: cloud)
+                try? data.write(to: inner)
+                watch = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
+                    MainActor.assumeIsolated {
+                        for url in [cloud, inner] {
+                            if let f = CloudProgress.shared.fraction(for: url) { seen[url.lastPathComponent] = max(seen[url.lastPathComponent] ?? 0, f) }
+                        }
+                        if CloudProgress.shared.fraction(for: inner) != nil { picture("uploading") }
+                    }
+                }
+            }),
+            (20, "", {
+                watch?.invalidate()
+                s.note("  followed (highest fraction): \(seen)  expect both files")
+                try? FileManager.default.removeItem(at: cloud)
+                try? FileManager.default.removeItem(at: folder)
+            }),
+        ])
+    }
+
+    /// «Импортировать с iPhone или iPad»: in a folder's background menu, filled by AppKit with the
+    /// nearby devices when the menu opens; what a device sends is saved in the folder.
+    static func deviceImport(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt"])
+        s.window?.navigate(to: base)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            guard let table = s.table, let menu = table.menu else { s.note("  (no table)"); return s.run([]) }
+            s.window?.window?.makeFirstResponder(table)
+            menu.delegate?.menuNeedsUpdate?(menu)
+            func describe() -> String {
+                guard let item = menu.items.first(where: { $0.identifier == NSMenuItem.importFromDeviceIdentifier }) else { return "no item" }
+                let entries = item.submenu?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
+                return "hidden \(item.isHidden), enabled \(item.isEnabled), submenu \(entries)"
+            }
+            s.note("  built: \(describe())")
+            // Opened as a context menu is (a real menu, closed a moment later)
+            let check = Timer(timeInterval: 1.5, repeats: false) { _ in
+                s.note("  open: \(describe())")
+                menu.cancelTracking()
+            }
+            RunLoop.main.add(check, forMode: .common)
+            menu.popUp(positioning: nil, at: NSPoint(x: 40, y: 40), in: table)
+            // What a device sends, as AppKit hands it over
+            let requestor = table.validRequestor(forSendType: nil, returnType: .init("public.jpeg"))
+            s.note("  requestor for the folder: \(requestor.map { String(describing: type(of: $0)) } ?? "nil")")
+            let board = NSPasteboard(name: .init("winex.scenario.import"))
+            board.clearContents()
+            let image = NSImage(size: NSSize(width: 8, height: 8), flipped: false) { rect in NSColor.red.setFill(); rect.fill(); return true }
+            if let tiff = image.tiffRepresentation, let jpeg = NSBitmapImageRep(data: tiff)?.representation(using: .jpeg, properties: [:]) {
+                board.setData(jpeg, forType: .init("public.jpeg"))
+            }
+            let saved = (requestor as? NSServicesMenuRequestor)?.readSelection?(from: board) ?? false
+            s.run([(1.0, "saved", { s.note("  saved \(saved): \(s.files(in: base))  expect a.txt + Снимок ….jpeg") })])
+        }
+    }
 
     /// The update window's notes: the latest release's, styled, as a picture.
     static func releaseNotes(_ s: Scenario) {

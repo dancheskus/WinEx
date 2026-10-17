@@ -195,6 +195,8 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         return field
     }()
     private let detailField = NSTextField(labelWithString: "")
+    /// iCloud's upload / download of the file, on its icon
+    private let cloudBar = CloudProgressBar()
     private var mode: ViewMode = .mediumIcons
     private var isFolder = false
     private var originalName = ""
@@ -222,7 +224,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         detailField.textColor = .secondaryLabelColor
         detailField.font = .systemFont(ofSize: 11)
         detailField.maximumNumberOfLines = 2
-        [iconView, nameField, detailField, playButton].forEach(view.addSubview)
+        [iconView, nameField, detailField, playButton, cloudBar].forEach(view.addSubview)
         playButton.isHidden = true
         imageView = iconView
         textField = nameField
@@ -342,6 +344,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         self.mode = mode
         isFolder = file.isFolder
         iconView.image = image
+        cloudBar.url = file.url
         plainName = file.name
         nameField.toolTip = file.name
         if mode.isHorizontalItem {
@@ -420,6 +423,11 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
             // For renaming: just around the name, like Finder (not the whole bottom of the cell)
             nameField.frame = renameFrame()
         }
+        // At the bottom of the picture (not of its square), most of its width
+        let picture = iconView.image.map { DesktopView.visibleRect(of: $0, in: DesktopView.aspectFit($0.size, in: iconView.frame), flipped: false) } ?? iconView.frame
+        let height: CGFloat = icon >= 48 ? 6 : 4
+        let width = max(picture.width * 0.8, 12)
+        cloudBar.frame = NSRect(x: (picture.midX - width / 2).rounded(), y: (picture.minY + (icon >= 48 ? 4 : 1)).rounded(), width: width.rounded(), height: height)
         updateSelectionShapes()
         applyLabelColor()
     }

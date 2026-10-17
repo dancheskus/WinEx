@@ -1,0 +1,203 @@
+import AppKit
+
+/// iCloud Drive's uploads and downloads as Finder shows them: iCloud publishes a progress per file
+/// (NSProgress file progress); WinEx follows them for a circle by «iCloud Drive» in the sidebar and
+/// a bar on the file's icon.
+@MainActor
+final class CloudProgress {
+    static let shared = CloudProgress()
+    /// Posted (at most a few times a second) when a file's progress moves, starts or ends.
+    static let changed = Notification.Name("WinExCloudProgressChanged")
+
+    static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+
+    private final class Transfer {
+        let progress: Progress
+        var observation: NSKeyValueObservation?
+        init(_ progress: Progress) { self.progress = progress }
+    }
+
+    /// By the file's path with symlinks resolved (a file of Desktop & Documents in iCloud is
+    /// published under iCloud Drive and shown under the home folder).
+    private var transfers: [String: Transfer] = [:]
+    /// Subscriptions by folder, with how many want each: a folder's subscription sees only the
+    /// files right in it, so every folder shown is followed while it's shown.
+    private var subscriptions: [String: (count: Int, token: Any)] = [:]
+    private var postPending = false
+
+    /// Once at launch: iCloud Drive, the home folder, Desktop and Documents (may be in iCloud).
+    func start() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        for folder in [Self.root, home, home.appendingPathComponent("Desktop"), home.appendingPathComponent("Documents")] { follow(folder) }
+    }
+
+    /// Follows the files right in `folder` until `unfollow` (calls are counted).
+    func follow(_ folder: URL) {
+        let path = folder.standardizedFileURL.path
+        if let existing = subscriptions[path] {
+            subscriptions[path] = (existing.count + 1, existing.token)
+            return
+        }
+        let rootPath = Self.root.path
+        let token = Progress.addSubscriber(forFileURL: folder) { progress in
+            let info = progress.userInfo
+            let kind = info[.fileOperationKindKey] as? Progress.FileOperationKind
+            guard let url = info[.fileURLKey] as? URL, kind == .uploading || kind == .downloading,
+                  info[.init("BRProgressIsCreatedByCloudDocsKey")] != nil || url.path.hasPrefix(rootPath) else { return nil }
+            let key = url.resolvingSymlinksInPath().path
+            Task { @MainActor in CloudProgress.shared.add(progress, key: key) }
+            return { Task { @MainActor in CloudProgress.shared.remove(progress, key: key) } }
+        }
+        subscriptions[path] = (1, token)
+    }
+
+    func unfollow(_ folder: URL) {
+        let path = folder.standardizedFileURL.path
+        guard let existing = subscriptions[path] else { return }
+        if existing.count > 1 {
+            subscriptions[path] = (existing.count - 1, existing.token)
+        } else {
+            Progress.removeSubscriber(existing.token)
+            subscriptions[path] = nil
+        }
+    }
+
+    private func add(_ progress: Progress, key: String) {
+        let transfer = Transfer(progress)
+        transfer.observation = progress.observe(\.fractionCompleted) { _, _ in
+            Task { @MainActor in CloudProgress.shared.post() }
+        }
+        transfers[key] = transfer
+        post()
+    }
+
+    private func remove(_ progress: Progress, key: String) {
+        guard transfers[key]?.progress === progress else { return }
+        transfers[key] = nil
+        post()
+    }
+
+    private func post() {
+        guard !postPending else { return }
+        postPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [self] in
+            postPending = false
+            NotificationCenter.default.post(name: Self.changed, object: nil)
+        }
+    }
+
+    var isActive: Bool { !transfers.isEmpty }
+
+    /// How far the file's upload or download is (nil when it isn't being moved).
+    func fraction(for url: URL) -> Double? {
+        guard !transfers.isEmpty else { return nil }
+        return transfers[url.resolvingSymlinksInPath().path]?.progress.fractionCompleted
+    }
+
+    /// All transfers together, by bytes (nil when nothing is moving).
+    var total: Double? {
+        guard !transfers.isEmpty else { return nil }
+        let progresses = transfers.values.map(\.progress)
+        let total = progresses.reduce(Int64(0)) { $0 + max($1.totalUnitCount, 0) }
+        guard total > 0 else { return progresses.map(\.fractionCompleted).reduce(0, +) / Double(progresses.count) }
+        return Double(progresses.reduce(Int64(0)) { $0 + max($1.completedUnitCount, 0) }) / Double(total)
+    }
+
+    #if DEBUG
+    /// For scenarios: a transfer that isn't iCloud's.
+    func debugSet(_ progress: Progress?, for url: URL) {
+        let key = url.resolvingSymlinksInPath().path
+        if let progress { add(progress, key: key) } else if let old = transfers[key] { remove(old.progress, key: key) }
+    }
+    #endif
+}
+
+/// A thin bar on a file's icon while iCloud moves the file; hidden otherwise.
+final class CloudProgressBar: NSView {
+    static let cellIdentifier = NSUserInterfaceItemIdentifier("cloudProgress")
+
+    var url: URL? {
+        didSet { if url != oldValue { update() } }
+    }
+    private var fraction: Double?
+    private var observer: NSObjectProtocol?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        isHidden = true
+        observer = NotificationCenter.default.addObserver(forName: CloudProgress.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update() }
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    deinit { observer.map(NotificationCenter.default.removeObserver) }
+
+    private func update() {
+        let fraction = url.flatMap { CloudProgress.shared.fraction(for: $0) }
+        isHidden = fraction == nil
+        if fraction != self.fraction { self.fraction = fraction; needsDisplay = true }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let fraction else { return }
+        let radius = bounds.height / 2
+        // Visible on a white document and on a dark folder alike
+        NSColor.gray.withAlphaComponent(0.45).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        let inner = bounds.insetBy(dx: 1, dy: 1)
+        var done = inner
+        done.size.width = max(inner.height, inner.width * min(max(fraction, 0), 1))
+        NSColor.controlAccentColor.setFill()
+        NSBezierPath(roundedRect: done, xRadius: inner.height / 2, yRadius: inner.height / 2).fill()
+    }
+}
+
+/// Finder's circle by «iCloud Drive» in the sidebar while anything uploads or downloads.
+final class CloudProgressPie: NSView {
+    private var fraction: Double?
+    private var observer: NSObjectProtocol?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        observer = NotificationCenter.default.addObserver(forName: CloudProgress.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update() }
+        }
+        update()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    deinit { observer.map(NotificationCenter.default.removeObserver) }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 14, height: 14) }
+
+    private func update() {
+        fraction = CloudProgress.shared.total
+        isHidden = fraction == nil
+        toolTip = fraction.map { "iCloud Drive: \(Int(($0 * 100).rounded())) %" }
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let fraction else { return }
+        let side = min(bounds.width, bounds.height) - 2
+        let circle = NSRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+        let color = NSColor.secondaryLabelColor
+        color.setStroke()
+        let ring = NSBezierPath(ovalIn: circle)
+        ring.lineWidth = 1.2
+        ring.stroke()
+        // The done part as a pie from twelve o'clock, clockwise
+        let center = NSPoint(x: circle.midX, y: circle.midY)
+        let pie = NSBezierPath()
+        pie.move(to: center)
+        pie.appendArc(withCenter: center, radius: side / 2 - 2, startAngle: 90, endAngle: 90 - 360 * CGFloat(min(max(fraction, 0.02), 1)), clockwise: true)
+        pie.close()
+        color.setFill()
+        pie.fill()
+    }
+}

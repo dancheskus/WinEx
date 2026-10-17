@@ -72,6 +72,12 @@ enum MainMenu {
             item(L("Показать содержимое пакета"), #selector(FileListViewController.showPackageContents(_:)), ""),
             item(L("Сжать"), #selector(FileListViewController.compress(_:)), ""),
             item(L("Распаковать"), #selector(FileListViewController.extractArchive(_:)), ""),
+            {
+                // AppKit fills it with the nearby iPhones and iPads; the folder shown gets the picture
+                let item = NSMenuItem(title: L("Импортировать с iPhone или iPad"), action: nil, keyEquivalent: "")
+                item.identifier = NSMenuItem.importFromDeviceIdentifier
+                return item
+            }(),
             item(L("Найти"), #selector(ExplorerWindowController.focusSearchField(_:)), "f"),
             renameItem,
             item(L("Переместить в корзину"), #selector(FileListViewController.moveToTrash(_:)), key(NSBackspaceCharacter)),

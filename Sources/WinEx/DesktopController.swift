@@ -1601,6 +1601,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         add(L("Обновить"), #selector(refreshAction(_:)))
         menu.addItem(.separator())
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
+        menu.addItem(DeviceImport.menuItem(into: desktopURL))
         if FenceStyle.enabled, fence(at: point) == nil {
             add(L("Создать зону"), #selector(createFence(_:)))
             add(L("Создать портал папки…"), #selector(createPortal(_:)))
@@ -1614,6 +1615,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         // Like Finder: «Новая папка» and «Вставить» first (paste only when there's something to paste)
         NewItemTemplate.addFolderAndPaste(to: menu, target: self, action: #selector(createNewItem(_:)), paste: #selector(paste(_:)))
         return menu
+    }
+
+    /// «Импортировать с iPhone или iPad» saves onto the desktop.
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
+        DeviceImport.requestor(into: Self.desktopURL, sendType: sendType, returnType: returnType)
+            ?? super.validRequestor(forSendType: sendType, returnType: returnType)
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {

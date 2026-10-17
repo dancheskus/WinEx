@@ -262,6 +262,17 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             ])
             trailing = eject.leadingAnchor
         }
+        // iCloud Drive: a circle while files upload or download, like Finder
+        if item.place == .iCloud {
+            let pie = CloudProgressPie()
+            pie.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(pie)
+            NSLayoutConstraint.activate([
+                pie.trailingAnchor.constraint(equalTo: trailing, constant: -6),
+                pie.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            ])
+            trailing = pie.leadingAnchor
+        }
         cell.imageView = image
         cell.textField = label
         NSLayoutConstraint.activate([

@@ -36,7 +36,19 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private let gridScrollView = NSScrollView()
     private let flowLayout = LeftAlignedFlowLayout()
 
-    private(set) var directory: URL?
+    private(set) var directory: URL? {
+        didSet {
+            // iCloud's uploads and downloads of the files shown (a bar on each)
+            guard directory != oldValue else { return }
+            oldValue.map(CloudProgress.shared.unfollow)
+            directory.map(CloudProgress.shared.follow)
+        }
+    }
+
+    deinit {
+        // (A closed tab or window stops following its folder)
+        MainActor.assumeIsolated { directory.map(CloudProgress.shared.unfollow) }
+    }
     private var allItems: [FileItem] = []
     private var items: [FileItem] = []
     #if DEBUG
@@ -1303,6 +1315,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             if showingNetwork { return }
             menu.addItem(.separator())
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
+            if let directory, canCreateItems { menu.addItem(DeviceImport.menuItem(into: directory)) }
             menu.addItem(.separator())
             add(L("Копировать путь к папке"), #selector(copyPath(_:)))
             if let directory, let terminal = TerminalLauncher.menuItem(for: [directory]) { menu.addItem(terminal) }
@@ -1350,6 +1363,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     var canCreateItems: Bool { directory != nil && location != .trash && search == nil }
+
+    /// «Импортировать с iPhone или iPad» saves into the folder shown.
+    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
+        DeviceImport.requestor(into: canCreateItems ? directory : nil, sendType: sendType, returnType: returnType)
+            ?? super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
 
     // MARK: - Selection commands
 
@@ -1430,6 +1449,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             cell.imageView?.image = image(for: item)
             cell.imageView?.alphaValue = FileClipboard.shared.isCut(item.url) ? Self.cutAlpha : 1
             cell.textField?.stringValue = item.name
+            (cell.subviews.first { $0.identifier == CloudProgressBar.cellIdentifier } as? CloudProgressBar)?.url = item.url
         case "folder":
             cell.textField?.stringValue = cellText(column, item)
             cell.textField?.toolTip = item.url.deletingLastPathComponent().path
@@ -1548,6 +1568,18 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             image.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(image)
             cell.imageView = image
+            // iCloud's upload / download of the file
+            let cloud = CloudProgressBar()
+            cloud.identifier = CloudProgressBar.cellIdentifier
+            cloud.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(cloud)
+            // Under the name (the icon is too small for it)
+            NSLayoutConstraint.activate([
+                cloud.leadingAnchor.constraint(equalTo: text.leadingAnchor, constant: 2),
+                cloud.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                cloud.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -1),
+                cloud.heightAnchor.constraint(equalToConstant: 4),
+            ])
             text.isEditable = true
             text.target = self
             text.action = #selector(renameEdited(_:))
