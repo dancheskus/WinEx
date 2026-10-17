@@ -94,6 +94,8 @@ enum Scenarios {
         let cloud = CloudProgress.root.appendingPathComponent("WinEx scenario.bin")
         let folder = CloudProgress.root.appendingPathComponent("WinEx scenario")
         let inner = folder.appendingPathComponent("inner.bin")
+        // Not shown in any window: found through iCloud Drive's file events
+        let deep = folder.appendingPathComponent("deep/deeper/deep.bin")
         var seen: [String: Double] = [:]
         var watch: Timer?
         s.run([
@@ -123,9 +125,11 @@ enum Scenarios {
                 try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 try? data.write(to: cloud)
                 try? data.write(to: inner)
+                try? FileManager.default.createDirectory(at: deep.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? data.write(to: deep)
                 watch = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { _ in
                     MainActor.assumeIsolated {
-                        for url in [cloud, inner] {
+                        for url in [cloud, inner, deep] {
                             if let f = CloudProgress.shared.fraction(for: url) { seen[url.lastPathComponent] = max(seen[url.lastPathComponent] ?? 0, f) }
                         }
                         if CloudProgress.shared.fraction(for: inner) != nil { picture("uploading") }
@@ -134,7 +138,7 @@ enum Scenarios {
             }),
             (20, "", {
                 watch?.invalidate()
-                s.note("  followed (highest fraction): \(seen)  expect both files")
+                s.note("  followed (highest fraction): \(seen)  expect all three files")
                 try? FileManager.default.removeItem(at: cloud)
                 try? FileManager.default.removeItem(at: folder)
             }),

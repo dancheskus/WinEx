@@ -25,10 +25,60 @@ final class CloudProgress {
     private var subscriptions: [String: (count: Int, token: Any)] = [:]
     private var postPending = false
 
-    /// Once at launch: iCloud Drive, the home folder, Desktop and Documents (may be in iCloud).
+    /// Folders anywhere in iCloud Drive where something changed lately, followed for a while: a
+    /// file written or brought down there is what iCloud moves next (the sidebar's circle counts it).
+    private var recent: [String: Date] = [:]
+    private var events: FSEventStreamRef?
+    private var pruneTimer: Timer?
+
+    /// Once at launch: iCloud Drive, the home folder, Desktop and Documents (may be in iCloud),
+    /// and whatever changes inside iCloud Drive.
     func start() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         for folder in [Self.root, home, home.appendingPathComponent("Desktop"), home.appendingPathComponent("Documents")] { follow(folder) }
+        watchCloudDrive()
+    }
+
+    private func watchCloudDrive() {
+        guard events == nil, FileManager.default.fileExists(atPath: Self.root.path) else { return }
+        var context = FSEventStreamContext()
+        let callback: FSEventStreamCallback = { _, _, count, paths, _, _ in
+            let list = unsafeBitCast(paths, to: NSArray.self) as? [String] ?? []
+            let folders = Array(list.prefix(count))
+            MainActor.assumeIsolated { CloudProgress.shared.changed(in: folders) }
+        }
+        let resolved = Self.root.resolvingSymlinksInPath().path
+        guard let stream = FSEventStreamCreate(nil, callback, &context, [resolved] as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.5,
+                                               FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)) else { return }
+        events = stream
+        FSEventStreamSetDispatchQueue(stream, .main)
+        FSEventStreamStart(stream)
+    }
+
+    /// (Folder-level events: each path is a folder whose contents changed.)
+    private func changed(in folders: [String]) {
+        let until = Date().addingTimeInterval(180)
+        for path in folders {
+            let folder = URL(fileURLWithPath: path).standardizedFileURL
+            let key = folder.path
+            if recent[key] == nil { follow(folder) }
+            recent[key] = until
+        }
+        if pruneTimer == nil, !recent.isEmpty {
+            pruneTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+                MainActor.assumeIsolated { CloudProgress.shared.prune() }
+            }
+        }
+    }
+
+    /// Stops following the folders quiet for a few minutes (unless a file there is still moving).
+    private func prune() {
+        let now = Date()
+        for (key, until) in recent where until < now && !transfers.keys.contains(where: { ($0 as NSString).deletingLastPathComponent == key }) {
+            recent[key] = nil
+            unfollow(URL(fileURLWithPath: key))
+        }
+        if recent.isEmpty { pruneTimer?.invalidate(); pruneTimer = nil }
     }
 
     /// Follows the files right in `folder` until `unfollow` (calls are counted).

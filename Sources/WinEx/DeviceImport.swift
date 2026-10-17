@@ -18,12 +18,25 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
         NSApp.registerServicesMenuSendTypes([], returnTypes: types)
     }
 
-    /// The item for a menu; AppKit hides it when no device is near.
+    /// The item for a context menu. AppKit serves only the item that was in the main menu from the
+    /// start (it names it after the devices near — «Импортировать с iPhone» — and lists them); an
+    /// item made later stays grey, a copy of the main menu's works.
     static func menuItem(into directory: URL) -> NSMenuItem {
         shared.destination = directory
-        let item = NSMenuItem(title: L("Импортировать с iPhone или iPad"), action: nil, keyEquivalent: "")
+        let original = NSApp.mainMenu?.items.compactMap(\.submenu).flatMap(\.items)
+            .first { $0.identifier == NSMenuItem.importFromDeviceIdentifier }
+        let item = original?.copy() as? NSMenuItem ?? NSMenuItem(title: L("Импортировать с iPhone"), action: nil, keyEquivalent: "")
         item.identifier = NSMenuItem.importFromDeviceIdentifier
+        // (AppKit's placeholder until it has named the item)
+        if item.title.isEmpty || item.title.hasPrefix("<<") { item.title = L("Импортировать с iPhone") }
         item.image = NSImage(systemSymbolName: "iphone", accessibilityDescription: nil)
+        return item
+    }
+
+    /// The main menu's item (in «Файл»), the one AppKit serves.
+    nonisolated static func mainMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(title: L("Импортировать с iPhone"), action: nil, keyEquivalent: "")
+        item.identifier = NSMenuItem.importFromDeviceIdentifier
         return item
     }
 
