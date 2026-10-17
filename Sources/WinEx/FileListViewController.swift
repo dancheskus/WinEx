@@ -1348,8 +1348,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.representedObject = key.rawValue
             item.state = (current?.key ?? "name") == key.rawValue ? .on : .off
         }
-        // All keys on one level (a submenu for three of them hid them for nothing)
-        for key in [FileColumn.name, .date, .type, .size, .created, .added] { addKey(key, to: sortMenu) }
+        // All keys on one level, in Finder's order: the dates together
+        for key in [FileColumn.name, .type, .added, .date, .created, .size] { addKey(key, to: sortMenu) }
         sortMenu.addItem(.separator())
         for (ascending, title) in [(true, L("По возрастанию")), (false, L("По убыванию"))] {
             let item = sortMenu.addItem(withTitle: title, action: #selector(sortOrder(_:)), keyEquivalent: "")
