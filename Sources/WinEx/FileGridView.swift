@@ -491,13 +491,21 @@ final class GridItemView: NSView {
 
     /// Where a click catches this item, in its own coordinates: in icon views the icon's square and
     /// the name's lines as wide as their text (and the info line) — as Finder; the whole row otherwise.
-    var catchRect: NSRect {
-        guard !isHorizontal, let iconBacking, let top = labelTop else { return bounds }
+    /// The parts that catch it: the icon's square, and each line of the name as wide as its text
+    /// (the info line too) — separately: the empty corners around them don't count.
+    var catchRects: [NSRect] {
+        guard !isHorizontal, let iconBacking, let top = labelTop else { return [bounds] }
         let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
-        let widest = labelLines.map { min(ceil($0.size().width), bounds.width - 4) }.max() ?? 0
-        let lines = CGFloat(labelLines.count) + (detail != nil ? 1 : 0)
-        let text = NSRect(x: bounds.midX - widest / 2 - 5, y: top - lineHeight * lines - 2, width: widest + 10, height: lineHeight * lines + 3)
-        return iconBacking.union(text)
+        var rects = [iconBacking]
+        for (n, line) in labelLines.enumerated() {
+            let width = min(ceil(line.size().width), bounds.width - 4)
+            rects.append(NSRect(x: bounds.midX - width / 2 - 5, y: top - lineHeight * CGFloat(n + 1) - 1, width: width + 10, height: lineHeight + 2))
+        }
+        if let detail {
+            let width = ceil((detail as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: max(labelFont.pointSize - 2, 9))]).width)
+            rects.append(NSRect(x: bounds.midX - width / 2 - 3, y: top - lineHeight * CGFloat(labelLines.count + 1) - 1, width: width + 6, height: lineHeight + 2))
+        }
+        return rects
     }
 
     /// What's dragged, as Finder: the icon with the name on its blue pill under it — the picture and
@@ -526,12 +534,7 @@ final class GridItemView: NSView {
     }
 
     func catches(_ point: NSPoint) -> Bool {
-        guard !isHorizontal, let iconBacking, let top = labelTop else { return bounds.contains(point) }
-        if iconBacking.contains(point) { return true }
-        let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
-        let widest = labelLines.map { min(ceil($0.size().width), bounds.width - 4) }.max() ?? 0
-        let lines = CGFloat(labelLines.count) + (detail != nil ? 1 : 0)
-        return NSRect(x: bounds.midX - widest / 2 - 5, y: top - lineHeight * lines - 2, width: widest + 10, height: lineHeight * lines + 3).contains(point)
+        catchRects.contains { $0.contains(point) }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -648,7 +651,7 @@ final class FileCollectionView: NSCollectionView {
     /// or name) join `base`.
     private func rubberBand(from point: NSPoint, base: IndexSet, rightButton: Bool = false) {
         RubberBand.track(in: self, from: point, rightButton: rightButton) { rect in
-            let hit = (0..<count).filter { catchFrame($0)?.intersects(rect) ?? false }
+            let hit = (0..<count).filter { reaches($0, rect) }
             apply(base.union(IndexSet(hit)), lead: hit.last ?? lead ?? 0)
         }
         let selection = selectedIndexes
@@ -674,12 +677,12 @@ final class FileCollectionView: NSCollectionView {
         }
     }
 
-    /// What a selection rectangle catches of an item (its icon and name, not the whole cell).
-    private func catchFrame(_ index: Int) -> NSRect? {
+    /// Whether a selection rectangle reaches an item: its icon or its name's text (not the whole cell).
+    private func reaches(_ index: Int, _ rect: NSRect) -> Bool {
         let path = IndexPath(item: index, section: 0)
-        guard let frame = layoutAttributesForItem(at: path)?.frame else { return nil }
-        guard let view = item(at: path)?.view as? GridItemView else { return frame }
-        return convert(view.catchRect, from: view)
+        guard let frame = layoutAttributesForItem(at: path)?.frame, frame.intersects(rect) else { return false }
+        guard let view = item(at: path)?.view as? GridItemView else { return true }
+        return view.catchRects.contains { convert($0, from: view).intersects(rect) }
     }
 
     var count: Int { numberOfSections > 0 ? numberOfItems(inSection: 0) : 0 }

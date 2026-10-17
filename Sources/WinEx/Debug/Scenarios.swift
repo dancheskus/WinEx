@@ -305,29 +305,45 @@ enum Scenarios {
     /// Icon views: a click catches an item on its icon or its name's text only (beside a short
     /// name it's empty space); the right button dragged on empty space selects like the left one.
     static func hitAreas(_ s: Scenario) {
-        let folder = s.makeFiles(["a.txt", "b.txt", "c.txt", "d.txt"], in: "hitareas")
+        let folder = s.makeFiles(["a.txt", "b.txt", "c.txt", "d.txt", "Инструкция_Предварительная_уплата_документ.docx", "План действий для поездки в РБ.docx"], in: "hitareas")
         s.window?.navigate(to: folder)
         s.run([
             (0.8, "icons", { s.setViewMode(.largeIcons) }),
             (1.0, "clicks", {
-                guard let grid = s.grid, let frame = grid.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame else { s.note("  (no grid)"); return }
+                guard let grid = s.grid else { s.note("  (no grid)"); return }
+                let names = (0..<grid.numberOfItems(inSection: 0)).compactMap { (grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem)?.textField?.stringValue }
+                guard let ia = names.firstIndex(where: { $0.hasSuffix("a.txt") }), let ib = names.firstIndex(where: { $0.hasSuffix("b.txt") }),
+                      let frame = grid.layoutAttributesForItem(at: IndexPath(item: ia, section: 0))?.frame else { s.note("  (no a.txt)"); return }
                 let onIcon = grid.itemIndex(at: NSPoint(x: frame.midX, y: frame.minY + 50))
                 let besideName = grid.itemIndex(at: NSPoint(x: frame.minX + 4, y: frame.maxY - 30))
-                s.note("  on the icon: \(onIcon.map(String.init) ?? "nothing"); in the cell beside the short name: \(besideName.map(String.init) ?? "nothing")  expect 0, nothing")
+                s.note("  on the icon: \(onIcon == ia); in the cell beside the short name: \(besideName.map(String.init) ?? "nothing")  expect true, nothing")
                 // The right button dragged from that empty spot across the first two items
-                guard let window = grid.window, let second = grid.layoutAttributesForItem(at: IndexPath(item: 1, section: 0))?.frame else { return }
+                guard let window = grid.window, let second = grid.layoutAttributesForItem(at: IndexPath(item: ib, section: 0))?.frame else { return }
                 func event(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {
                     NSEvent.mouseEvent(with: type, location: grid.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                        windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
                 }
                 let start = NSPoint(x: frame.minX + 4, y: frame.maxY - 30), end = NSPoint(x: second.midX, y: second.minY + 40)
-                guard let down = event(.rightMouseDown, start), let drag = event(.rightMouseDragged, end), let drag2 = event(.rightMouseDragged, end),
+                guard grid.itemIndex(at: start) == nil, let down = event(.rightMouseDown, start), let drag = event(.rightMouseDragged, end), let drag2 = event(.rightMouseDragged, end),
                       let up = event(.rightMouseUp, end) else { return }
                 NSApp.postEvent(drag, atStart: false)
                 NSApp.postEvent(drag2, atStart: false)
                 NSApp.postEvent(up, atStart: false)
                 grid.rightMouseDown(with: down)
-                s.note("  right-dragged across two: selected \(grid.selectedIndexes.sorted())  expect [0, 1]")
+                s.note("  right-dragged across a.txt and b.txt: selected both \(grid.selectedIndexes == IndexSet([ia, ib]))  expect true")
+                // A small rectangle in the gap between two long-named items, at the icons' height:
+                // it reaches neither (their names' lines are wide, but not up there)
+                guard let first = names.firstIndex(where: { $0.hasPrefix("Инструкция") }), let next = names.firstIndex(where: { $0.hasPrefix("План") }),
+                      let a = grid.layoutAttributesForItem(at: IndexPath(item: first, section: 0))?.frame,
+                      let b = grid.layoutAttributesForItem(at: IndexPath(item: next, section: 0))?.frame, abs(a.minY - b.minY) < 1 else { s.note("  (long names not side by side)"); return }
+                let left = min(a.maxX, b.maxX) - 6, y = a.minY + 40
+                guard let down2 = event(.rightMouseDown, NSPoint(x: left, y: y)), let drag3 = event(.rightMouseDragged, NSPoint(x: left + 12, y: y + 12)),
+                      let drag4 = event(.rightMouseDragged, NSPoint(x: left + 12, y: y + 12)), let up2 = event(.rightMouseUp, NSPoint(x: left + 12, y: y + 12)) else { return }
+                NSApp.postEvent(drag3, atStart: false)
+                NSApp.postEvent(drag4, atStart: false)
+                NSApp.postEvent(up2, atStart: false)
+                grid.rightMouseDown(with: down2)
+                s.note("  a small rectangle between two long-named items: selected \(grid.selectedIndexes.sorted())  expect []")
             }),
             (0.5, "done", {}),
         ])

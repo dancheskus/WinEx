@@ -654,29 +654,35 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
 
-    /// Where a click (or the selection rectangle) catches an icon: the picture's square and the
-    /// name's lines as wide as their text — as Finder (between them, empty space: a rectangle
-    /// starts there instead of dragging the icon).
-    private func clickRect(_ index: Int) -> NSRect {
-        iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).union(textArea(index))
+    /// Where a click or a selection rectangle catches an icon: its picture's square and its name's
+    /// lines, each as wide as its text — as Finder (the empty corners between them don't count:
+    /// a rectangle starts there instead of dragging the icon).
+    private func catchRects(_ index: Int) -> [NSRect] {
+        [iconRect(at: centers[index]).insetBy(dx: -4, dy: -4)] + textLines(index)
     }
 
-    /// A point on the icon's picture or its name's text (not just anywhere in its cell).
     private func catches(_ index: Int, _ point: NSPoint) -> Bool {
         if iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).contains(point) { return true }
         // (The name's lines are measured only when the point is in its cell's label area)
-        return labelRect(index).insetBy(dx: -4, dy: -2).contains(point) && textArea(index).contains(point)
+        return labelRect(index).insetBy(dx: -4, dy: -2).contains(point) && textLines(index).contains { $0.contains(point) }
     }
 
-    /// The name's lines, as wide as their text.
-    private func textArea(_ index: Int) -> NSRect {
+    private func reaches(_ index: Int, _ rect: NSRect) -> Bool {
+        guard rect.width > 0 || rect.height > 0 else { return false }
+        if iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).intersects(rect) { return true }
+        return labelRect(index).insetBy(dx: -4, dy: -2).intersects(rect) && textLines(index).contains { $0.intersects(rect) }
+    }
+
+    /// The name's lines, each as wide as its text.
+    private func textLines(_ index: Int) -> [NSRect] {
         let label = labelRect(index)
         let attributes = labelAttributes()
         let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 12)
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
-        let lines = DesktopLabel.lines(labelText(for: items[index], attributes: attributes), width: label.width)
-        let widest = lines.map { min(ceil($0.size().width), label.width) }.max() ?? 0
-        return NSRect(x: label.midX - widest / 2 - 4, y: label.minY - 1, width: widest + 8, height: lineHeight * CGFloat(lines.count) + 2)
+        return DesktopLabel.lines(labelText(for: items[index], attributes: attributes), width: label.width).enumerated().map { n, line in
+            let width = min(ceil(line.size().width), label.width)
+            return NSRect(x: label.midX - width / 2 - 4, y: label.minY + CGFloat(n) * lineHeight - 1, width: width + 8, height: lineHeight + 2)
+        }
     }
 
     private func hitRect(_ index: Int) -> NSRect {
@@ -1254,7 +1260,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         rubberBand = rect
         // (An icon in a fence counts only by the part of it the fence shows)
         selection = rubberBandBase.union(items.indices.filter {
-            iconsVisible && !hiddenIcons.contains($0) && clickRect($0).intersection(fenceClip[$0] ?? .infinite).intersects(rect)
+            iconsVisible && !hiddenIcons.contains($0) && reaches($0, rect.intersection(fenceClip[$0] ?? .infinite))
         })
         if rect.width > 3 || rect.height > 3 { emptyClickCandidate = false }
         needsDisplay = true
@@ -2702,7 +2708,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// The icon a click at `point` catches (its name), and the selection's names.
     func debugHit(_ point: NSPoint) -> String? { index(at: point).map(name(of:)) }
     var debugSelection: [String] { selection.sorted().map(name(of:)) }
-    func debugClickRect(_ name: String) -> NSRect? { index(named: name).map(clickRect) }
+    func debugClickRect(_ name: String) -> NSRect? { index(named: name).map { catchRects($0).reduce(NSRect.null) { $0.union($1) } } }
 
     /// Hovers a video icon and clicks its play button (muted): (button shown, click played).
     func debugPlayVideo(_ name: String) -> (Bool, Bool) {
