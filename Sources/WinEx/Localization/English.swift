@@ -56,7 +56,6 @@ enum English {
         "Папку": "Folder",
         "Новая папка": "New Folder",
         "Импортировать с iPhone": "Import from iPhone",
-        "Импортировать с iPhone или iPad": "Import from iPhone or iPad",
         "Скан": "Scan",
         "Набросок": "Sketch",
         "Снимок": "Photo",

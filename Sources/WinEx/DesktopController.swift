@@ -1601,7 +1601,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         add(L("Обновить"), #selector(refreshAction(_:)))
         menu.addItem(.separator())
         menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
-        menu.addItem(DeviceImport.menuItem(into: desktopURL))
+        DeviceImport.addItems(to: menu, into: desktopURL)
         if FenceStyle.enabled, fence(at: point) == nil {
             add(L("Создать зону"), #selector(createFence(_:)))
             add(L("Создать портал папки…"), #selector(createPortal(_:)))
@@ -1617,9 +1617,9 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return menu
     }
 
-    /// «Импортировать с iPhone или iPad» saves onto the desktop.
+    /// «Импортировать с iPhone» saves onto the desktop.
     override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
-        DeviceImport.requestor(into: Self.desktopURL, sendType: sendType, returnType: returnType)
+        DeviceImport.requestor(into: Self.desktopURL, in: self, sendType: sendType, returnType: returnType)
             ?? super.validRequestor(forSendType: sendType, returnType: returnType)
     }
 

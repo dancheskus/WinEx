@@ -81,6 +81,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     override func loadView() {
         let menu = NSMenu()
         menu.delegate = self
+        DeviceImport.seed(menu)
         setUpTable(menu: menu)
         setUpGrid(menu: menu)
 
@@ -1315,7 +1316,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             if showingNetwork { return }
             menu.addItem(.separator())
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
-            if let directory, canCreateItems { menu.addItem(DeviceImport.menuItem(into: directory)) }
+            if let directory, canCreateItems { DeviceImport.addItems(to: menu, into: directory) }
             menu.addItem(.separator())
             add(L("Копировать путь к папке"), #selector(copyPath(_:)))
             if let directory, let terminal = TerminalLauncher.menuItem(for: [directory]) { menu.addItem(terminal) }
@@ -1364,9 +1365,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     var canCreateItems: Bool { directory != nil && location != .trash && search == nil }
 
-    /// «Импортировать с iPhone или iPad» saves into the folder shown.
+    /// «Импортировать с iPhone» saves into the folder shown.
     override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
-        DeviceImport.requestor(into: canCreateItems ? directory : nil, sendType: sendType, returnType: returnType)
+        DeviceImport.requestor(into: canCreateItems ? directory : nil, in: view, sendType: sendType, returnType: returnType)
             ?? super.validRequestor(forSendType: sendType, returnType: returnType)
     }
 

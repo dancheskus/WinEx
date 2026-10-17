@@ -135,8 +135,7 @@ enum MenuStyle {
             title.addAttribute(decoratedKey, value: true, range: all)
             item.attributedTitle = title
             // A submenu row draws itself: AppKit's arrow can't be made smaller or quieter
-            // (Continuity Camera's item gets its submenu from AppKit only when the menu opens)
-            if item.submenu != nil || item.identifier == NSMenuItem.importFromDeviceIdentifier {
+            if item.submenu != nil {
                 item.view = SubmenuRowView(item: item, icon: withIcons ? framed(icons[item]) : nil, font: font)
             }
             item.image = nil
@@ -347,24 +346,16 @@ private final class ActionRowView: NSView {
 /// A menu row with a submenu, drawn like the other rows (icon, text) with a small, quiet
 /// chevron — AppKit's own arrow follows the menu font and can't be restyled.
 final class SubmenuRowView: NSView {
-    private let fixedTitle: String
-    /// Continuity Camera's item is named by AppKit when the menu opens, after the devices near
-    /// («Импортировать с iPhone»): read live (AppKit's placeholder until then is "<<…>>").
-    private var title: String {
-        guard let item = enclosingMenuItem, item.identifier == NSMenuItem.importFromDeviceIdentifier,
-              !item.title.isEmpty, !item.title.hasPrefix("<<") else { return fixedTitle }
-        return item.title
-    }
+    private let title: String
     private let icon: NSImage?
     private let font: NSFont
     static let height: CGFloat = 31
 
     init(item: NSMenuItem, icon: NSImage?, font: NSFont) {
-        fixedTitle = item.attributedTitle?.string.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{FFFC}"))) ?? item.title
+        title = item.attributedTitle?.string.trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{FFFC}"))) ?? item.title
         self.icon = icon
         self.font = font
-        let widest = item.identifier == NSMenuItem.importFromDeviceIdentifier ? L("Импортировать с iPhone или iPad") : fixedTitle
-        let textWidth = (widest as NSString).size(withAttributes: [.font: font]).width
+        let textWidth = (title as NSString).size(withAttributes: [.font: font]).width
         super.init(frame: NSRect(x: 0, y: 0, width: ceil(Self.textX(icon: icon != nil) + Self.stateColumn + textWidth + 60), height: Self.height))
         autoresizingMask = [.width]
     }

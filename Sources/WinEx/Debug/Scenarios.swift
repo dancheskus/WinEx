@@ -75,36 +75,24 @@ enum Scenarios {
         "devicemenu": deviceMenu,
     ]
 
-    /// «Импортировать с iPhone»: AppKit fills a copy of the File menu's item as the menu opens
-    /// (needs an iPhone near); an item left unfilled (no device) is hidden, not greyed out.
+    /// «Импортировать с iPhone» in a WinEx menu: as it opens, AppKit's hidden item has the devices
+    /// near, and they move into WinEx's row (needs an iPhone near).
     static func deviceMenu(_ s: Scenario) {
-        func state(_ item: NSMenuItem?) -> String {
-            guard let item else { return "nil" }
-            return "«\(item.title)» hidden \(item.isHidden) enabled \(item.isEnabled) submenu \(item.submenu?.items.map(\.title) ?? [])"
-        }
-        let main = NSApp.mainMenu?.items.compactMap(\.submenu).flatMap(\.items).first { $0.identifier == NSMenuItem.importFromDeviceIdentifier }
-        s.note("  main at start: \(state(main))")
         let menu = NSMenu()
-        let copy = main?.copy() as? NSMenuItem
-        copy.map(menu.addItem)
-        // An item AppKit won't fill: as with no device near
-        let empty = NSMenuItem(title: "empty", action: nil, keyEquivalent: "")
-        empty.identifier = NSMenuItem.importFromDeviceIdentifier
-        menu.addItem(empty)
-        s.note("  copy made: \(state(copy))")
-        menu.update()
-        s.note("  copy after update: \(state(copy))")
+        menu.addItem(withTitle: "Обновить", action: NSSelectorFromString("refresh:"), keyEquivalent: "")
+        DeviceImport.addItems(to: menu, into: FileManager.default.temporaryDirectory)
+        MenuStyle.decorate(menu)
         s.run([
-            (1.0, "", { s.note("  copy 1 s later: \(state(copy)); main \(state(main))") }),
-            (0.1, "", {
+            (0.5, "", {
                 let check = Timer(timeInterval: 0.1, repeats: false) { _ in
-                    s.note("  copy 0.1 s into tracking: \(state(copy))  expect shown, with the iPhone")
-                    s.note("  unfilled item hidden \(empty.isHidden)  expect true")
+                    let row = menu.items.first { $0.identifier == DeviceImport.rowIdentifier }
+                    s.note("  row «\(row?.title ?? "-")» hidden \(row?.isHidden ?? true), view \(row?.view.map { String(describing: type(of: $0)) } ?? "none")  expect «Импортировать с iPhone», shown, SubmenuRowView")
+                    s.note("  its submenu \(row?.submenu?.items.map(\.title) ?? [])  expect the iPhone and its actions")
+                    s.note("  AppKit's item still in the menu: \(menu.items.contains { $0.identifier == NSMenuItem.importFromDeviceIdentifier })  expect false")
                     menu.cancelTracking()
                 }
                 RunLoop.main.add(check, forMode: .common)
                 menu.popUp(positioning: nil, at: NSPoint(x: 300, y: 300), in: nil)
-                s.note("  main after: \(state(main))")
             }),
         ])
     }
@@ -180,7 +168,7 @@ enum Scenarios {
         ])
     }
 
-    /// «Импортировать с iPhone или iPad»: in a folder's background menu, filled by AppKit with the
+    /// «Импортировать с iPhone»: in a folder's background menu, filled by AppKit with the
     /// nearby devices when the menu opens; what a device sends is saved in the folder.
     static func deviceImport(_ s: Scenario) {
         let base = s.makeFiles(["a.txt"])
@@ -205,7 +193,7 @@ enum Scenarios {
             RunLoop.main.add(check, forMode: .common)
             menu.popUp(positioning: nil, at: NSPoint(x: 40, y: 40), in: table)
             // What a device sends, as AppKit hands it over
-            let requestor = table.validRequestor(forSendType: nil, returnType: .init("public.jpeg"))
+            let requestor = table.validRequestor(forSendType: nil, returnType: .init("public.jpeg")) as AnyObject?
             s.note("  requestor for the folder: \(requestor.map { String(describing: type(of: $0)) } ?? "nil")")
             let board = NSPasteboard(name: .init("winex.scenario.import"))
             board.clearContents()

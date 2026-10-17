@@ -103,6 +103,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
         let menu = NSMenu()
         menu.delegate = self
+        DeviceImport.seed(menu)
         self.menu = menu
     }
 
@@ -353,7 +354,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
             open.target = self
             open.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
-            menu.addItem(DeviceImport.menuItem(into: folder))
+            DeviceImport.addItems(to: menu, into: folder)
             // Like Finder: «Новая папка» and «Вставить» first (paste only when there's something to paste)
             NewItemTemplate.addFolderAndPaste(to: menu, target: self, action: #selector(createNewItem(_:)), paste: #selector(paste(_:)))
         }
@@ -362,9 +363,9 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
 
     @objc private func openFolder(_ sender: Any?) { AppDelegate.shared.showOrOpenWindow(at: folder) }
 
-    /// «Импортировать с iPhone или iPad» saves into the portal's folder.
+    /// «Импортировать с iPhone» saves into the portal's folder.
     override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
-        DeviceImport.requestor(into: folder, sendType: sendType, returnType: returnType)
+        DeviceImport.requestor(into: folder, in: self, sendType: sendType, returnType: returnType)
             ?? super.validRequestor(forSendType: sendType, returnType: returnType)
     }
 
