@@ -325,9 +325,15 @@ enum ReleaseNotes {
         let width: CGFloat = 400
         let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
         textView.isEditable = false
+        // Not selectable: the alert made a selectable text its first responder, which scrolled the
+        // notes away from their start (the async scroll to the top below didn't win against it)
+        textView.isSelectable = false
         textView.drawsBackground = false
         textView.textContainerInset = NSSize(width: 2, height: 6)
         textView.textContainer?.widthTracksTextView = true
+        // Narrowed by the scroller, the text grows taller to fit instead of being cut off
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
         textView.textStorage?.setAttributedString(notes)
         if let container = textView.textContainer { textView.layoutManager?.ensureLayout(for: container) }
         let height = (textView.textContainer.flatMap { textView.layoutManager?.usedRect(for: $0).height } ?? 200) + 12
@@ -336,6 +342,9 @@ enum ReleaseNotes {
         scroll.hasVerticalScroller = height > 220
         scroll.drawsBackground = false
         scroll.borderType = .noBorder
+        // (Automatic insets left the first lines a few points scrolled in)
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsetsZero
         textView.frame.size.height = height
         return scroll
     }
@@ -343,12 +352,25 @@ enum ReleaseNotes {
     /// Starts at the first section: the alert lays its views out after they're made, which left
     /// the box scrolled to the middle.
     private final class TopScrollView: NSScrollView {
+        /// Until the user scrolls, every layout (the alert's, the text reflowing beside the
+        /// scroller) keeps the start in view — one scroll to the top when shown came too early.
+        private var userScrolled = false
+
+        override func layout() {
+            super.layout()
+            guard !userScrolled, contentView.bounds.origin != .zero else { return }
+            contentView.scroll(to: .zero)
+            reflectScrolledClipView(contentView)
+        }
+
+        override func scrollWheel(with event: NSEvent) {
+            userScrolled = true
+            super.scrollWheel(with: event)
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            DispatchQueue.main.async { [self] in
-                contentView.scroll(to: .zero)
-                reflectScrolledClipView(contentView)
-            }
+            DispatchQueue.main.async { [self] in needsLayout = true }
         }
     }
 }

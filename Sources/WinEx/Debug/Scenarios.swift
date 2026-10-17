@@ -88,6 +88,15 @@ enum Scenarios {
             alert.addButton(withTitle: L("Обновить и перезапустить"))
             alert.addButton(withTitle: L("Позже"))
             alert.layout()
+            // Shown as the updater shows it (modal): where the notes start, a moment after opening
+            let check = Timer(timeInterval: 0.6, repeats: false) { _ in
+                if let scroll = alert.accessoryView as? NSScrollView {
+                    s.note("  modal: notes scrolled to y \(Int(scroll.contentView.bounds.minY))  expect 0; doc \(scroll.documentView?.frame ?? .zero), clip \(scroll.contentView.frame), flipped \(scroll.contentView.isFlipped); first responder \(String(describing: alert.window.firstResponder.map { type(of: $0) }))")
+                }
+                NSApp.abortModal()
+            }
+            RunLoop.main.add(check, forMode: .common)
+            alert.runModal()
             s.run([
                 (0.2, "", {
                     alert.window.appearance = NSAppearance(named: .aqua)
