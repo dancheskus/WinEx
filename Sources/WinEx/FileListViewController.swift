@@ -1342,12 +1342,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.representedObject = key.rawValue
             item.state = (current?.key ?? "name") == key.rawValue ? .on : .off
         }
-        for key in [FileColumn.name, .date, .type] { addKey(key, to: sortMenu) }
-        let more = NSMenu()
-        for key in [FileColumn.size, .created, .added] { addKey(key, to: more) }
-        let moreItem = sortMenu.addItem(withTitle: L("Дополнительно"), action: nil, keyEquivalent: "")
-        moreItem.submenu = more
-        if more.items.contains(where: { $0.state == .on }) { moreItem.state = .on }
+        // All keys on one level (a submenu for three of them hid them for nothing)
+        for key in [FileColumn.name, .date, .type, .size, .created, .added] { addKey(key, to: sortMenu) }
         sortMenu.addItem(.separator())
         for (ascending, title) in [(true, L("По возрастанию")), (false, L("По убыванию"))] {
             let item = sortMenu.addItem(withTitle: title, action: #selector(sortOrder(_:)), keyEquivalent: "")
