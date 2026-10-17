@@ -225,7 +225,10 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
 
     private func updatePlayButton() {
         let shown = videoURL != nil && !mode.isHorizontalItem && !itemView.isRenaming && (isHovered || playing != nil)
-        playButton.isHidden = !shown || (playing != nil && !isHovered)
+        // Playing, the mouse away: a video shows itself; a sound keeps a faint button (its ring turning)
+        let faint = playing?.isAudio == true && !isHovered
+        playButton.isHidden = !shown || (playing != nil && !isHovered && !faint)
+        playButton.alphaValue = faint ? 0.5 : 1
         let side = min(36, max(20, (mode.iconSize * 0.42).rounded()))
         let picture = pictureRect
         playButton.frame = NSRect(x: (picture.midX - side / 2).rounded(), y: (picture.midY - side / 2).rounded(), width: side, height: side)
@@ -240,13 +243,13 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     func handlePlayClick(at point: NSPoint) -> Bool {
         guard !playButton.isHidden, playButton.frame.insetBy(dx: -4, dy: -4).contains(point), let videoURL else { return false }
         if let playing {
-            if playing.player.rate > 0 { playing.player.pause() } else { playing.player.play() }
+            if playing.player.rate > 0 { playing.player.pause() } else { playing.play() }
         } else {
             let video = InlineVideoView(url: videoURL, onProgress: { [weak self] in self?.playButton.progress = $0 },
                                         onEnd: { [weak self] in self?.stopVideo() })
             view.addSubview(video, positioned: .above, relativeTo: iconView)
             playing = video
-            video.player.play()
+            video.play()
         }
         updatePlayButton()
         return true
@@ -532,7 +535,7 @@ final class GridItemView: NSView {
         if let detail {
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .center
-            let font = NSFont.systemFont(ofSize: max(labelFont.pointSize - 1, 10))
+            let font = NSFont.systemFont(ofSize: max(labelFont.pointSize - 2, 9))   // smaller than the name, as Finder's
             let height = ceil(font.ascender - font.descender)
             let y = top - lineHeight * CGFloat(labelLines.count) - height - 1
             NSAttributedString(string: detail, attributes: [.font: font, .foregroundColor: NSColor.controlAccentColor, .paragraphStyle: paragraph])

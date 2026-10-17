@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         endRenamesOnWindowSwitch()
+        closeTabsOfEjectedVolumes()
         SetupWizard.markExistingUser()
         setupStatusItem()
         // Logging out / restarting / shutting down (sent before the apps are asked to quit)
@@ -171,6 +172,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         InlineRename.endAll()
     }
 
+    /// A disk ejected (a disk image, a USB disk, a network share): its tabs close — a window showing
+    /// only that disk closes, as Finder's does.
+    private var unmountObserver: NSObjectProtocol?
+    private func closeTabsOfEjectedVolumes() {
+        unmountObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didUnmountNotification, object: nil, queue: .main) { [weak self] note in
+            MainActor.assumeIsolated {
+                guard let self, let volume = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
+                let root = volume.standardizedFileURL.path
+                func onVolume(_ tab: ExplorerTab) -> Bool {
+                    guard let directory = Location(tab.url).directory?.standardizedFileURL.path else { return false }
+                    return directory == root || directory.hasPrefix(root + "/")
+                }
+                for controller in self.windowControllers {
+                    let gone = controller.tabs.indices.filter { onVolume(controller.tabs[$0]) }
+                    guard !gone.isEmpty else { continue }
+                    if gone.count == controller.tabs.count {
+                        controller.mergedAway = true   // (not a «closed window» for ⇧⌘T: its disk is gone)
+                        controller.window?.close()
+                    } else {
+                        for index in gone.reversed() { controller.closeTab(at: index) }
+                    }
+                }
+            }
+        }
+    }
+
     /// A rename ends when its window stops being the key one (another WinEx window, the desktop).
     private var resignKeyObserver: NSObjectProtocol?
     private func endRenamesOnWindowSwitch() {
@@ -291,9 +318,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
     }
 
-    /// A folder another app asks for (Chrome's «Show downloads», the Dock, «Show in Finder»): if a
-    /// window already shows it (in any tab), that window comes forward with that tab — the items
-    /// selected; otherwise a new window. WinEx's own «new window» (⌘N, the hotkey) always opens one.
+    /// A folder opened (from another app — Chrome's «Show downloads», the Dock, «Show in Finder» —
+    /// or from the desktop, a portal, a zone): if a window already shows it (in any tab, even
+    /// hidden or minimized), that window comes forward with that tab — the items selected;
+    /// otherwise a new window. WinEx's own «new window» (⌘N, the hotkey) always opens one.
     func showOrOpenWindow(at folder: URL, select: [URL] = []) {
         func key(_ url: URL) -> String { url.resolvingSymlinksInPath().standardizedFileURL.path }
         let wanted = key(folder)
@@ -303,9 +331,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         for controller in candidates {
             guard let index = controller.tabs.firstIndex(where: { Location($0.url).directory.map(key) == wanted }) else { continue }
             controller.showTab(at: index, selecting: select)
+            // Hidden (⌘H) or minimized: shown again
+            if NSApp.isHidden { NSApp.unhide(nil) }
             if controller.window?.isMiniaturized == true { controller.window?.deminiaturize(nil) }
             controller.window?.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
         openWindow(at: folder, select: select)
@@ -371,11 +401,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func open(_ url: URL) {
         let url = FileCommands.resolved(url)
         if FileCommands.isZip(url) { return FileCommands.extract(url) }
-        if url.isBrowsableDirectory { openWindow(at: url) } else { DiskImages.noteOpening(url); NSWorkspace.shared.open(url) }
+        if url.isBrowsableDirectory { showOrOpenWindow(at: url) } else { NSWorkspace.shared.open(url) }
     }
 
     func reveal(_ url: URL) {
-        openWindow(at: url.deletingLastPathComponent(), select: [url])
+        showOrOpenWindow(at: url.deletingLastPathComponent(), select: [url])
     }
 
     /// Called when a window that was dragged by its tab is dropped. If it lands on another

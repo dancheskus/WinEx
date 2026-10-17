@@ -270,7 +270,7 @@ final class SnapshotsSection: NSView {
 
     @objc private func revealFolder(_ sender: Any?) {
         try? FileManager.default.createDirectory(at: DesktopSnapshots.folder, withIntermediateDirectories: true)
-        AppDelegate.shared.openWindow(at: DesktopSnapshots.folder)
+        AppDelegate.shared.showOrOpenWindow(at: DesktopSnapshots.folder)
     }
 }
 

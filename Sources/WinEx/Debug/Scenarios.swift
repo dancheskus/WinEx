@@ -130,6 +130,16 @@ enum Scenarios {
                 let played = item.handlePlayClick(at: center)
                 (item.view.subviews.first { $0 is InlineVideoView } as? InlineVideoView)?.player.volume = 0
                 s.note("  sound: play button shown: \(button?.isHidden == false); click plays: \(played)  expect true, true")
+                // One at a time: the video started before has stopped
+                let videoStill = clipItem().map { $0.view.subviews.contains { $0 is InlineVideoView } } ?? false
+                s.note("  the video still playing too: \(videoStill)  expect false")
+                // Mouse away from the sound: a faint button stays
+                if let exit = NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
+                                                     windowNumber: s.window?.window?.windowNumber ?? 0, context: nil,
+                                                     eventNumber: 0, trackingNumber: 0, userData: nil) {
+                    item.mouseExited(with: exit)
+                    s.note("  mouse away: button shown \(button?.isHidden == false), faint \(button.map { $0.alphaValue < 1 } ?? false)  expect true, true")
+                }
             }),
             (1.0, "details", { s.setViewMode(.details) }),
             (1.5, "details shot", { shot(2) }),
@@ -288,8 +298,8 @@ enum Scenarios {
         ])
     }
 
-    /// A disk image opened from WinEx: once mounted, its contents open in a WinEx window (the
-    /// image is mounted with hdiutil here, then detached).
+    /// A disk image shown in a WinEx window: ejected, its window closes (the image is mounted with
+    /// hdiutil here, then detached).
     static func diskImage(_ s: Scenario) {
         let image = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("winex-scenario.dmg")
         try? FileManager.default.removeItem(at: image)
@@ -305,21 +315,20 @@ enum Scenarios {
         run(["create", "-size", "2m", "-fs", "APFS", "-volname", "WinExScenario", image.path])
         var before = 0
         s.run([
-            (0.5, "opened from WinEx, then mounted", {
+            (0.5, "mounted", {
                 before = AppDelegate.shared.windowControllers.count
-                DiskImages.noteOpening(image)
                 DispatchQueue.global().async { run(["attach", image.path, "-quiet"]) }
             }),
-            (3.0, "its window", {
-                let shown = AppDelegate.shared.windowControllers.last?.selectedTab.url.path ?? "-"
-                s.note("  new windows: \(AppDelegate.shared.windowControllers.count - before); showing \(shown)  expect 1, /Volumes/WinExScenario")
-                if AppDelegate.shared.windowControllers.count > before { AppDelegate.shared.windowControllers.last?.window?.close() }
-                DispatchQueue.global().async {
-                    run(["detach", "/Volumes/WinExScenario", "-quiet"])
-                    try? FileManager.default.removeItem(at: image)
-                }
+            (3.0, "no window of its own; then shown in one, and ejected", {
+                s.note("  new windows on mounting: \(AppDelegate.shared.windowControllers.count - before)  expect 0")
+                AppDelegate.shared.openWindow(at: URL(fileURLWithPath: "/Volumes/WinExScenario"))
+                DispatchQueue.global().async { run(["detach", "/Volumes/WinExScenario", "-quiet"]) }
             }),
-            (1.5, "done", {}),
+            (2.0, "its window closed", {
+                s.note("  windows left: \(AppDelegate.shared.windowControllers.count - before)  expect 0")
+                try? FileManager.default.removeItem(at: image)
+            }),
+            (0.5, "done", {}),
         ])
     }
 
@@ -458,6 +467,13 @@ enum Scenarios {
             (0.8, "selected in that tab", {
                 s.note("  windows: \(count() - start) new; selected \(s.selectedNames)  expect 0 new, [b.txt]")
             }),
+            (0.3, "WinEx hidden (⌘H), the folder opened from the desktop", {
+                NSApp.hide(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { AppDelegate.shared.open(folder) }
+            }),
+            (0.8, "shown again, not opened again", {
+                s.note("  windows: \(count() - start) new; WinEx hidden: \(NSApp.isHidden); front tab: \(s.window?.selectedTab.url.lastPathComponent ?? "?")  expect 0 new, false, reopen")
+            }),
             (0.3, "⌘N three times", { for _ in 0..<3 { s.send("newWindow:") } }),
             (0.8, "three new windows", {
                 s.note("  windows: \(count() - start) new  expect 3 new")
@@ -578,7 +594,7 @@ enum Scenarios {
         // The popover, on a folder with one tag and a symbol
         let folder = s.makeFiles(["Папка/", "alicorn-ui/", "dynamic_list/", "TorrServerMacInstaller/", "WinEx/",
                                   "План действий для поездки.docx", "Инструкция_Пассажирская_таможенная_декларация_документ.docx"]
-                                  + (1...10).map { "файл \($0).txt" }, in: "custom").appendingPathComponent("Папка")
+                                  + (1...10).map { "файл \($0).txt" } + ["архив.zip"], in: "custom").appendingPathComponent("Папка")
         try? FileTags.setTags([FileTags.Tag(name: "Желтый", color: 5)], on: folder)
         try? FolderCustomization.write(.symbol("person.crop.circle"), to: folder)
         s.window?.navigate(to: folder.deletingLastPathComponent())

@@ -547,7 +547,7 @@ final class FenceView: NSView, NSTextFieldDelegate {
             return
         }
         if grabbed.isEmpty, let openRect, openRect.contains(start), let folder = portalView?.currentFolder {
-            AppDelegate.shared.openWindow(at: folder)
+            AppDelegate.shared.showOrOpenWindow(at: folder)
             return
         }
         // Double-click on the title bar (not on its text): roll up / down

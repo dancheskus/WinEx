@@ -52,7 +52,7 @@ final class PortalView: NSScrollView {
         let root = folder.standardizedFileURL.path
         let target = url.standardizedFileURL
         // Somewhere else (an alias pointing out of the portal): opens in a WinEx window
-        guard target.path == root || target.path.hasPrefix(root + "/") else { return AppDelegate.shared.openWindow(at: target) }
+        guard target.path == root || target.path.hasPrefix(root + "/") else { return AppDelegate.shared.showOrOpenWindow(at: target) }
         grid.setFolder(target)
         contentView.scroll(to: .zero)
         reflectScrolledClipView(contentView)
@@ -359,7 +359,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         MenuStyle.decorate(menu)
     }
 
-    @objc private func openFolder(_ sender: Any?) { AppDelegate.shared.openWindow(at: folder) }
+    @objc private func openFolder(_ sender: Any?) { AppDelegate.shared.showOrOpenWindow(at: folder) }
 
     @objc private func createNewItem(_ sender: NSMenuItem) {
         guard let template = sender.representedObject as? NewItemTemplate else { return }

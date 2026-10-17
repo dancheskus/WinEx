@@ -83,11 +83,18 @@ final class VideoPlayButton: NSView {
 /// The playing video, in place of the preview.
 final class InlineVideoView: NSView {
     let player: AVPlayer
+    /// A sound (nothing to see): its button stays, faint, while it plays.
+    let isAudio: Bool
     private var endObserver: NSObjectProtocol?
     private var timeObserver: Any?
+    private let onEnd: () -> Void
+    /// One thing plays at a time: starting another stops this one.
+    private static weak var current: InlineVideoView?
 
     init(url: URL, onProgress: @escaping (Double) -> Void, onEnd: @escaping () -> Void) {
         player = AVPlayer(url: url)
+        isAudio = UTType(filenameExtension: url.pathExtension)?.conforms(to: .audio) == true
+        self.onEnd = onEnd
         super.init(frame: .zero)
         wantsLayer = true
         let playerLayer = AVPlayerLayer(player: player)
@@ -114,6 +121,13 @@ final class InlineVideoView: NSView {
         layer?.cornerRadius = max(3, (min(bounds.width, bounds.height) * 0.06).rounded())
     }
 
+    /// Plays (on), stopping whatever else was playing in place.
+    func play() {
+        if let other = Self.current, other !== self { other.onEnd() }
+        Self.current = self
+        player.play()
+    }
+
     func stop() {
         player.pause()
         if let timeObserver { player.removeTimeObserver(timeObserver) }
@@ -125,7 +139,8 @@ final class InlineVideoView: NSView {
 }
 
 /// Finder's «Показывать сведения об объекте»: a line under the name in icon views — how many items
-/// a folder holds, a picture's size in pixels, how long a video or a sound is.
+/// a folder holds, a picture's size in pixels, how long a video or a sound is, how big an archive
+/// or a disk image is (as Finder: other files get no line).
 enum ItemInfo {
     nonisolated(unsafe) private static var known: [String: String] = [:]
     private static let lock = NSLock()
@@ -134,6 +149,7 @@ enum ItemInfo {
     static func text(for file: FileItem, ready: @escaping @MainActor (String) -> Void) -> String? {
         let url = file.url
         if !file.isFolder, InlineVideo.isVideo(url) { return InlineVideo.duration(of: url, ready: ready) }
+        if !file.isFolder, UTType(filenameExtension: url.pathExtension)?.conforms(to: .archive) == true { return file.sizeDescription }
         let isImage = !file.isFolder && UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
         guard file.isFolder || isImage else { return nil }
         // (A folder's count changes with what's in it: its date changes then too)

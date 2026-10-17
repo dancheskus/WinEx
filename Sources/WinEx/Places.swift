@@ -217,26 +217,3 @@ enum NetworkMounter {
         mount(url, completion: completion)
     }
 }
-
-/// Disk images (.dmg) opened from WinEx: once macOS has mounted the image, its contents open in a
-/// WinEx window — as Finder opens a window for it.
-@MainActor
-enum DiskImages {
-    private static var openedAt: Date?
-    private static var observer: NSObjectProtocol?
-
-    static func noteOpening(_ url: URL) {
-        guard ["dmg", "sparseimage", "sparsebundle", "iso", "img", "cdr"].contains(url.pathExtension.lowercased()) else { return }
-        openedAt = Date()
-        guard observer == nil else { return }
-        observer = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { note in
-            MainActor.assumeIsolated {
-                // Within a minute of opening it (the password, the license of some images take a while)
-                guard let opened = openedAt, Date().timeIntervalSince(opened) < 60,
-                      let volume = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
-                openedAt = nil
-                AppDelegate.shared.showOrOpenWindow(at: volume)
-            }
-        }
-    }
-}

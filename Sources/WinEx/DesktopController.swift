@@ -926,11 +926,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         if let playing = playingVideo, let i = usable(playing.name) {
             playing.view.frame = pictureRect(i).insetBy(dx: 1.5, dy: 1.5)
         }
-        // On the hovered video; on the playing one only while the mouse is over it
-        guard let name = hoveredVideo, let i = usable(name) else {
+        // On the hovered video; on the playing one only while the mouse is over it — a sound keeps a
+        // faint button meanwhile (nothing else shows it's playing)
+        let faintSound = playingVideo.flatMap { playing in playing.view.isAudio && hoveredVideo != playing.name ? playing.name : nil }
+        guard let name = hoveredVideo ?? faintSound, let i = usable(name) else {
             playButton.isHidden = true
             return
         }
+        playButton.alphaValue = name == faintSound ? 0.5 : 1
         let picture = pictureRect(i)
         let side = min(36, max(20, (iconSide * 0.42).rounded()))
         playButton.frame = NSRect(x: (picture.midX - side / 2).rounded(), y: (picture.midY - side / 2).rounded(), width: side, height: side)
@@ -946,14 +949,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         guard !playButton.isHidden, playButton.frame.insetBy(dx: -4, dy: -4).contains(point),
               let name = hoveredVideo, let i = index(named: name) else { return false }
         if let playing = playingVideo, playing.name == name {
-            if playing.view.player.rate > 0 { playing.view.player.pause() } else { playing.view.player.play() }
+            if playing.view.player.rate > 0 { playing.view.player.pause() } else { playing.view.play() }
         } else {
             stopVideo()
             let video = InlineVideoView(url: items[i].url, onProgress: { [weak self] in self?.playButton.progress = $0 },
                                         onEnd: { [weak self] in self?.stopVideo() })
             addSubview(video, positioned: .above, relativeTo: tiles.indices.contains(i) ? tiles[i] : nil)
             playingVideo = (name, video)
-            video.player.play()
+            video.play()
         }
         updateVideoOverlay()
         return true

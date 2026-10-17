@@ -930,7 +930,6 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             return
         }
         guard url.isBrowsableDirectory else {
-            DiskImages.noteOpening(url)
             NSWorkspace.shared.open(url)
             return
         }
