@@ -94,6 +94,12 @@ final class BreadcrumbBar: NSView {
 
     override func layout() {
         super.layout()
+        // The steps are rebuilt on every layout: placed, never animated in (inside an animation of
+        // the toolbar they flew in from below)
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        defer { NSAnimationContext.endGrouping() }
         buttons.forEach { $0.removeFromSuperview() }
         buttons = []
         let height = bounds.height - 8

@@ -19,6 +19,7 @@ enum Scenarios {
         "monitorgone": monitorGone,
         "fileops": fileOps,
         "search": search,
+        "searchfold": searchFold,
         "filecommands": fileCommands,
         "drives": drives,
         "trashaccess": trashAccess,
@@ -2835,6 +2836,120 @@ enum Scenarios {
                 s.note("  includes this project: \(names().contains("WinEx"))")
                 Settings.searchWholeMac = false
             }),
+        ])
+    }
+
+    /// The search field folded into a magnifier circle while idle and empty; WinEx-styled menus
+    /// of the search field and the address bar, clearing the search history.
+    static func searchFold(_ s: Scenario) {
+        let base = s.makeFiles(["отчёт.txt", "other.txt"])
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        func field() -> NSSearchField? { s.find(NSSearchField.self, in: s.window?.window?.contentView) }
+        func type(_ text: String) {
+            guard let field = field(), let action = field.action else { s.note("  (no search field)"); return }
+            field.stringValue = text
+            NSApp.sendAction(action, to: field.target, from: field)
+        }
+        func folded() -> String { "\(s.window?.debugSearchFolded ?? false)" }
+        func titles(_ menu: NSMenu?) -> [String] {
+            (menu?.items ?? []).map { item in
+                if item.isSeparatorItem { return "—" }
+                let text = (item.attributedTitle?.string ?? item.title)
+                    .trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{FFFC}")))
+                return item.isSectionHeader ? "[\(text)]" : text + (item.action == nil ? " (off)" : "")
+            }
+        }
+        func snapshot(_ name: String) {
+            // The navigation row (the window's content view doesn't draw it into a cache)
+            guard let view = field()?.superview?.superview, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+            // Where the row's pieces are (x…x+width, the visible ones)
+            let row = view.subviews.filter { !$0.isHidden }.map { "\(Swift.type(of: $0)) \(Int($0.frame.minX))+\(Int($0.frame.width))" }
+            s.note("  row: \(row)")
+        }
+        /// The menu the field editor shows on a right-click (asks the field, its delegate).
+        func editorMenu() -> NSMenu? {
+            guard let editor = s.window?.window?.firstResponder as? NSTextView, let window = editor.window,
+                  let event = NSEvent.mouseEvent(with: .rightMouseDown, location: editor.convert(NSPoint(x: 5, y: 5), to: nil), modifierFlags: [],
+                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { s.note("  (not editing)"); return nil }
+            return editor.menu(for: event)
+        }
+        field()?.recentSearches = []
+        s.run([
+            (0.8, "idle", { s.note("  folded: \(folded())  expect true"); snapshot("folded.png") }),
+            (0.1, "⌘F", { s.key("f", code: 3, modifiers: .command) }),
+            (0.5, "open", {
+                s.note("  folded: \(folded()), typing in it: \(s.window?.window?.firstResponder === field()?.currentEditor())  expect false, true")
+                snapshot("open.png")
+            }),
+            (0.1, "right-click while typing", { s.note("  \(titles(editorMenu()))") }),
+            (0.1, "click the list", {
+                s.window?.window?.makeFirstResponder(s.table)
+                // The breadcrumbs during the fold: they keep their height (they once flew in from below)
+                var ys = Set<Int>()
+                let sample = Timer(timeInterval: 0.02, repeats: true) { timer in
+                    if let crumbs = s.find(BreadcrumbBar.self, in: s.window?.window?.contentView) {
+                        crumbs.subviews.forEach { ys.insert(Int($0.frame.minY)) }
+                    }
+                    if ys.count > 20 { timer.invalidate() }
+                }
+                RunLoop.main.add(sample, forMode: .common)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { sample.invalidate(); s.note("  breadcrumb y while folding: \(ys.sorted())  expect one value") }
+            }),
+            (0.12, "mid-fold", { s.note("  slot width now: \(Int(field()?.superview?.frame.width ?? -1))  expect between 36 and 300") }),
+            (0.5, "left empty", { s.note("  folded: \(folded()), slot width \(Int(field()?.superview?.frame.width ?? -1))  expect true, 36") }),
+            (0.1, "click the circle", {
+                guard let button = s.findAll(NSButton.self, in: s.window?.window?.contentView ?? NSView())
+                    .first(where: { $0.toolTip == L("Поиск (⌘F)") }) else { s.note("  (no circle)"); return }
+                s.click(button, at: NSPoint(x: button.bounds.midX, y: button.bounds.midY))
+            }),
+            (0.4, "open again", { s.note("  folded: \(folded())  expect false") }),
+            (0.1, "type «отчёт»", { type("отчёт") }),
+            (1.5, "results, then the list", { s.window?.window?.makeFirstResponder(s.table) }),
+            (0.5, "a query stays open", {
+                s.note("  folded: \(folded()), recents: \(field()?.recentSearches ?? [])  expect false, [отчёт]")
+            }),
+            (0.1, "the magnifier's menu", { s.note("  \(titles(s.window?.debugSearchOptionsMenu()))") }),
+            (0.1, "one more query", { type("other") }),
+            (1.0, "remove «отчёт» with its cross", {
+                let menu = s.window?.debugSearchOptionsMenu()
+                guard let row = menu?.items.compactMap({ $0.view as? RemovableRowView }).first(where: { $0.accessibilityLabel() == "отчёт" }) else { s.note("  (no row)"); return }
+                row.debugRemove()
+                s.note("  recents: \(field()?.recentSearches ?? [])  expect [other]; menu now: \(titles(menu))")
+            }),
+            (0.1, "Esc in the field", {
+                s.window?.window?.makeFirstResponder(field())
+                s.key("\u{1b}", code: 53)
+            }),
+            (0.5, "after Esc", { s.note("  folded: \(folded()), \(s.window?.selectedTab.title ?? "?")  expect true, the folder") }),
+            (0.1, "clear the history from the menu", {
+                let menu = s.window?.debugSearchEditMenu()
+                guard let item = menu?.items.first(where: { $0.attributedTitle?.string.contains(L("Очистить историю поиска")) == true }),
+                      let action = item.action else { s.note("  (no clear item)"); return }
+                NSApp.sendAction(action, to: item.target, from: item)
+                s.note("  recents: \(field()?.recentSearches ?? ["?"])  expect []")
+                s.note("  \(titles(s.window?.debugSearchEditMenu()))")
+            }),
+            (0.3, "fold, then open animated in a 989-pt window", {
+                s.window?.window?.makeFirstResponder(s.table)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    guard let window = s.window?.window else { return }
+                    window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: 989, height: window.frame.height)), display: true)
+                    s.click(s.findAll(NSButton.self, in: window.contentView ?? NSView()).first { $0.toolTip == L("Поиск (⌘F)") } ?? NSButton(), at: NSPoint(x: 10, y: 10))
+                }
+            }),
+            (1.5, "the row stays inside the window", {
+                let stack = field()?.superview?.superview
+                let pieces = (stack?.subviews ?? []).filter { !$0.isHidden }
+                s.note("  pieces \(pieces.map { "\(Int($0.frame.minX))+\(Int($0.frame.width))" }) in a row \(Int(stack?.bounds.width ?? -1)) wide  expect the first at 8, the last ending 8 before the edge")
+                s.window?.window?.makeFirstResponder(s.table)
+            }),
+            (0.1, "the address bar while typing", { s.window?.focusPathField(nil) }),
+            (0.3, "right-click", { s.note("  \(titles(editorMenu()))") }),
+            (0.1, "done", { s.window?.window?.makeFirstResponder(s.table) }),
         ])
     }
 

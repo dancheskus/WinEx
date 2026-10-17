@@ -16,7 +16,14 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let forwardButton = ExplorerWindowController.navButton("arrow.right", L("Вперёд (⌘])"))
     private let upButton = ExplorerWindowController.navButton("arrow.up", L("Вверх (⌘↑)"))
     private let refreshButton = ExplorerWindowController.navButton("arrow.clockwise", L("Обновить (⌘R)"))
-    private let settingsButton = ExplorerWindowController.navButton("gearshape", L("Настройки"))
+    /// The search field folded into a circle: shown while the field is idle and empty.
+    private let searchButton = ExplorerWindowController.navButton("magnifyingglass", L("Поиск (⌘F)"))
+    private var searchCircle: NSView?
+    /// The search's width in the row: the circle's when folded, the field's when open (animated).
+    private var searchWidth = NSLayoutConstraint()
+    private var searchFolded = false
+    /// The open field's width: like Finder's (it still gives way to the address bar in narrow windows).
+    private static let searchOpenWidth: CGFloat = 300
     private let pathField = AddressField()
     private let viewModeButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let viewModeToggle = NSSegmentedControl()
@@ -109,7 +116,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         forwardButton.target = self; forwardButton.action = #selector(goForward(_:))
         upButton.target = self; upButton.action = #selector(goUp(_:))
         refreshButton.target = self; refreshButton.action = #selector(refresh(_:))
-        settingsButton.target = AppDelegate.shared; settingsButton.action = #selector(AppDelegate.showSettings(_:))
+        searchButton.target = self; searchButton.action = #selector(focusSearchField(_:))
 
         // The capsule around it draws the field (same shape as the search field's)
         pathField.isBordered = false
@@ -124,6 +131,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         pathField.placeholderString = L("Путь к папке")
         pathField.delegate = self
         pathField.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        pathField.editMenu = { [weak self] in self?.pathEditMenu() }
 
         searchField.target = self
         searchField.action = #selector(searchChanged(_:))
@@ -133,15 +141,13 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         searchField.controlSize = .extraLarge
         searchField.delegate = self
         searchField.font = .systemFont(ofSize: 14)
-        // Wide like Finder's (up to 300), but never wider than the address bar; both give way in
-        // narrow windows down to a usable minimum
-        searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 300).isActive = true
-        searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
+        searchField.editMenu = { [weak self] in self?.searchEditMenu() }
+        searchField.optionsMenu = { [weak self] in self?.searchOptionsMenu() }
         pathField.widthAnchor.constraint(greaterThanOrEqualToConstant: 130).isActive = true
-        let preferred = searchField.widthAnchor.constraint(equalToConstant: 300)
-        preferred.priority = .defaultLow + 1
-        preferred.isActive = true
-        updateSearchMenu()
+        // Our own glass + arrow with a gap (the stock one squeezes them together)
+        let image = RoomySearchFieldCell.buttonImage(pointSize: 15)
+        (searchField.cell as? NSSearchFieldCell)?.searchButtonCell?.image = image
+        (searchField.cell as? NSSearchFieldCell)?.searchButtonCell?.alternateImage = image
 
         setUpViewModeControls()
 
@@ -174,10 +180,31 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         // The command bar has "Просмотреть": the toolbar's own view button only without it
         self.viewCapsule = viewCapsule
         viewCapsule.isHidden = Settings.showCommandBar
-        let settingsCapsule = ToolbarCapsule(height: height, views: [settingsButton], round: true)
-        let navStack = NSStackView(views: [navGroup, addressCapsule, refreshCapsule, searchField, viewCapsule, settingsCapsule])
+        // Search at the right end, like Finder's: a circle until it's used, then the field grows
+        // out of it to the left (the circle's glass stays where the field's is)
+        let searchCircle = ToolbarCapsule(height: height, views: [searchButton], round: true)
+        self.searchCircle = searchCircle
+        let searchSlot = NSView()
+        searchSlot.translatesAutoresizingMaskIntoConstraints = false
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchSlot.addSubview(searchField)
+        searchSlot.addSubview(searchCircle)
+        searchWidth = searchSlot.widthAnchor.constraint(equalToConstant: Self.searchOpenWidth)
+        // Gives way first in narrow windows: to "never wider than the address bar" and to the
+        // row's own margins (at 999 the row lost its left margin there once the field had opened)
+        searchWidth.priority = .init(700)
+        NSLayoutConstraint.activate([
+            searchWidth,
+            searchSlot.heightAnchor.constraint(equalToConstant: height),
+            searchField.leadingAnchor.constraint(equalTo: searchSlot.leadingAnchor),
+            searchField.trailingAnchor.constraint(equalTo: searchSlot.trailingAnchor),
+            searchField.centerYAnchor.constraint(equalTo: searchSlot.centerYAnchor),
+            searchCircle.leadingAnchor.constraint(equalTo: searchSlot.leadingAnchor),
+            searchCircle.centerYAnchor.constraint(equalTo: searchSlot.centerYAnchor),
+        ])
+        let navStack = NSStackView(views: [navGroup, addressCapsule, refreshCapsule, viewCapsule, searchSlot])
         // Both are in the stack now (a constraint between views without a common ancestor throws)
-        searchField.widthAnchor.constraint(lessThanOrEqualTo: addressCapsule.widthAnchor).isActive = true
+        searchSlot.widthAnchor.constraint(lessThanOrEqualTo: addressCapsule.widthAnchor).isActive = true
         addressCapsule.setContentHuggingPriority(.defaultLow, for: .horizontal)
         navStack.orientation = .horizontal
         navStack.spacing = 8
@@ -482,6 +509,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             searchField.stringValue = ""
         }
         searchField.placeholderString = Settings.searchWholeMac ? L("Поиск на Mac") : L("Поиск: %@", searchFolder.displayName)
+        updateSearchFold()
         fileList.load(tab.url, select: tab.pendingSelection)
         tab.pendingSelection = []
         backButton.isEnabled = tab.canGoBack
@@ -767,11 +795,54 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     @objc func cut(_ sender: Any?) { fileList.cut(sender) }
 
     @objc func focusSearchField(_ sender: Any?) {
+        // (A hidden field can't take the focus: unfold it first)
+        updateSearchFold(open: true)
         window?.makeFirstResponder(searchField)
     }
 
-    /// The field's menu: where to search, what to match, recent searches.
-    private func updateSearchMenu() {
+    /// The search field is a magnifier circle while it's empty and not being typed in; the field
+    /// itself otherwise (`open`: about to get the focus).
+    private func updateSearchFold(open: Bool = false) {
+        let folded = !open && searchField.stringValue.isEmpty && searchField.currentEditor() == nil
+        guard let searchCircle, folded != searchFolded || searchField.isHidden == searchCircle.isHidden else { return }
+        searchFolded = folded
+        // Both are shown while one fades into the other; the one faded out goes away at the end
+        // (unless the fold turned back meanwhile)
+        searchField.isHidden = false
+        searchCircle.isHidden = false
+        let width = folded ? searchCircle.fittingSize.width : Self.searchOpenWidth
+        guard window?.isVisible == true else {
+            searchWidth.constant = width
+            searchField.alphaValue = folded ? 0 : 1
+            searchCircle.alphaValue = folded ? 1 : 0
+            searchField.isHidden = folded
+            searchCircle.isHidden = !folded
+            return
+        }
+        // The constraint is animated, not the frames: the row is laid out afresh each frame (an
+        // implicit frame animation made the breadcrumbs, rebuilt on layout, fly in from below)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            searchWidth.animator().constant = width
+            searchField.animator().alphaValue = folded ? 0 : 1
+            searchCircle.animator().alphaValue = folded ? 1 : 0
+        }, completionHandler: { [weak self] in
+            guard let self, let circle = self.searchCircle else { return }
+            self.searchField.isHidden = self.searchFolded
+            circle.isHidden = !self.searchFolded
+        })
+    }
+
+    #if DEBUG
+    var debugSearchFolded: Bool { searchFolded }
+    func debugSearchOptionsMenu() -> NSMenu { searchOptionsMenu() }
+    func debugSearchEditMenu() -> NSMenu { searchEditMenu() }
+    func debugPathEditMenu() -> NSMenu { pathEditMenu() }
+    #endif
+
+    /// The magnifier's menu: where to search, what to match, recent searches.
+    private func searchOptionsMenu() -> NSMenu {
         let menu = NSMenu()
         func option(_ title: String, _ action: Selector, on: Bool) {
             let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
@@ -785,19 +856,83 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         option(L("Имена и содержимое"), #selector(searchNamesAndContents(_:)), on: Settings.searchContents)
         option(L("Только имена"), #selector(searchNamesOnly(_:)), on: !Settings.searchContents)
         menu.addItem(.separator())
-        let title = menu.addItem(withTitle: L("Недавние запросы"), action: nil, keyEquivalent: "")
-        title.tag = NSSearchField.recentsTitleMenuItemTag
-        let recent = menu.addItem(withTitle: "", action: nil, keyEquivalent: "")
-        recent.tag = NSSearchField.recentsMenuItemTag
-        let none = menu.addItem(withTitle: L("Нет недавних запросов"), action: nil, keyEquivalent: "")
-        none.tag = NSSearchField.noRecentsMenuItemTag
-        let clear = menu.addItem(withTitle: L("Очистить недавние"), action: nil, keyEquivalent: "")
-        clear.tag = NSSearchField.clearRecentsMenuItemTag
-        searchField.searchMenuTemplate = menu
-        // Our own glass + arrow with a gap (the stock one squeezes them together)
-        let image = RoomySearchFieldCell.buttonImage(pointSize: 15)
-        (searchField.cell as? NSSearchFieldCell)?.searchButtonCell?.image = image
-        (searchField.cell as? NSSearchFieldCell)?.searchButtonCell?.alternateImage = image
+        addRecentSearches(to: menu)
+        MenuStyle.decorate(menu)
+        return menu
+    }
+
+    /// Right-click in the search field: editing, then the recent searches.
+    private func searchEditMenu() -> NSMenu {
+        let menu = MenuStyle.textEditingMenu()
+        menu.addItem(.separator())
+        addRecentSearches(to: menu)
+        MenuStyle.decorate(menu)
+        return menu
+    }
+
+    /// Right-click in the address bar while typing a path.
+    private func pathEditMenu() -> NSMenu {
+        let menu = MenuStyle.textEditingMenu(pasteAndGo: (#selector(pasteAndGo(_:)), self))
+        menu.addItem(.separator())
+        let clear = menu.addItem(withTitle: L("Очистить историю переходов"),
+                                 action: tabs.contains { $0.canGoBack || $0.canGoForward } ? #selector(clearBrowsingHistory(_:)) : nil, keyEquivalent: "")
+        clear.target = self
+        clear.image = MenuStyle.symbol("clock.arrow.circlepath")
+        MenuStyle.decorate(menu)
+        return menu
+    }
+
+    /// The path on the clipboard replaces the typed one and is opened.
+    @objc private func pasteAndGo(_ sender: Any?) {
+        guard let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return }
+        pathField.stringValue = text
+        commitPath()
+    }
+
+    private func addRecentSearches(to menu: NSMenu) {
+        menu.addItem(.sectionHeader(title: L("Недавние запросы")))
+        let recents = searchField.recentSearches
+        if recents.isEmpty {
+            menu.addItem(withTitle: L("Нет недавних запросов"), action: nil, keyEquivalent: "")
+        }
+        let clear = NSMenuItem(title: L("Очистить историю поиска"),
+                               action: recents.isEmpty ? nil : #selector(clearSearchHistory(_:)), keyEquivalent: "")
+        clear.target = self
+        clear.image = MenuStyle.symbol("trash")
+        for text in recents {
+            // A row with a cross on the right: the text searches again, the cross forgets the query
+            let item = NSMenuItem(title: text, action: #selector(repeatSearch(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = text
+            item.view = RemovableRowView(title: text, icon: MenuStyle.symbol("clock"), removeTip: L("Удалить из истории"),
+                onRemove: { [weak self, weak menu, weak clear] row in
+                    guard let self else { return }
+                    self.searchField.recentSearches.removeAll { $0 == text }
+                    menu?.removeItem(row)
+                    if self.searchField.recentSearches.isEmpty {
+                        clear?.action = nil
+                        if let menu, let index = clear.map(menu.index(of:)), index >= 0 {
+                            menu.insertItem(withTitle: L("Нет недавних запросов"), action: nil, keyEquivalent: "", at: index)
+                            MenuStyle.decorate(menu)
+                        }
+                    }
+                })
+            menu.addItem(item)
+        }
+        menu.addItem(clear)
+    }
+
+    @objc private func repeatSearch(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        updateSearchFold(open: true)
+        searchField.stringValue = text
+        searchSettle?.cancel()
+        search(for: text)
+    }
+
+    @objc private func clearSearchHistory(_ sender: Any?) {
+        searchField.recentSearches = []
     }
 
     @objc private func searchInFolder(_ sender: Any?) { setSearchOptions(wholeMac: false) }
@@ -809,7 +944,6 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private func setSearchOptions(wholeMac: Bool? = nil, contents: Bool? = nil) {
         if let wholeMac { Settings.searchWholeMac = wholeMac }
         if let contents { Settings.searchContents = contents }
-        updateSearchMenu()
         searchField.placeholderString = Settings.searchWholeMac ? L("Поиск на Mac") : L("Поиск: %@", searchFolder.displayName)
         if case .search = Location(selectedTab.url) { search(for: searchField.stringValue) }
     }
@@ -857,6 +991,11 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     func controlTextDidEndEditing(_ obj: Notification) {
+        if (obj.object as? NSTextField) === searchField {
+            // After the field editor has let go (`currentEditor` is still set during this call)
+            DispatchQueue.main.async { [weak self] in self?.updateSearchFold() }
+            return
+        }
         guard (obj.object as? NSTextField) === pathField else { return }
         addressCapsule.isFocused = false
         endAddressEditing()
@@ -1065,6 +1204,17 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 /// Address bar: the first click selects the whole path, like a browser's address bar.
 /// Clicks while already editing place the caret as usual.
 final class AddressField: NSTextField {
+    /// The right-click menu (WinEx's style instead of the system's text menu).
+    var editMenu: (() -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? { editMenu?() ?? super.menu(for: event) }
+
+    /// The field editor asks its delegate — this field — for the menu while a path is typed.
+    @objc(textView:menu:forEvent:atIndex:)
+    func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        editMenu?() ?? menu
+    }
+
     /// When this field last became the first responder (system uptime). The window does that
     /// while handling the mouse-down, before `mouseDown` runs — so "was it editing already?"
     /// can't be asked there, only "did the focus arrive with this very click?".
@@ -1169,6 +1319,30 @@ final class RoomySearchField: NSSearchField {
     override class var cellClass: AnyClass? {
         get { RoomySearchFieldCell.self }
         set {}
+    }
+
+    /// The right-click menu (WinEx's style instead of the system's text menu).
+    var editMenu: (() -> NSMenu?)?
+    /// The magnifier's menu (search options, recent searches), in WinEx's style.
+    var optionsMenu: (() -> NSMenu?)?
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let cell = cell as? NSSearchFieldCell, cell.searchButtonRect(forBounds: bounds).contains(point),
+              let menu = optionsMenu?() else { return super.mouseDown(with: event) }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: isFlipped ? bounds.maxY + 4 : -4), in: self)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        // Typing commands need the field editor: right-clicking the idle field starts editing
+        if currentEditor() == nil { window?.makeFirstResponder(self) }
+        return editMenu?() ?? super.menu(for: event)
+    }
+
+    /// The field editor asks its delegate — this field — for the menu while typing.
+    @objc(textView:menu:forEvent:atIndex:)
+    func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        editMenu?() ?? menu
     }
 }
 

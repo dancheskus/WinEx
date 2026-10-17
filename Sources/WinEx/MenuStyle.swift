@@ -16,6 +16,8 @@ enum MenuStyle {
         "cut:": ("scissors", "x", .command),
         "copy:": ("doc.on.doc", "c", .command),
         "paste:": ("doc.on.clipboard", "v", .command),
+        "pasteAndGo:": ("arrow.right.doc.on.clipboard", "", []),
+        "selectAll:": ("checkmark.circle", "a", .command),
         "copyPath:": ("link", "c", [.command, .option]),
         "duplicate:": ("plus.square.on.square", "d", .command),
         "makeAlias:": ("arrowshape.turn.up.right", "a", [.command, .control]),
@@ -52,7 +54,7 @@ enum MenuStyle {
     /// Gives every item of `menu` its icon and shortcut. The icon goes into the title (a text
     /// attachment): macOS 27 doesn't draw `NSMenuItem.image` in context menus.
     static func decorate(_ menu: NSMenu) {
-        let items = menu.items.filter { !$0.isSeparatorItem && $0.view == nil }
+        let items = menu.items.filter { !$0.isSeparatorItem && !$0.isSectionHeader && $0.view == nil }
         // Submenus too ("Открыть с помощью" with app icons, "Создать", "Вид")
         items.compactMap(\.submenu).forEach(decorate)
         var icons: [NSMenuItem: NSImage] = [:]
@@ -253,6 +255,22 @@ enum MenuStyle {
         return image
     }
 
+    /// Cut, copy, paste, select all for the text being typed (the first responder does them);
+    /// `pasteAndGo` adds "Вставить и перейти" after paste. Callers add their items, then `decorate`.
+    static func textEditingMenu(pasteAndGo: (action: Selector, target: AnyObject)? = nil) -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: L("Вырезать"), action: #selector(NSText.cut(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: L("Копировать"), action: #selector(NSText.copy(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: L("Вставить"), action: #selector(NSText.paste(_:)), keyEquivalent: "")
+        if let pasteAndGo {
+            let item = menu.addItem(withTitle: L("Вставить и перейти"), action: pasteAndGo.action, keyEquivalent: "")
+            item.target = pasteAndGo.target
+        }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: L("Выделить всё"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "")
+        return menu
+    }
+
     /// The row of icon buttons on top of a file menu.
     static func actionRow(target: AnyObject, actions: [(title: String, symbol: String, action: Selector)]) -> NSMenuItem {
         let item = NSMenuItem()
@@ -385,5 +403,103 @@ final class SubmenuRowView: NSView {
             }
             tinted.draw(in: frame)
         }
+    }
+}
+
+/// A menu row with a cross on the right (a recent search): the row does its item's action, the
+/// cross removes it — the menu stays open, the row goes away.
+final class RemovableRowView: NSView {
+    private let title: String
+    private let icon: NSImage?
+    private let removeTip: String
+    private let onRemove: (NSMenuItem) -> Void
+    private let font = NSFont.menuFont(ofSize: 14)
+    private var overCross = false { didSet { if overCross != oldValue { needsDisplay = true } } }
+    private static let crossSize: CGFloat = 22
+
+    init(title: String, icon: NSImage?, removeTip: String, onRemove: @escaping (NSMenuItem) -> Void) {
+        self.title = title
+        self.icon = icon
+        self.removeTip = removeTip
+        self.onRemove = onRemove
+        let textWidth = (title as NSString).size(withAttributes: [.font: font]).width
+        super.init(frame: NSRect(x: 0, y: 0, width: ceil(min(textWidth, 360) + SubmenuRowView.textX(icon: true) + 70), height: SubmenuRowView.height))
+        autoresizingMask = [.width]
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        setAccessibilityLabel(title)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private var crossRect: NSRect {
+        NSRect(x: bounds.maxX - 14 - Self.crossSize, y: (bounds.height - Self.crossSize) / 2, width: Self.crossSize, height: Self.crossSize)
+    }
+
+    /// AppKit's checkmark column: the other rows move right by it in a menu with a checked item.
+    private var shift: CGFloat {
+        enclosingMenuItem?.menu?.items.contains { $0.state != .off } == true ? 14 : 0
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let highlighted = enclosingMenuItem?.isHighlighted == true
+        if highlighted {
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 0.5), xRadius: 8, yRadius: 8).fill()
+        }
+        let textColor: NSColor = highlighted ? .white : .labelColor
+        if let icon = icon.flatMap({ tinted($0, highlighted ? .white : .labelColor) }) {
+            let s = icon.size
+            icon.draw(in: NSRect(x: 16 + shift + (22 - s.width) / 2, y: (bounds.height - s.height) / 2, width: s.width, height: s.height))
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let text = NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: textColor, .paragraphStyle: paragraph])
+        let x = SubmenuRowView.textX(icon: true) + shift
+        let height = text.size().height
+        text.draw(in: NSRect(x: x, y: (bounds.height - height) / 2, width: crossRect.minX - 8 - x, height: height))
+        // The cross: quiet until the row is highlighted, with a disc under the pointer
+        let cross = crossRect
+        if overCross {
+            (highlighted ? NSColor.white.withAlphaComponent(0.25) : NSColor.labelColor.withAlphaComponent(0.12)).setFill()
+            NSBezierPath(ovalIn: cross).fill()
+        }
+        if let mark = NSImage(systemSymbolName: "xmark", accessibilityDescription: removeTip)?
+            .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold)),
+           let image = tinted(mark, highlighted ? .white : NSColor.labelColor.withAlphaComponent(0.5)) {
+            let s = image.size
+            image.draw(in: NSRect(x: cross.midX - s.width / 2, y: cross.midY - s.height / 2, width: s.width, height: s.height))
+        }
+    }
+
+    private func tinted(_ image: NSImage, _ color: NSColor) -> NSImage? {
+        NSImage(size: image.size, flipped: false) { area in
+            image.draw(in: area)
+            color.set()
+            area.fill(using: .sourceAtop)
+            return true
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        overCross = crossRect.contains(convert(event.locationInWindow, from: nil))
+        toolTip = overCross ? removeTip : nil
+    }
+
+    override func mouseExited(with event: NSEvent) { overCross = false }
+
+    #if DEBUG
+    func debugRemove() { enclosingMenuItem.map(onRemove) }
+    #endif
+
+    override func mouseUp(with event: NSEvent) {
+        guard let item = enclosingMenuItem else { return }
+        if crossRect.contains(convert(event.locationInWindow, from: nil)) {
+            onRemove(item)
+            return
+        }
+        let (action, target) = (item.action, item.target)
+        item.menu?.cancelTracking()
+        // After the menu is gone
+        DispatchQueue.main.async { if let action { NSApp.sendAction(action, to: target, from: item) } }
     }
 }
