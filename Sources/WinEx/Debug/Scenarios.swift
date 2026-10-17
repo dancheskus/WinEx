@@ -89,6 +89,15 @@ enum Scenarios {
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name + ".png"))
         }
+        // A cloud never alone on the second line (narrow cells)
+        let font = NSFont.systemFont(ofSize: 12)
+        let name = NSMutableAttributedString(string: "MD uz 27.03.docx", attributes: [.font: font])
+        let plainWidth = name.size().width
+        name.append(CloudDrive.cloudBadge(font: font))
+        for width in [plainWidth + 2, plainWidth + 6, plainWidth - 10] {
+            let lines = DesktopLabel.lines(name, width: width).map { $0.string.replacingOccurrences(of: "\u{FFFC}", with: "☁").replacingOccurrences(of: "\u{00A0}", with: "_") }
+            s.note("  width \(Int(width)): \(lines)  expect the cloud next to «docx»")
+        }
         s.run([
             (1.0, "list", { s.setViewMode(.details) }),
             (2.0, "", {
@@ -99,6 +108,9 @@ enum Scenarios {
             }),
             (0.2, "icons", { s.setViewMode(.largeIcons) }),
             (2.0, "", { picture("icons") }),
+            // «Этот Mac»: a server's mounted shares as one tile
+            (0.2, "this Mac", { s.window?.navigate(to: Places.computerURL) }),
+            (2.5, "", { picture("thismac") }),
         ])
     }
 

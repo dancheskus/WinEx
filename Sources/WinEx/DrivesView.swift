@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// "Этот Mac" — every drive with a bar of how full it is, like Explorer's "This PC".
 /// Capacities are read in the background (network volumes can be slow) whenever the view is shown
@@ -13,6 +14,8 @@ final class DrivesView: NSScrollView {
         var free: Int64?
         var ejectable: Bool
         var network: Bool
+        /// Where the capacity is read (a server's tile: one of its mounted shares).
+        var sizeURL: URL
     }
 
     var onOpen: ((URL) -> Void)?
@@ -49,17 +52,29 @@ final class DrivesView: NSScrollView {
     func reload() {
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsLocalKey]
-        drives = (fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []).map { url in
+        let volumes = (fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []).map { url in
             let values = try? url.resourceValues(forKeys: Set(keys))
             return Drive(url: url, name: values?.volumeLocalizedName ?? url.lastPathComponent,
                          icon: NSWorkspace.shared.icon(forFile: url.path), total: nil, free: nil,
                          ejectable: values?.volumeIsEjectable == true || values?.volumeIsRemovable == true || values?.volumeIsLocal == false,
-                         network: values?.volumeIsLocal == false)
+                         network: values?.volumeIsLocal == false, sizeURL: url)
+        }
+        // A server is one place, as in the sidebar: one tile for all its mounted shares (they're
+        // the same storage — the same bar four times said nothing), opened as the list of its shares
+        var servers: [String: Int] = [:]
+        drives = []
+        for volume in volumes {
+            guard volume.network, let server = Places.serverURL(ofVolume: volume.url) else { drives.append(volume); continue }
+            if servers[server.absoluteString] != nil { continue }
+            servers[server.absoluteString] = drives.count
+            drives.append(Drive(url: server, name: Places.serverName(of: server) ?? volume.name,
+                                icon: NSWorkspace.shared.icon(for: UTType("com.apple.xserve") ?? .volume), total: nil, free: nil,
+                                ejectable: true, network: true, sizeURL: volume.url))
         }
         rebuildTiles()
         generation += 1
         let token = generation
-        let urls = drives.map(\.url)
+        let urls = drives.map(\.sizeURL)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             // Free space as Finder counts it: with purgeable space (caches, iCloud copies). Network
             // volumes report 0 for that figure — then the plain free space
@@ -163,10 +178,15 @@ final class DrivesView: NSScrollView {
         add(L("Открыть в новой вкладке")) { [weak self] in self?.onOpenInNewTab?(drive.url) }
         if drive.ejectable {
             menu.addItem(.separator())
-            add(L("Извлечь «%@»", menuName(drive.name))) { SystemDesktop.eject(drive.url) }
+            if Places.isServer(drive.url) {
+                add(L("Отключить")) { Places.disconnect(drive.url) }
+            } else {
+                add(L("Извлечь «%@»", menuName(drive.name))) { SystemDesktop.eject(drive.url) }
+            }
         }
         menu.addItem(.separator())
-        add(L("Свойства")) { [weak self] in self?.onProperties?(drive.url) }
+        // (A server's: those of the share its capacity comes from)
+        add(L("Свойства")) { [weak self] in self?.onProperties?(drive.sizeURL) }
         return menu
     }
 }

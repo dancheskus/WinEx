@@ -44,7 +44,8 @@ enum CloudDrive {
         let attachment = NSTextAttachment()
         attachment.image = image
         attachment.bounds = NSRect(x: 0, y: (font.capHeight - size.height) / 2, width: size.width, height: size.height)
-        let badge = NSMutableAttributedString(string: " ", attributes: [.font: font])
+        // A no-break space: the cloud stays with the name's last word (never alone on a line)
+        let badge = NSMutableAttributedString(string: "\u{00A0}", attributes: [.font: font])
         badge.append(NSAttributedString(attachment: attachment))
         return badge
     }

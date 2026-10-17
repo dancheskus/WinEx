@@ -1188,8 +1188,6 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: tableView.sortDescriptors.first?.ascending ?? true)]
     }
 
-    @objc private func toggleFoldersOnTop(_ sender: NSMenuItem) { Settings.foldersOnTop.toggle() }
-
     @objc private func sortOrder(_ sender: NSMenuItem) {
         let key = tableView.sortDescriptors.first?.key ?? "name"
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: sender.tag == 1)]
@@ -1357,11 +1355,6 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.tag = ascending ? 1 : 0
             item.state = (current?.ascending ?? true) == ascending ? .on : .off
         }
-        // Explorer keeps folders first; Finder sorts them in among the files (for all windows)
-        sortMenu.addItem(.separator())
-        let foldersOnTop = sortMenu.addItem(withTitle: L("Папки сверху"), action: #selector(toggleFoldersOnTop(_:)), keyEquivalent: "")
-        foldersOnTop.target = self
-        foldersOnTop.state = Settings.foldersOnTop ? .on : .off
         return sortMenu
     }
 
