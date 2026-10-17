@@ -126,6 +126,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
         observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
+        // Sorted again what's shown (not read again: instant, also on a server)
+        observers.add(.foldersOnTopChanged) { [weak self] in self?.refilter(keepSelection: true) }
         // Rows a line taller or shorter
         observers.add(.itemInfoChanged) { [weak self] in self.map { $0.applyViewMode(previous: $0.viewMode) } }
         // Back from System Settings with access granted: try the Trash again
@@ -1459,6 +1461,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             cell.imageView?.alphaValue = FileClipboard.shared.isCut(item.url) ? Self.cutAlpha : 1
             cell.textField?.stringValue = item.name
             (cell.subviews.first { $0.identifier == CloudProgressBar.cellIdentifier } as? CloudProgressBar)?.url = item.url
+            cell.subviews.first { $0.identifier == Self.cloudOnlyIdentifier }?.isHidden = !item.isCloudOnly
         case "folder":
             cell.textField?.stringValue = cellText(column, item)
             cell.textField?.toolTip = item.url.deletingLastPathComponent().path
@@ -1563,6 +1566,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         FileColumn.savedLayout = layout
     }
 
+    private static let cloudOnlyIdentifier = NSUserInterfaceItemIdentifier("cloudOnly")
+
     private func makeCell(identifier: String) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = .init(identifier)
@@ -1589,6 +1594,19 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 cloud.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -1),
                 cloud.heightAnchor.constraint(equalToConstant: 4),
             ])
+            // Finder's cloud for a file in iCloud only, at the name column's end
+            let cloudOnly = NSImageView(image: NSImage(systemSymbolName: "icloud.and.arrow.down", accessibilityDescription: L("Только в iCloud")) ?? NSImage())
+            cloudOnly.identifier = Self.cloudOnlyIdentifier
+            cloudOnly.contentTintColor = .secondaryLabelColor
+            cloudOnly.symbolConfiguration = .init(pointSize: 11, weight: .regular)
+            cloudOnly.translatesAutoresizingMaskIntoConstraints = false
+            cloudOnly.isHidden = true
+            cell.addSubview(cloudOnly)
+            NSLayoutConstraint.activate([
+                cloudOnly.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+                cloudOnly.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                text.trailingAnchor.constraint(equalTo: cloudOnly.leadingAnchor, constant: -4),
+            ])
             text.isEditable = true
             text.target = self
             text.action = #selector(renameEdited(_:))
@@ -1607,9 +1625,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             if identifier == "size" { text.alignment = .right }
         }
         NSLayoutConstraint.activate([
-            text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
             text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
         ])
+        // (The name ends before the cloud)
+        if identifier != "name" { text.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4).isActive = true }
         return cell
     }
 

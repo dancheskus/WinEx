@@ -105,8 +105,10 @@ final class FolderLoader {
         var options: FileManager.DirectoryEnumerationOptions = []
         if !showHidden { options.insert(.skipsHiddenFiles) }
         do {
-            let urls = try FileManager.default.contentsOfDirectory(
+            var urls = try FileManager.default.contentsOfDirectory(
                 at: directory, includingPropertiesForKeys: FileItem.keys, options: options)
+            // iCloud Drive also shows the apps' folders (Pages, TextEdit…), as in Finder
+            if directory.standardizedFileURL.path == CloudDrive.root.path { urls += CloudDrive.appFolders() }
             return Listing(items: FileItem.sorted(urls.map(FileItem.init), by: order), order: order)
         } catch {
             return Listing(error: error)

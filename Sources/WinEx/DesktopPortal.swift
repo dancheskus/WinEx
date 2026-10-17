@@ -100,6 +100,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         tagWatcher = TagChangeWatcher(url: folder) { [weak self] in self?.reload() }
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
         observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
+        observers.add(.foldersOnTopChanged) { [weak self] in self?.reload() }
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
         let menu = NSMenu()
         menu.delegate = self

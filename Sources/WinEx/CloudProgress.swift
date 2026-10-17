@@ -1,5 +1,66 @@
 import AppKit
 
+/// iCloud Drive as Finder shows it: its own folder and, among its items, the folders of the apps
+/// that keep documents in iCloud (Pages, TextEdit, Shortcuts…) — each app's container in
+/// ~/Library/Mobile Documents that isn't hidden (the hidden ones are apps' private data).
+enum CloudDrive {
+    nonisolated static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+    nonisolated static let mobileDocumentsPath = root.deletingLastPathComponent().path + "/"
+
+    /// An app's folder in iCloud Drive as Finder draws it: a folder with the app's icon on it (when
+    /// the app is on this Mac — found by the container's name, «com~apple~Pages» → com.apple.Pages).
+    nonisolated static func appFolderIcon(_ url: URL) -> NSImage? {
+        guard url.lastPathComponent == "Documents", url.path.hasPrefix(mobileDocumentsPath), !url.path.hasPrefix(root.path) else { return nil }
+        let folder = NSWorkspace.shared.icon(for: .folder)
+        var id = url.deletingLastPathComponent().lastPathComponent.replacingOccurrences(of: "~", with: ".")
+        if id.hasPrefix("iCloud.") { id.removeFirst("iCloud.".count) }
+        // (iWork's containers are named without «iWork»: com~apple~Pages is com.apple.iWork.Pages)
+        let iWork = id.hasPrefix("com.apple.") ? "com.apple.iWork." + id.dropFirst("com.apple.".count) : id
+        guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+                ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: iWork) else { return folder }
+        let appIcon = NSWorkspace.shared.icon(forFile: app.path)
+        return NSImage(size: NSSize(width: 512, height: 512), flipped: false) { rect in
+            folder.draw(in: rect)
+            // In the middle of the folder's front
+            let side = rect.width * 0.46
+            appIcon.draw(in: NSRect(x: rect.midX - side / 2, y: rect.height * 0.2, width: side, height: side))
+            return true
+        }
+    }
+
+    /// Finder's cloud after the name of a file that's in iCloud only (secondary text colour).
+    static func cloudBadge(font: NSFont) -> NSAttributedString {
+        let side = (font.pointSize * 1.05).rounded()
+        guard let symbol = NSImage(systemSymbolName: "icloud.and.arrow.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: side * 0.8, weight: .regular)) else { return NSAttributedString() }
+        let size = symbol.size
+        // Coloured as it's drawn (the label's colour is set for the name)
+        let image = NSImage(size: size, flipped: false) { rect in
+            symbol.draw(in: rect)
+            NSColor.secondaryLabelColor.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        attachment.bounds = NSRect(x: 0, y: (font.capHeight - size.height) / 2, width: size.width, height: size.height)
+        let badge = NSMutableAttributedString(string: " ", attributes: [.font: font])
+        badge.append(NSAttributedString(attachment: attachment))
+        return badge
+    }
+
+    /// The apps' «Documents» folders (named after their app: «Pages», «Просмотр»).
+    nonisolated static func appFolders() -> [URL] {
+        let containers = (try? FileManager.default.contentsOfDirectory(at: root.deletingLastPathComponent(), includingPropertiesForKeys: [.isHiddenKey])) ?? []
+        return containers.compactMap { container in
+            guard container.lastPathComponent != root.lastPathComponent,
+                  (try? container.resourceValues(forKeys: [.isHiddenKey]))?.isHidden == false else { return nil }
+            let documents = container.appendingPathComponent("Documents")
+            return FileManager.default.fileExists(atPath: documents.path) ? documents : nil
+        }
+    }
+}
+
 /// iCloud Drive's uploads and downloads as Finder shows them: iCloud publishes a progress per file
 /// (NSProgress file progress); WinEx follows them for a circle by «iCloud Drive» in the sidebar and
 /// a bar on the file's icon.
@@ -9,7 +70,7 @@ final class CloudProgress {
     /// Posted (at most a few times a second) when a file's progress moves, starts or ends.
     static let changed = Notification.Name("WinExCloudProgressChanged")
 
-    static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+    static let root = CloudDrive.root
     /// iCloud Drive with the apps' folders (Pages, Numbers…), as Finder counts it.
     static let mobileDocuments = root.deletingLastPathComponent()
 

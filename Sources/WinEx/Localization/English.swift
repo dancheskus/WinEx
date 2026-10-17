@@ -55,6 +55,7 @@ enum English {
         "Выберите программу": "Choose an App",
         "Папку": "Folder",
         "Новая папка": "New Folder",
+        "Только в iCloud": "In iCloud Only",
         "Папки сверху": "Keep Folders on Top",
         "Импортировать с iPhone": "Import from iPhone",
         "Скан": "Scan",

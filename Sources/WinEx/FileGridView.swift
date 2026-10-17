@@ -368,6 +368,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         let dots = FileTags.dots(for: file.tags, attributes: attributes)
         let label = NSMutableAttributedString(attributedString: dots)
         label.append(NSAttributedString(string: file.name, attributes: attributes))
+        if file.isCloudOnly { label.append(CloudDrive.cloudBadge(font: nameField.font ?? .systemFont(ofSize: 12))) }
         self.label = label
         tagDotsLength = dots.length
         itemView.isHorizontal = mode.isHorizontalItem

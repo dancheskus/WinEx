@@ -61,13 +61,13 @@ enum Settings {
         set { defaults.set(newValue, forKey: "windowsKeys") }
     }
 
-    /// Folders before files when sorting, like Explorer (on, the default); off, they're sorted in
+    /// Folders before files when sorting, like Explorer; off (the default), they're sorted in
     /// among the files, like Finder (a film, then its folder of the same name).
     static var foldersOnTop: Bool {
-        get { defaults.object(forKey: "foldersOnTop") as? Bool ?? true }
+        get { defaults.bool(forKey: "foldersOnTop") }
         set {
             defaults.set(newValue, forKey: "foldersOnTop")
-            NotificationCenter.default.post(name: .extensionsShownChanged, object: nil)
+            NotificationCenter.default.post(name: .foldersOnTopChanged, object: nil)
         }
     }
 
@@ -139,6 +139,7 @@ extension Notification.Name {
     static let replaceFinderChanged = Notification.Name("WinExReplaceFinderChanged")
     static let showHiddenChanged = Notification.Name("WinExShowHiddenChanged")
     static let extensionsShownChanged = Notification.Name("WinExExtensionsShownChanged")
+    static let foldersOnTopChanged = Notification.Name("WinExFoldersOnTopChanged")
     static let itemInfoChanged = Notification.Name("WinExItemInfoChanged")
     static let keyboardSettingsChanged = Notification.Name("WinExKeyboardSettingsChanged")
     static let commandBarSettingChanged = Notification.Name("WinExCommandBarSettingChanged")
@@ -179,6 +180,8 @@ final class FileItem {
     let aliasTarget: URL?
     /// Shown without its extension (see `Settings.showAllExtensions`).
     let hidesExtension: Bool
+    /// In iCloud only, not on this Mac (Finder's cloud next to the name): opening downloads it.
+    let isCloudOnly: Bool
 
     /// A non-file item (a network server): fixed name and icon, opened by URL.
     init(virtual name: String, url: URL, icon: NSImage, kind: String) {
@@ -193,6 +196,7 @@ final class FileItem {
         tagNames = []
         aliasTarget = nil
         hidesExtension = false
+        isCloudOnly = false
         self.icon = icon
     }
 
@@ -213,6 +217,9 @@ final class FileItem {
         size = isDirectory ? nil : values?.fileSize
         tagNames = values?.tagNames ?? []
         aliasTarget = values?.isAliasFile == true && values?.isSymbolicLink != true ? try? URL(resolvingAliasFileAt: url, options: [.withoutUI, .withoutMounting]) : nil
+        // (Asked only in iCloud's folders. A folder always says it's downloaded: no cloud on folders)
+        isCloudOnly = !isFolder && url.path.hasPrefix(CloudDrive.mobileDocumentsPath)
+            && (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus == .notDownloaded
     }
 
     /// Finder tags with their colors (read lazily: only views that show tags ask).
@@ -240,6 +247,8 @@ final class FileItem {
         if let aliasTarget { return AliasIcon.badged(FileItem(url: aliasTarget).icon) }
         // The last tag put on it (with a color) colors it, as in Finder
         let tint = Settings.tintFoldersByTags ? tags.last(where: { FileTags.color(forIndex: $0.color) != nil })?.color : nil
+        // An app's folder in iCloud Drive (Pages, Просмотр): the system's folder with the app on it
+        if isFolder, let appFolder = CloudDrive.appFolderIcon(url) { return appFolder }
         if isFolder, let custom = FolderIcon.icon(for: url, tagColor: tint, customization: FolderCustomization.read(url)) {
             return custom
         }
@@ -254,14 +263,15 @@ final class FileItem {
     struct SortOrder: Equatable, Sendable {
         var key: String
         var ascending: Bool
+        var foldersOnTop = Settings.foldersOnTop
     }
 
-    /// Folders first, like in Explorer (unless `Settings.foldersOnTop` is off); ties are broken by name.
+    /// Folders first, like in Explorer, if the order says so (`Settings.foldersOnTop`); ties are broken by name.
     static func sort(_ items: inout [FileItem], by order: SortOrder) {
         func compare<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult {
             a < b ? .orderedAscending : (a > b ? .orderedDescending : .orderedSame)
         }
-        let foldersOnTop = Settings.foldersOnTop
+        let foldersOnTop = order.foldersOnTop
         items.sort { a, b in
             if foldersOnTop, a.isFolder != b.isFolder { return a.isFolder }
             let result: ComparisonResult

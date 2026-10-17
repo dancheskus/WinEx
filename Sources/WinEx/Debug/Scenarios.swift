@@ -75,8 +75,32 @@ enum Scenarios {
         "devicemenu": deviceMenu,
         "scrollperf": scrollPerf,
         "foldersontop": foldersOnTop,
+        "clouddrive": cloudDrive,
         "devicecontext": deviceContext,
     ]
+
+    /// iCloud Drive as Finder shows it: with the apps' folders (Pages, TextEdit…), a cloud after
+    /// the files in iCloud only. Pictures of icons and of the list (reads only).
+    static func cloudDrive(_ s: Scenario) {
+        s.window?.window?.setFrame(NSRect(x: 100, y: 100, width: 1100, height: 700), display: true)
+        s.window?.navigate(to: CloudDrive.root)
+        func picture(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name + ".png"))
+        }
+        s.run([
+            (1.0, "list", { s.setViewMode(.details) }),
+            (2.0, "", {
+                guard let table = s.table else { return }
+                let shown = (0..<table.numberOfRows).compactMap { (table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue }
+                s.note("  \(shown.count) items: \(shown)")
+                picture("list")
+            }),
+            (0.2, "icons", { s.setViewMode(.largeIcons) }),
+            (2.0, "", { picture("icons") }),
+        ])
+    }
 
     /// «Папки сверху» off: folders sorted in among the files, like Finder (a film, then its folder).
     static func foldersOnTop(_ s: Scenario) {
