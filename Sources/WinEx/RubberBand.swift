@@ -5,7 +5,9 @@ import AppKit
 @MainActor
 enum RubberBand {
     /// Runs until mouse up; `update` receives the rectangle (in `view` coordinates) after every move.
-    static func track(in view: NSView, from start: NSPoint, update: (NSRect) -> Void) {
+    static func track(in view: NSView, from start: NSPoint, rightButton: Bool = false, update: (NSRect) -> Void) {
+        let dragged: NSEvent.EventType = rightButton ? .rightMouseDragged : .leftMouseDragged
+        let up: NSEvent.EventType = rightButton ? .rightMouseUp : .leftMouseUp
         let overlay = RubberBandView(frame: NSRect(origin: start, size: .zero))
         view.addSubview(overlay)
         defer { overlay.removeFromSuperview() }
@@ -15,10 +17,10 @@ enum RubberBand {
         defer { NSEvent.stopPeriodicEvents() }
 
         var lastDrag: NSEvent?
-        while let event = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp, .periodic],
-                                          until: .distantFuture, inMode: .eventTracking, dequeue: true) {
-            if event.type == .leftMouseUp { break }
-            if event.type == .leftMouseDragged { lastDrag = event }
+        let mask: NSEvent.EventTypeMask = rightButton ? [.rightMouseDragged, .rightMouseUp, .periodic] : [.leftMouseDragged, .leftMouseUp, .periodic]
+        while let event = NSApp.nextEvent(matching: mask, until: .distantFuture, inMode: .eventTracking, dequeue: true) {
+            if event.type == up { break }
+            if event.type == dragged { lastDrag = event }
             guard let drag = lastDrag else { continue }
             view.autoscroll(with: drag)
             let point = view.convert(drag.locationInWindow, from: nil)

@@ -58,6 +58,8 @@ enum Scenarios {
         "diskimage": diskImage,
         "finderlook": finderLook,
         "openwith": openWith,
+        "hitareas": hitAreas,
+        "desktophits": desktopHits,
         "crashoffer": crashOffer,
         "desktopkeys": desktopKeys,
         "renamefield": renameField,
@@ -297,6 +299,71 @@ enum Scenarios {
                 second.window?.close()
             }),
             (0.4, "done", {}),
+        ])
+    }
+
+    /// Icon views: a click catches an item on its icon or its name's text only (beside a short
+    /// name it's empty space); the right button dragged on empty space selects like the left one.
+    static func hitAreas(_ s: Scenario) {
+        let folder = s.makeFiles(["a.txt", "b.txt", "c.txt", "d.txt"], in: "hitareas")
+        s.window?.navigate(to: folder)
+        s.run([
+            (0.8, "icons", { s.setViewMode(.largeIcons) }),
+            (1.0, "clicks", {
+                guard let grid = s.grid, let frame = grid.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame else { s.note("  (no grid)"); return }
+                let onIcon = grid.itemIndex(at: NSPoint(x: frame.midX, y: frame.minY + 50))
+                let besideName = grid.itemIndex(at: NSPoint(x: frame.minX + 4, y: frame.maxY - 30))
+                s.note("  on the icon: \(onIcon.map(String.init) ?? "nothing"); in the cell beside the short name: \(besideName.map(String.init) ?? "nothing")  expect 0, nothing")
+                // The right button dragged from that empty spot across the first two items
+                guard let window = grid.window, let second = grid.layoutAttributesForItem(at: IndexPath(item: 1, section: 0))?.frame else { return }
+                func event(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {
+                    NSEvent.mouseEvent(with: type, location: grid.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                }
+                let start = NSPoint(x: frame.minX + 4, y: frame.maxY - 30), end = NSPoint(x: second.midX, y: second.minY + 40)
+                guard let down = event(.rightMouseDown, start), let drag = event(.rightMouseDragged, end), let drag2 = event(.rightMouseDragged, end),
+                      let up = event(.rightMouseUp, end) else { return }
+                NSApp.postEvent(drag, atStart: false)
+                NSApp.postEvent(drag2, atStart: false)
+                NSApp.postEvent(up, atStart: false)
+                grid.rightMouseDown(with: down)
+                s.note("  right-dragged across two: selected \(grid.selectedIndexes.sorted())  expect [0, 1]")
+            }),
+            (0.5, "done", {}),
+        ])
+    }
+
+    /// The desktop: a click catches an icon on its picture or name's text; the right button dragged
+    /// on the wallpaper selects (nothing is moved or changed).
+    static func desktopHits(_ s: Scenario) {
+        let controller = DesktopController()
+        controller.show()
+        func view() -> DesktopView? { NSApp.windows.compactMap { $0.contentView as? DesktopView }.first { $0.window?.screen == NSScreen.screens.first } }
+        s.run([
+            (1.5, "clicks", {
+                guard let view = view(), let name = ((try? FileManager.default.contentsOfDirectory(atPath: DesktopView.desktopURL.path)) ?? [])
+                        .filter({ !$0.hasPrefix(".") }).first(where: { view.debugCenter(of: $0) != nil }),
+                      let center = view.debugCenter(of: name), let rect = view.debugClickRect(name) else { s.note("  (no desktop icon)"); return }
+                let beside = NSPoint(x: rect.minX - 3, y: rect.maxY - 6)   // left of the name's text, still in the cell
+                s.note("  on the picture: \(view.debugHit(center) == name); just left of the name's text: \(view.debugHit(beside) ?? "nothing")  expect true, nothing")
+                // Right-drag from the wallpaper across that icon
+                guard let window = view.window else { return }
+                func event(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {
+                    NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                }
+                let end = NSPoint(x: center.x + 5, y: center.y + 5)
+                let candidates = [(-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (-1, 0), (1, 0), (0, 1)].map { dx, dy in
+                    NSPoint(x: center.x + CGFloat(dx) * (rect.width / 2 + 12), y: center.y + CGFloat(dy) * (rect.height / 2 + 12))
+                }
+                guard let start = candidates.first(where: { view.debugHit($0) == nil && view.bounds.contains($0) }), let down = event(.rightMouseDown, start), let drag = event(.rightMouseDragged, end),
+                      let up = event(.rightMouseUp, end) else { s.note("  (no empty spot near it)"); return }
+                NSApp.postEvent(drag, atStart: false)
+                NSApp.postEvent(up, atStart: false)
+                view.rightMouseDown(with: down)
+                s.note("  right-dragged over it: selected \(view.debugSelection.contains(name))  expect true")
+            }),
+            (0.5, "done", { controller.hide() }),
         ])
     }
 

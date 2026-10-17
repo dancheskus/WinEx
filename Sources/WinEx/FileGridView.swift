@@ -489,6 +489,26 @@ final class GridItemView: NSView {
     /// A line under the name in the accent colour (a video's length), as Finder's item info.
     var detail: String? { didSet { needsDisplay = true } }
 
+    /// Where a click catches this item, in its own coordinates: in icon views the icon's square and
+    /// the name's lines as wide as their text (and the info line) — as Finder; the whole row otherwise.
+    var catchRect: NSRect {
+        guard !isHorizontal, let iconBacking, let top = labelTop else { return bounds }
+        let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
+        let widest = labelLines.map { min(ceil($0.size().width), bounds.width - 4) }.max() ?? 0
+        let lines = CGFloat(labelLines.count) + (detail != nil ? 1 : 0)
+        let text = NSRect(x: bounds.midX - widest / 2 - 5, y: top - lineHeight * lines - 2, width: widest + 10, height: lineHeight * lines + 3)
+        return iconBacking.union(text)
+    }
+
+    func catches(_ point: NSPoint) -> Bool {
+        guard !isHorizontal, let iconBacking, let top = labelTop else { return bounds.contains(point) }
+        if iconBacking.contains(point) { return true }
+        let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
+        let widest = labelLines.map { min(ceil($0.size().width), bounds.width - 4) }.max() ?? 0
+        let lines = CGFloat(labelLines.count) + (detail != nil ? 1 : 0)
+        return NSRect(x: bounds.midX - widest / 2 - 5, y: top - lineHeight * lines - 2, width: widest + 10, height: lineHeight * lines + 3).contains(point)
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         // Clicks go straight to the collection view (it implements selection), except while renaming.
         // Taking them here and letting them bubble up delivered each click to the grid twice.
@@ -589,8 +609,52 @@ final class FileCollectionView: NSCollectionView {
 
     /// Item under a point, from the layout (item views don't take clicks, so the stock
     /// `indexPathForItem(at:)`, which hit-tests them, finds nothing).
+    /// The item a point is on: its icon or its name's text in icon views (empty space between items
+    /// starts a selection rectangle, as in Finder), the whole row in list-like views.
     func itemIndex(at point: NSPoint) -> Int? {
-        indexPathsForVisibleItems().first { layoutAttributesForItem(at: $0)?.frame.contains(point) == true }?.item
+        indexPathsForVisibleItems().first { path in
+            guard let frame = layoutAttributesForItem(at: path)?.frame, frame.contains(point) else { return false }
+            guard let view = item(at: path)?.view as? GridItemView else { return true }
+            return view.catches(view.convert(point, from: self))
+        }?.item
+    }
+
+    /// A selection rectangle from `point` until the button goes up: the items it touches (their icon
+    /// or name) join `base`.
+    private func rubberBand(from point: NSPoint, base: IndexSet, rightButton: Bool = false) {
+        RubberBand.track(in: self, from: point, rightButton: rightButton) { rect in
+            let hit = (0..<count).filter { catchFrame($0)?.intersects(rect) ?? false }
+            apply(base.union(IndexSet(hit)), lead: hit.last ?? lead ?? 0)
+        }
+        let selection = selectedIndexes
+        anchor = selection.isEmpty ? nil : (anchor ?? selection.first)
+    }
+
+    /// The right button: dragged on empty space it draws a selection rectangle (as the left one);
+    /// a click opens the context menu.
+    override func rightMouseDown(with event: NSEvent) {
+        let start = convert(event.locationInWindow, from: nil)
+        guard itemIndex(at: start) == nil else { return super.rightMouseDown(with: event) }
+        // A drag or a click? (Waits for the first move past a few points, or for the button to go up)
+        while let next = NSApp.nextEvent(matching: [.rightMouseDragged, .rightMouseUp], until: .distantFuture, inMode: .eventTracking, dequeue: true) {
+            if next.type == .rightMouseUp { return super.rightMouseDown(with: event) }
+            let point = convert(next.locationInWindow, from: nil)
+            if hypot(point.x - start.x, point.y - start.y) > 4 {
+                window?.makeFirstResponder(self)
+                apply([], lead: lead ?? 0)
+                NSApp.postEvent(next, atStart: true)   // (the rectangle starts from this move)
+                rubberBand(from: start, base: [], rightButton: true)
+                return
+            }
+        }
+    }
+
+    /// What a selection rectangle catches of an item (its icon and name, not the whole cell).
+    private func catchFrame(_ index: Int) -> NSRect? {
+        let path = IndexPath(item: index, section: 0)
+        guard let frame = layoutAttributesForItem(at: path)?.frame else { return nil }
+        guard let view = item(at: path)?.view as? GridItemView else { return frame }
+        return convert(view.catchRect, from: view)
     }
 
     var count: Int { numberOfSections > 0 ? numberOfItems(inSection: 0) : 0 }
@@ -645,14 +709,7 @@ final class FileCollectionView: NSCollectionView {
             mouseDownIndex = nil
             let base = modifiers.isEmpty ? IndexSet() : selectedIndexes
             apply(base, lead: lead ?? 0)
-            RubberBand.track(in: self, from: point) { rect in
-                let hit = (0..<count).filter { i in
-                    layoutAttributesForItem(at: IndexPath(item: i, section: 0))?.frame.intersects(rect) ?? false
-                }
-                apply(base.union(IndexSet(hit)), lead: hit.last ?? lead ?? 0)
-            }
-            let selection = selectedIndexes
-            anchor = selection.isEmpty ? nil : (anchor ?? selection.first)
+            rubberBand(from: point, base: base)
             return
         }
 

@@ -654,6 +654,31 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
 
+    /// Where a click (or the selection rectangle) catches an icon: the picture's square and the
+    /// name's lines as wide as their text — as Finder (between them, empty space: a rectangle
+    /// starts there instead of dragging the icon).
+    private func clickRect(_ index: Int) -> NSRect {
+        iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).union(textArea(index))
+    }
+
+    /// A point on the icon's picture or its name's text (not just anywhere in its cell).
+    private func catches(_ index: Int, _ point: NSPoint) -> Bool {
+        if iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).contains(point) { return true }
+        // (The name's lines are measured only when the point is in its cell's label area)
+        return labelRect(index).insetBy(dx: -4, dy: -2).contains(point) && textArea(index).contains(point)
+    }
+
+    /// The name's lines, as wide as their text.
+    private func textArea(_ index: Int) -> NSRect {
+        let label = labelRect(index)
+        let attributes = labelAttributes()
+        let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 12)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let lines = DesktopLabel.lines(labelText(for: items[index], attributes: attributes), width: label.width)
+        let widest = lines.map { min(ceil($0.size().width), label.width) }.max() ?? 0
+        return NSRect(x: label.midX - widest / 2 - 4, y: label.minY - 1, width: widest + 8, height: lineHeight * CGFloat(lines.count) + 2)
+    }
+
     private func hitRect(_ index: Int) -> NSRect {
         iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).union(labelRect(index))
     }
@@ -663,7 +688,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         // Topmost (last drawn) first
         guard !quickHidden else { return nil }
         return items.indices.reversed().first {
-            !hiddenIcons.contains($0) && hitRect($0).contains(point) && fenceClip[$0].map { $0.contains(point) } != false
+            !hiddenIcons.contains($0) && catches($0, point) && fenceClip[$0].map { $0.contains(point) } != false
         }
     }
 
@@ -1152,15 +1177,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if rubberBand != nil {
-            let rect = NSRect(x: min(point.x, mouseDownPoint.x), y: min(point.y, mouseDownPoint.y),
-                              width: abs(point.x - mouseDownPoint.x), height: abs(point.y - mouseDownPoint.y))
-            rubberBand = rect
-            // (An icon in a fence counts only by the part of it the fence shows)
-            selection = rubberBandBase.union(items.indices.filter {
-                iconsVisible && !hiddenIcons.contains($0) && hitRect($0).intersection(fenceClip[$0] ?? .infinite).intersects(rect)
-            })
-            if rect.width > 3 || rect.height > 3 { emptyClickCandidate = false }
-            needsDisplay = true
+            updateRubberBand(to: point)
             return
         }
         guard mouseDownIndex != nil, !dragStarted,
@@ -1196,7 +1213,27 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         if emptyClickCandidate && rubberBand != nil && SystemDesktop.clickRevealsDesktop {
             SystemDesktop.toggleShowDesktop()
         }
-        // Nothing caught in a sizeable frame on the bare wallpaper: offer a zone right there
+        endRubberBand()
+        mouseDownIndex = nil
+        collapseOnMouseUp = nil
+        needsDisplay = true
+    }
+
+    /// The selection rectangle drawn to `point` from `mouseDownPoint`: the icons it touches are selected.
+    private func updateRubberBand(to point: NSPoint) {
+        let rect = NSRect(x: min(point.x, mouseDownPoint.x), y: min(point.y, mouseDownPoint.y),
+                          width: abs(point.x - mouseDownPoint.x), height: abs(point.y - mouseDownPoint.y))
+        rubberBand = rect
+        // (An icon in a fence counts only by the part of it the fence shows)
+        selection = rubberBandBase.union(items.indices.filter {
+            iconsVisible && !hiddenIcons.contains($0) && clickRect($0).intersection(fenceClip[$0] ?? .infinite).intersects(rect)
+        })
+        if rect.width > 3 || rect.height > 3 { emptyClickCandidate = false }
+        needsDisplay = true
+    }
+
+    /// The rectangle let go: nothing caught in a sizeable one on the bare wallpaper offers a zone there.
+    private func endRubberBand() {
         if let band = rubberBand, selection.isEmpty, FenceStyle.enabled, iconsVisible,
            band.width >= fenceCell.width, band.height >= DesktopFence.titleHeight + fenceCell.height * 0.6,
            let area = screens.first?.iconArea, area.contains(band),
@@ -1205,8 +1242,33 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
         emptyClickCandidate = false
         rubberBand = nil
-        mouseDownIndex = nil
-        collapseOnMouseUp = nil
+    }
+
+    /// The right button: dragged on empty space it draws a selection rectangle, as the left one
+    /// does; a click (no drag) opens the context menu.
+    override func rightMouseDown(with event: NSEvent) {
+        let start = convert(event.locationInWindow, from: nil)
+        guard index(at: start) == nil, iconsVisible else { return super.rightMouseDown(with: event) }
+        var dragging = false
+        while let next = NSApp.nextEvent(matching: [.rightMouseDragged, .rightMouseUp], until: .distantFuture, inMode: .eventTracking, dequeue: true) {
+            if next.type == .rightMouseUp { break }
+            let point = convert(next.locationInWindow, from: nil)
+            if !dragging {
+                guard hypot(point.x - start.x, point.y - start.y) > 4 else { continue }
+                dragging = true
+                emptyArea = nil
+                endRename()
+                window?.makeKey()
+                window?.makeFirstResponder(self)
+                mouseDownPoint = start
+                rubberBandBase = []
+                selection = []
+                rubberBand = NSRect(origin: start, size: .zero)
+            }
+            updateRubberBand(to: point)
+        }
+        guard dragging else { return super.rightMouseDown(with: event) }
+        endRubberBand()
         needsDisplay = true
     }
 
@@ -2609,6 +2671,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         return fence.id
     }
     func debugSelect(_ names: [String]) { selection = Set(names.compactMap(index(named:))); needsDisplay = true }
+    /// The icon a click at `point` catches (its name), and the selection's names.
+    func debugHit(_ point: NSPoint) -> String? { index(at: point).map(name(of:)) }
+    var debugSelection: [String] { selection.sorted().map(name(of:)) }
+    func debugClickRect(_ name: String) -> NSRect? { index(named: name).map(clickRect) }
+
     /// Hovers a video icon and clicks its play button (muted): (button shown, click played).
     func debugPlayVideo(_ name: String) -> (Bool, Bool) {
         hoveredVideo = name
