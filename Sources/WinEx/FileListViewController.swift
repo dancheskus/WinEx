@@ -310,9 +310,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private var isRestoringFolderView = false
 
-    /// Switches to the view remembered for the current folder.
+    /// Switches to the view (and the sorting) remembered for the current folder.
     private func showFolderView() {
         guard let directory else { return }
+        let order = ViewMode.sortOrder(for: directory)
+        if tableView.sortDescriptors.first?.key != order.key || tableView.sortDescriptors.first?.ascending != order.ascending {
+            isRestoringFolderView = true
+            tableView.sortDescriptors = [NSSortDescriptor(key: order.key, ascending: order.ascending)]
+            isRestoringFolderView = false
+        }
         let mode = ViewMode.forFolder(directory)
         guard mode != viewMode else { return }
         isRestoringFolderView = true
@@ -1400,7 +1406,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     func numberOfRows(in tableView: NSTableView) -> Int { items.count }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        refilter(keepSelection: true)
+        // Picked by the user (menu or a column's header): this folder's own sorting
+        if !isRestoringFolderView, let directory, let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
+            ViewMode.rememberSortOrder(key: key, ascending: descriptor.ascending, for: directory)
+        }
+        // (Restoring a folder's sorting before its contents come: nothing to sort yet)
+        if !isRestoringFolderView { refilter(keepSelection: true) }
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {

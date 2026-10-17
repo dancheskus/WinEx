@@ -82,6 +82,30 @@ enum ViewMode: Int, CaseIterable {
         NotificationCenter.default.post(name: .folderViewDefaultsChanged, object: nil)
     }
 
+    // MARK: Sorting — each folder's own, as in Finder
+
+    private static let sortKey = "folderSortOrders"
+
+    /// How `folder` is sorted: its own choice, else by name, A to Z.
+    static func sortOrder(for folder: URL) -> (key: String, ascending: Bool) {
+        let orders = AppDefaults.store.dictionary(forKey: sortKey) as? [String: String] ?? [:]
+        guard let saved = orders[folder.standardizedFileURL.path] else { return ("name", true) }
+        let parts = saved.split(separator: "|")
+        return (parts.first.map(String.init) ?? "name", parts.last != "0")
+    }
+
+    static func rememberSortOrder(key: String, ascending: Bool, for folder: URL) {
+        var orders = AppDefaults.store.dictionary(forKey: sortKey) as? [String: String] ?? [:]
+        orders[folder.standardizedFileURL.path] = key == "name" && ascending ? nil : "\(key)|\(ascending ? 1 : 0)"
+        if orders.count > maxRememberedFolders {
+            orders = orders.filter { FileManager.default.fileExists(atPath: $0.key) }
+            while orders.count > maxRememberedFolders, let other = orders.keys.first(where: { $0 != folder.standardizedFileURL.path }) {
+                orders[other] = nil
+            }
+        }
+        AppDefaults.store.set(orders, forKey: sortKey)
+    }
+
     // MARK: «Показывать свойства» — Finder's «Show item info», a folder's own view option
 
     private static let itemInfoKey = "folderItemInfo"

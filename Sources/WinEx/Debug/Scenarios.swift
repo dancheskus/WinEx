@@ -76,8 +76,33 @@ enum Scenarios {
         "scrollperf": scrollPerf,
         "foldersontop": foldersOnTop,
         "clouddrive": cloudDrive,
+        "foldersort": folderSort,
         "devicecontext": deviceContext,
     ]
+
+    /// Sorting is each folder's own: sorted by date in one folder, another stays by name, and the
+    /// first is by date again when come back to.
+    static func folderSort(_ s: Scenario) {
+        let a = s.makeFiles(["b.txt", "a.txt", "c.txt"], in: "A")
+        let b = s.makeFiles(["z.txt", "y.txt", "x.txt"], in: "B")
+        // Different dates in A: c newest, a oldest
+        for (name, age) in [("a.txt", 300.0), ("b.txt", 200.0), ("c.txt", 100.0)] {
+            try? FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-age)], ofItemAtPath: a.appendingPathComponent(name).path)
+        }
+        func shown() -> [String] {
+            guard let table = s.table else { return [] }
+            return (0..<table.numberOfRows).compactMap { (table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue }
+        }
+        s.window?.navigate(to: a)
+        s.run([
+            (1.0, "A by date, newest first", { s.setViewMode(.details); s.table?.sortDescriptors = [NSSortDescriptor(key: "date", ascending: false)] }),
+            (0.6, "", { s.note("  A: \(shown())  expect c, b, a") }),
+            (0.2, "to B", { s.window?.navigate(to: b) }),
+            (1.0, "", { s.note("  B: \(shown())  expect x, y, z (by name)") }),
+            (0.2, "back to A", { s.window?.navigate(to: a) }),
+            (1.0, "", { s.note("  A: \(shown())  expect c, b, a (by date again)") }),
+        ])
+    }
 
     /// iCloud Drive as Finder shows it: with the apps' folders (Pages, TextEdit…), a cloud after
     /// the files in iCloud only. Pictures of icons and of the list (reads only).
