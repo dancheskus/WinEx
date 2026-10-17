@@ -254,7 +254,6 @@ enum English {
         "Очистить Корзину": "Empty Trash",
         "Показать в папке": "Show in Folder",
         "Копировать путь к папке": "Copy Folder Path",
-        "Дополнительно": "More",
         "По возрастанию": "Ascending",
         "По убыванию": "Descending",
         "Столбец по размеру содержимого": "Size Column to Fit",
