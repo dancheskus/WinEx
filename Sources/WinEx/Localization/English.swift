@@ -362,7 +362,7 @@ enum English {
         "Показывать все расширения имён файлов": "Show all filename extensions",
         "Скрыть расширение": "Hide extension",
         "Имя без расширения, если в настройках не включено «Показывать все расширения»": "The name without its extension, unless “Show all filename extensions” is on in the settings",
-        "Сведения об объекте": "Item Info",
+        "Показывать свойства": "Show Item Info",
         "Открывать все папки в виде «%@»?": "Open all folders as “%@”?",
         "Этот вид станет видом по умолчанию для всех папок.": "This view becomes the default for all folders.",
         "Применить ко всем": "Apply to All",

@@ -257,7 +257,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         } else {
             // Item info under the names: a line more per row
             var size = viewMode.itemSize
-            if Settings.showItemInfo && !viewMode.isHorizontalItem { size.height += 14 }
+            if showsItemInfo && !viewMode.isHorizontalItem { size.height += 14 }
             flowLayout.itemSize = size
             flowLayout.scrollDirection = viewMode.scrollsHorizontally ? .horizontal : .vertical
             flowLayout.minimumInteritemSpacing = viewMode.isHorizontalItem ? 2 : 0
@@ -298,6 +298,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         isRestoringFolderView = false
     }
 
+    /// «Показывать свойства» for the folder shown (its own choice, else the default).
+    var showsItemInfo: Bool { directory.map(ViewMode.showsItemInfo(in:)) ?? Settings.showItemInfo }
+
+    @objc func toggleItemInfo(_ sender: Any?) {
+        guard let directory else { return }
+        ViewMode.setShowsItemInfo(!showsItemInfo, in: directory)
+    }
+
     /// After saying what it does: this view for every folder, the views chosen for single folders forgotten.
     func applyViewModeToAllFolders() {
         let alert = NSAlert()
@@ -306,7 +314,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         alert.addButton(withTitle: L("Применить ко всем"))
         alert.addButton(withTitle: L("Отменить"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        ViewMode.applyToAllFolders(viewMode)
+        ViewMode.applyToAllFolders(viewMode, itemInfo: showsItemInfo)
     }
 
     /// ⌘+wheel / pinch: step through `ViewMode.zoomOrder`.
@@ -532,7 +540,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
         lookLayout.look = look
         lookLayout.names = items.map(\.url.lastPathComponent)
-        lookLayout.itemSize = NSSize(width: max(look.iconSize + 44, 112), height: look.iconSize + 10 + 7 + 30 + (Settings.showItemInfo ? 14 : 0))
+        lookLayout.itemSize = NSSize(width: max(look.iconSize + 44, 112), height: look.iconSize + 10 + 7 + 30 + (showsItemInfo ? 14 : 0))
         lookLayout.iconTop = 10
         if collectionView.collectionViewLayout !== lookLayout { collectionView.collectionViewLayout = lookLayout }
         lookLayout.invalidateLayout()
@@ -1070,6 +1078,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleItemInfo(_:)) {
+            // The folder's own choice, whichever menu shows it
+            menuItem.state = showsItemInfo ? .on : .off
+            return directory != nil
+        }
         switch menuItem.action {
         case #selector(cut(_:)), #selector(copy(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
              #selector(renameSelected(_:)), #selector(openInNewTab(_:)), #selector(openInNewWindow(_:)),
@@ -1137,6 +1150,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 item.target = self
                 item.tag = mode.rawValue
             }
+            viewMenu.addItem(.separator())
+            let info = viewMenu.addItem(withTitle: L("Показывать свойства"), action: #selector(toggleItemInfo(_:)), keyEquivalent: "")
+            info.target = self
+            info.state = showsItemInfo ? .on : .off
+            info.isEnabled = directory != nil
             viewMenu.addItem(.separator())
             let applyAll = viewMenu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyToAllFolders(_:)), keyEquivalent: "")
             applyAll.target = self
@@ -1439,6 +1457,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let look = collectionView.collectionViewLayout === lookLayout ? finderLook : nil
         item.customIconSide = look?.iconSize
         item.labelTextColor = look?.textColor
+        item.showsItemInfo = showsItemInfo
         item.configure(with: file, mode: viewMode, image: image(for: file))
         item.setCut(FileClipboard.shared.isCut(file.url))
         return item

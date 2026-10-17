@@ -59,6 +59,7 @@ enum Scenarios {
         "finderlook": finderLook,
         "openwith": openWith,
         "hitareas": hitAreas,
+        "iteminfo": itemInfo,
         "desktophits": desktopHits,
         "crashoffer": crashOffer,
         "desktopkeys": desktopKeys,
@@ -297,6 +298,31 @@ enum Scenarios {
                 Settings.windowsKeys = windowsKeys
                 FileOps.debugTrashed = nil
                 second.window?.close()
+            }),
+            (0.4, "done", {}),
+        ])
+    }
+
+    /// «Показывать свойства» belongs to a folder: off in one, the other still shows it; «Применить
+    /// ко всем папкам» from the first turns it off everywhere.
+    static func itemInfo(_ s: Scenario) {
+        let one = s.makeFiles(["Внутри/", "x.txt"], in: "info-one")
+        let two = s.makeFiles(["Внутри/", "y.txt"], in: "info-two")
+        let defaultInfo = Settings.showItemInfo
+        func shows() -> Bool {
+            guard let grid = s.grid else { return false }
+            return (0..<grid.numberOfItems(inSection: 0)).contains { (grid.item(at: IndexPath(item: $0, section: 0))?.view as? GridItemView)?.detail != nil }
+        }
+        s.window?.navigate(to: one)
+        s.run([
+            (0.8, "icons; off in the first folder", { s.setViewMode(.largeIcons); Settings.showItemInfo = true }),
+            (0.5, "toggle", { s.send("toggleItemInfo:") }),
+            (0.6, "the second folder", { s.note("  first folder shows item info: \(shows())  expect false"); s.window?.navigate(to: two) }),
+            (0.8, "still on there", { s.note("  second folder shows item info: \(shows())  expect true"); s.window?.navigate(to: one) }),
+            (0.8, "apply to all from the first", { ViewMode.applyToAllFolders(.largeIcons, itemInfo: false); s.window?.navigate(to: two) }),
+            (0.8, "off everywhere", {
+                s.note("  second folder after «Применить ко всем папкам»: \(shows())  expect false")
+                Settings.showItemInfo = defaultInfo
             }),
             (0.4, "done", {}),
         ])

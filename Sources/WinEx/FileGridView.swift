@@ -71,10 +71,32 @@ enum ViewMode: Int, CaseIterable {
     }
 
     /// "Apply to all folders": `mode` becomes the default and per-folder choices are forgotten.
-    static func applyToAllFolders(_ mode: ViewMode) {
+    /// The view (and, from a folder's «Применить ко всем папкам», its item info) for every folder.
+    static func applyToAllFolders(_ mode: ViewMode, itemInfo: Bool? = nil) {
         saved = mode
         AppDefaults.store.removeObject(forKey: folderModesKey)
+        if let itemInfo {
+            AppDefaults.store.removeObject(forKey: itemInfoKey)
+            Settings.showItemInfo = itemInfo
+        }
         NotificationCenter.default.post(name: .folderViewDefaultsChanged, object: nil)
+    }
+
+    // MARK: «Показывать свойства» — Finder's «Show item info», a folder's own view option
+
+    private static let itemInfoKey = "folderItemInfo"
+
+    /// Whether `folder` shows item info under its names (its own choice, else the default).
+    static func showsItemInfo(in folder: URL) -> Bool {
+        let choices = AppDefaults.store.dictionary(forKey: itemInfoKey) as? [String: Bool] ?? [:]
+        return choices[folder.standardizedFileURL.path] ?? Settings.showItemInfo
+    }
+
+    static func setShowsItemInfo(_ on: Bool, in folder: URL) {
+        var choices = AppDefaults.store.dictionary(forKey: itemInfoKey) as? [String: Bool] ?? [:]
+        choices[folder.standardizedFileURL.path] = on == Settings.showItemInfo ? nil : on
+        AppDefaults.store.set(choices, forKey: itemInfoKey)
+        NotificationCenter.default.post(name: .itemInfoChanged, object: nil)
     }
 
     var iconSize: CGFloat {
@@ -188,6 +210,8 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     /// A Finder-styled folder (a disk image's window): its icon size and a text colour for its background.
     var customIconSide: CGFloat?
     var labelTextColor: NSColor?
+    /// The folder shows item info under its names (set before `configure`).
+    var showsItemInfo = true
     private var isHovered = false
 
     private var itemView: GridItemView { view as! GridItemView }
@@ -357,7 +381,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         // Finder's item info under the name: a folder's count, a picture's size, a video's length
         itemView.detail = nil
         infoURL = file.url
-        if Settings.showItemInfo, !mode.isHorizontalItem {
+        if showsItemInfo, !mode.isHorizontalItem {
             let url = file.url
             itemView.detail = ItemInfo.text(for: file) { [weak self] text in
                 guard let self, self.infoURL == url else { return }

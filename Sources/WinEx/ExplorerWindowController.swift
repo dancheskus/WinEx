@@ -348,17 +348,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.state = fileList.viewMode == mode ? .on : .off
         }
         menu.addItem(.separator())
-        let show = NSMenu()
-        let hidden = show.addItem(withTitle: L("Скрытые файлы"), action: #selector(AppDelegate.toggleHiddenFiles(_:)), keyEquivalent: "")
-        hidden.target = AppDelegate.shared
-        hidden.state = Settings.showHidden ? .on : .off
-        let info = show.addItem(withTitle: L("Сведения об объекте"), action: #selector(toggleItemInfo(_:)), keyEquivalent: "")
-        info.target = self
-        info.state = Settings.showItemInfo ? .on : .off
-        let bar = show.addItem(withTitle: L("Панель команд"), action: #selector(toggleCommandBar(_:)), keyEquivalent: "")
-        bar.target = self
-        bar.state = Settings.showCommandBar ? .on : .off
-        menu.addItem(withTitle: L("Показать"), action: nil, keyEquivalent: "").submenu = show
+        // The folder's own option (Finder's «Show item info»); hidden files and the command bar are
+        // in the settings — not a folder's view
+        let info = menu.addItem(withTitle: L("Показывать свойства"), action: #selector(FileListViewController.toggleItemInfo(_:)), keyEquivalent: "")
+        info.target = fileList
+        info.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+        info.state = fileList.showsItemInfo ? .on : .off
         menu.addItem(.separator())
         let applyAll = menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "")
         applyAll.target = self
@@ -412,6 +407,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.tag = mode.rawValue
             item.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: nil)
         }
+        menu.addItem(.separator())
+        let info = menu.addItem(withTitle: L("Показывать свойства"), action: #selector(FileListViewController.toggleItemInfo(_:)), keyEquivalent: "")
+        info.target = fileList
+        info.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
         menu.addItem(.separator())
         let applyAll = menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "")
         applyAll.target = self
@@ -579,11 +578,6 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     // MARK: - Actions
-
-    /// «Просмотреть ▸ Показать ▸ Сведения об объекте»: the line under names in icon views.
-    @objc private func toggleItemInfo(_ sender: Any?) {
-        Settings.showItemInfo.toggle()
-    }
 
     @objc func newTab(_ sender: Any?) {
         // The place new windows open at (Settings ▸ Основные)
