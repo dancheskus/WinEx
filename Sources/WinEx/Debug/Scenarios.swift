@@ -68,7 +68,40 @@ enum Scenarios {
         "selfupdate": selfUpdate,
         "updated": updated,
         "nas": nas,
+        "releasenotes": releaseNotes,
     ]
+
+    /// The update window's notes: the latest release's, styled, as a picture.
+    static func releaseNotes(_ s: Scenario) {
+        Task { @MainActor in
+            guard let url = URL(string: "https://api.github.com/repos/\(Updater.repository)/releases/latest"),
+                  let data = try? await URLSession.shared.data(from: url).0,
+                  let release = try? JSONDecoder().decode(Updater.Release.self, from: data) else {
+                s.note("(no release)")
+                return s.run([])
+            }
+            let alert = NSAlert()
+            alert.messageText = L("Доступна новая версия WinEx %@", release.version)
+            alert.informativeText = L("У вас %@.", "0.9.6")
+            alert.accessoryView = ReleaseNotes.view(ReleaseNotes.styled(release.body ?? ""))
+            alert.addButton(withTitle: L("Обновить и перезапустить"))
+            alert.addButton(withTitle: L("Позже"))
+            alert.layout()
+            s.run([
+                (0.2, "", {
+                    alert.window.appearance = NSAppearance(named: .aqua)
+                    alert.window.orderFront(nil)
+                }),
+                (0.5, "picture", {
+                    guard let view = alert.window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("notes.png"))
+                    s.note("  window \(alert.window.frame.size)")
+                    alert.window.orderOut(nil)
+                }),
+            ])
+        }
+    }
 
     /// A file server as Finder shows it: found by Bonjour, its shares listed with the saved login
     /// (nothing mounted), one opened (mounted), the sidebar's one entry for it, "Отключить" → "Сеть".

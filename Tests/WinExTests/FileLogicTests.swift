@@ -467,3 +467,17 @@ struct ServerTests {
         #expect(Places.serverName(of: try #require(URL(string: "smb://192.168.1.10/share"))) == "192.168.1.10")
     }
 }
+
+struct ReleaseNotesTests {
+    @Test func notesAreStyledCompactly() {
+        let notes = ReleaseNotes.styled("""
+        ## What's new
+
+        ### Windows
+        - **⇧⌘T** reopens the `tab`.
+
+        **Full Changelog**: https://example.com/compare
+        """)
+        #expect(notes.string == "Windows\n•\t⇧⌘T reopens the tab.")
+    }
+}

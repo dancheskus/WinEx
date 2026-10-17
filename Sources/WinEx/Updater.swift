@@ -111,9 +111,10 @@ final class Updater {
         #endif
         let alert = NSAlert()
         alert.messageText = L("Доступна новая версия WinEx %@", release.version)
-        var notes = (release.body ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if notes.count > 900 { notes = String(notes.prefix(900)) + "…" }
-        alert.informativeText = L("У вас %@.", currentVersion) + (notes.isEmpty ? "" : "\n\n" + notes)
+        alert.informativeText = L("У вас %@.", currentVersion)
+        // What's new: the release notes styled (sections, bullets), in a short scrolling box
+        let notes = ReleaseNotes.styled(release.body ?? "")
+        if notes.length > 0 { alert.accessoryView = ReleaseNotes.view(notes) }
         alert.addButton(withTitle: L("Обновить и перезапустить"))
         alert.addButton(withTitle: L("Позже"))
         alert.addButton(withTitle: L("Пропустить эту версию"))
@@ -273,3 +274,82 @@ final class Updater {
         alert.runModal()
     }
 }
+
+/// GitHub release notes (Markdown) for the update window: "### Section" as a bold heading,
+/// "- item" as a bullet with a hanging indent, **bold** as bold; the "## What's new" title and the
+/// "Full Changelog" link are left out.
+enum ReleaseNotes {
+    static func styled(_ markdown: String) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let body = NSFont.systemFont(ofSize: 12)
+        let bullet = NSMutableParagraphStyle()
+        bullet.headIndent = 12
+        bullet.firstLineHeadIndent = 0
+        bullet.paragraphSpacing = 3
+        bullet.tabStops = [NSTextTab(textAlignment: .left, location: 12)]
+        let heading = NSMutableParagraphStyle()
+        heading.paragraphSpacingBefore = 6
+        heading.paragraphSpacing = 3
+        for raw in markdown.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("## ") || line.hasPrefix("# ") || line.contains("Full Changelog") { continue }
+            if !result.string.isEmpty { result.append(NSAttributedString(string: "\n")) }
+            if line.hasPrefix("### ") {
+                result.append(NSAttributedString(string: String(line.dropFirst(4)), attributes: [
+                    .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor, .paragraphStyle: heading,
+                ]))
+            } else if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                result.append(inline("•\t" + line.dropFirst(2), font: body, style: bullet))
+            } else {
+                result.append(inline(line, font: body, style: bullet))
+            }
+        }
+        return result
+    }
+
+    /// One line with its **bold** parts bold (backticks dropped).
+    private static func inline(_ text: String, font: NSFont, style: NSParagraphStyle) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let bold = NSFont.systemFont(ofSize: font.pointSize, weight: .semibold)
+        for (index, part) in text.replacingOccurrences(of: "`", with: "").components(separatedBy: "**").enumerated() {
+            result.append(NSAttributedString(string: part, attributes: [
+                .font: index % 2 == 1 ? bold : font, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
+            ]))
+        }
+        return result
+    }
+
+    /// The notes in a box under the alert's text: as tall as they are, up to a scrolling 220 points.
+    @MainActor
+    static func view(_ notes: NSAttributedString) -> NSView {
+        let width: CGFloat = 400
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: width, height: 10))
+        textView.isEditable = false
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 2, height: 6)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textStorage?.setAttributedString(notes)
+        if let container = textView.textContainer { textView.layoutManager?.ensureLayout(for: container) }
+        let height = (textView.textContainer.flatMap { textView.layoutManager?.usedRect(for: $0).height } ?? 200) + 12
+        let scroll = TopScrollView(frame: NSRect(x: 0, y: 0, width: width, height: min(height, 220)))
+        scroll.documentView = textView
+        scroll.hasVerticalScroller = height > 220
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        textView.frame.size.height = height
+        return scroll
+    }
+
+    /// Starts at the first section: the alert lays its views out after they're made, which left
+    /// the box scrolled to the middle.
+    private final class TopScrollView: NSScrollView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            DispatchQueue.main.async { [self] in
+                contentView.scroll(to: .zero)
+                reflectScrolledClipView(contentView)
+            }
+        }
+    }
+}
+

@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// What a tab shows. Tabs, history and the sidebar store plain URLs; this decodes them:
 /// a folder, the Trash (a folder with its own menu), all files with a tag, the network, a
@@ -112,7 +113,14 @@ enum Location: Equatable {
     @MainActor
     var icon: NSImage? {
         switch self {
-        case .folder(let url): FileItem(url: url).icon
+        case .folder(let url):
+            // A server's shared folder: Finder's shared-folder picture, as in the server's list
+            if let values = try? url.resourceValues(forKeys: [.isVolumeKey, .volumeIsLocalKey]),
+               values.isVolume == true, values.volumeIsLocal == false {
+                NSWorkspace.shared.icon(for: UTType("public.file-sharepoint") ?? .folder)
+            } else {
+                FileItem(url: url).icon
+            }
         case .trash: NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
         case .tag(let name): FileTags.dotImage(color: FileTags.tag(named: name, knownTags: []).color, size: 14)
         case .network: NSImage(systemSymbolName: "network", accessibilityDescription: nil)
