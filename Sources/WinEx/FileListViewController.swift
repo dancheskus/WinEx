@@ -309,8 +309,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// After saying what it does: this view for every folder, the views chosen for single folders forgotten.
     func applyViewModeToAllFolders() {
         let alert = NSAlert()
-        alert.messageText = L("Открывать все папки в виде «%@»?", viewMode.title)
-        alert.informativeText = L("Этот вид станет видом по умолчанию для всех папок.")
+        alert.messageText = L("Применить вид этой папки ко всем папкам?")
+        alert.informativeText = L("Все папки будут открываться в виде «%@»", viewMode.title) + ", "
+            + (showsItemInfo ? L("со свойствами под названиями.") : L("без свойств под названиями."))
         alert.addButton(withTitle: L("Применить ко всем"))
         alert.addButton(withTitle: L("Отменить"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
