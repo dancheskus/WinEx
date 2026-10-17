@@ -61,16 +61,6 @@ enum Settings {
         set { defaults.set(newValue, forKey: "windowsKeys") }
     }
 
-    /// Folders before files when sorting, like Explorer; off (the default), they're sorted in
-    /// among the files, like Finder (a film, then its folder of the same name).
-    static var foldersOnTop: Bool {
-        get { defaults.bool(forKey: "foldersOnTop") }
-        set {
-            defaults.set(newValue, forKey: "foldersOnTop")
-            NotificationCenter.default.post(name: .foldersOnTopChanged, object: nil)
-        }
-    }
-
     /// Finder's «Показывать все расширения имён файлов»: on (the default), every name shows its
     /// extension; off, a file whose extension was hidden (Свойства ▸ Скрыть расширение, or saved so)
     /// shows its name without it.
@@ -268,10 +258,12 @@ final class FileItem {
     struct SortOrder: Equatable, Sendable {
         var key: String
         var ascending: Bool
-        var foldersOnTop = Settings.foldersOnTop
+        /// Folders before files, like Explorer; off (the default), they're sorted in among the
+        /// files, like Finder (a film, then its folder of the same name). Each folder's own.
+        var foldersOnTop = false
     }
 
-    /// Folders first, like in Explorer, if the order says so (`Settings.foldersOnTop`); ties are broken by name.
+    /// Folders first, like in Explorer, if the order says so; ties are broken by name.
     static func sort(_ items: inout [FileItem], by order: SortOrder) {
         func compare<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult {
             a < b ? .orderedAscending : (a > b ? .orderedDescending : .orderedSame)

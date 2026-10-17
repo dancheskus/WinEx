@@ -127,7 +127,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
         observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
         // Sorted again what's shown (not read again: instant, also on a server)
-        observers.add(.foldersOnTopChanged) { [weak self] in self?.refilter(keepSelection: true) }
+        // «Папки сверху» changed in another window or tab showing the same folder
+        observers.add(.foldersOnTopChanged) { [weak self] in
+            guard let self, let directory, ViewMode.sortOrder(for: directory).foldersOnTop != foldersOnTop else { return }
+            foldersOnTop.toggle()
+            refilter(keepSelection: true)
+        }
         // Rows a line taller or shorter
         observers.add(.itemInfoChanged) { [weak self] in self.map { $0.applyViewMode(previous: $0.viewMode) } }
         // Back from System Settings with access granted: try the Trash again
@@ -310,10 +315,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private var isRestoringFolderView = false
 
+    /// «Папки сверху» for the folder shown (each folder's own, off by default).
+    private var foldersOnTop = false
+
     /// Switches to the view (and the sorting) remembered for the current folder.
     private func showFolderView() {
         guard let directory else { return }
         let order = ViewMode.sortOrder(for: directory)
+        foldersOnTop = order.foldersOnTop
         if tableView.sortDescriptors.first?.key != order.key || tableView.sortDescriptors.first?.ascending != order.ascending {
             isRestoringFolderView = true
             tableView.sortDescriptors = [NSSortDescriptor(key: order.key, ascending: order.ascending)]
@@ -683,7 +692,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private var sortOrder: FileItem.SortOrder {
         let descriptor = tableView.sortDescriptors.first
-        return FileItem.SortOrder(key: descriptor?.key ?? "name", ascending: descriptor?.ascending ?? true)
+        return FileItem.SortOrder(key: descriptor?.key ?? "name", ascending: descriptor?.ascending ?? true, foldersOnTop: foldersOnTop)
     }
 
     private func showDrives(_ show: Bool) {
@@ -1194,6 +1203,13 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: tableView.sortDescriptors.first?.ascending ?? true)]
     }
 
+    @objc private func toggleFoldersOnTop(_ sender: NSMenuItem) {
+        foldersOnTop.toggle()
+        if let directory { ViewMode.rememberSortOrder(sortOrder, for: directory) }
+        refilter(keepSelection: true)
+        NotificationCenter.default.post(name: .foldersOnTopChanged, object: nil)
+    }
+
     @objc private func sortOrder(_ sender: NSMenuItem) {
         let key = tableView.sortDescriptors.first?.key ?? "name"
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: sender.tag == 1)]
@@ -1357,6 +1373,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.tag = ascending ? 1 : 0
             item.state = (current?.ascending ?? true) == ascending ? .on : .off
         }
+        // Explorer keeps folders first; Finder sorts them in among the files (this folder's own)
+        sortMenu.addItem(.separator())
+        let foldersFirst = sortMenu.addItem(withTitle: L("Папки сверху"), action: #selector(toggleFoldersOnTop(_:)), keyEquivalent: "")
+        foldersFirst.target = self
+        foldersFirst.state = foldersOnTop ? .on : .off
         return sortMenu
     }
 
@@ -1407,8 +1428,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         // Picked by the user (menu or a column's header): this folder's own sorting
-        if !isRestoringFolderView, let directory, let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
-            ViewMode.rememberSortOrder(key: key, ascending: descriptor.ascending, for: directory)
+        if !isRestoringFolderView, let directory, tableView.sortDescriptors.first?.key != nil {
+            ViewMode.rememberSortOrder(sortOrder, for: directory)
         }
         // (Restoring a folder's sorting before its contents come: nothing to sort yet)
         if !isRestoringFolderView { refilter(keepSelection: true) }

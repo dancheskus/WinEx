@@ -57,7 +57,7 @@ enum English {
         "Новая папка": "New Folder",
         "Дата последнего открытия": "Date Last Opened",
         "Только в iCloud": "In iCloud Only",
-        "Папки сверху при сортировке": "Keep folders on top when sorting",
+        "Папки сверху": "Keep Folders on Top",
         "Импортировать с iPhone": "Import from iPhone",
         "Скан": "Scan",
         "Набросок": "Sketch",

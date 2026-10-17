@@ -86,17 +86,20 @@ enum ViewMode: Int, CaseIterable {
 
     private static let sortKey = "folderSortOrders"
 
-    /// How `folder` is sorted: its own choice, else by name, A to Z.
-    static func sortOrder(for folder: URL) -> (key: String, ascending: Bool) {
+    /// How `folder` is sorted: its own choice, else by name, A to Z, folders among the files.
+    static func sortOrder(for folder: URL) -> FileItem.SortOrder {
         let orders = AppDefaults.store.dictionary(forKey: sortKey) as? [String: String] ?? [:]
-        guard let saved = orders[folder.standardizedFileURL.path] else { return ("name", true) }
-        let parts = saved.split(separator: "|")
-        return (parts.first.map(String.init) ?? "name", parts.last != "0")
+        guard let saved = orders[folder.standardizedFileURL.path] else { return FileItem.SortOrder(key: "name", ascending: true) }
+        // "key|ascending" or "key|ascending|foldersOnTop"
+        let parts = saved.split(separator: "|").map(String.init)
+        return FileItem.SortOrder(key: parts.first ?? "name", ascending: parts.count < 2 || parts[1] != "0",
+                                  foldersOnTop: parts.count > 2 && parts[2] == "1")
     }
 
-    static func rememberSortOrder(key: String, ascending: Bool, for folder: URL) {
+    static func rememberSortOrder(_ order: FileItem.SortOrder, for folder: URL) {
         var orders = AppDefaults.store.dictionary(forKey: sortKey) as? [String: String] ?? [:]
-        orders[folder.standardizedFileURL.path] = key == "name" && ascending ? nil : "\(key)|\(ascending ? 1 : 0)"
+        orders[folder.standardizedFileURL.path] = order == FileItem.SortOrder(key: "name", ascending: true) ? nil
+            : "\(order.key)|\(order.ascending ? 1 : 0)|\(order.foldersOnTop ? 1 : 0)"
         if orders.count > maxRememberedFolders {
             orders = orders.filter { FileManager.default.fileExists(atPath: $0.key) }
             while orders.count > maxRememberedFolders, let other = orders.keys.first(where: { $0 != folder.standardizedFileURL.path }) {

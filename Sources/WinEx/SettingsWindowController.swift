@@ -16,8 +16,6 @@ final class SettingsWindowController: NSWindowController {
     private let hotKeyHint = SettingsForm.hint("")
     private let hiddenCheckbox = NSButton(checkboxWithTitle: L("Показывать скрытые файлы"), target: nil, action: nil)
     private let extensionsCheckbox = NSButton(checkboxWithTitle: L("Показывать все расширения имён файлов"), target: nil, action: nil)
-    /// Finder's «Папки сверху»: for all windows, so here and not in a folder's sort menu
-    private let foldersOnTopCheckbox = NSButton(checkboxWithTitle: L("Папки сверху при сортировке"), target: nil, action: nil)
     private let terminalCheckbox = NSButton(checkboxWithTitle: L("«Открыть в терминале» в контекстном меню"), target: nil, action: nil)
     private let terminalPopup = NSPopUpButton()
     private let commandBarCheckbox = NSButton(checkboxWithTitle: L("Панель команд под адресной строкой"), target: nil, action: nil)
@@ -95,8 +93,6 @@ final class SettingsWindowController: NSWindowController {
         hiddenCheckbox.action = #selector(toggleHidden(_:))
         extensionsCheckbox.target = self
         extensionsCheckbox.action = #selector(toggleExtensions(_:))
-        foldersOnTopCheckbox.target = self
-        foldersOnTopCheckbox.action = #selector(toggleFoldersOnTop(_:))
         commandBarCheckbox.target = self
         commandBarCheckbox.action = #selector(toggleCommandBar(_:))
         terminalCheckbox.target = self
@@ -135,7 +131,6 @@ final class SettingsWindowController: NSWindowController {
             .row(L("Окно:"), commandBarCheckbox),
             .row(L("Файлы:"), hiddenCheckbox),
             .row(nil, extensionsCheckbox),
-            .row(nil, foldersOnTopCheckbox),
             .gap,
             .row(L("Окно WinEx из любой программы:"), hotKeyPopup),
             .row(nil, hotKeyHint),
@@ -335,7 +330,6 @@ final class SettingsWindowController: NSWindowController {
         resetDesktopButton.isEnabled = Settings.replaceFinder
         hiddenCheckbox.state = Settings.showHidden ? .on : .off
         extensionsCheckbox.state = Settings.showAllExtensions ? .on : .off
-        foldersOnTopCheckbox.state = Settings.foldersOnTop ? .on : .off
         commandBarCheckbox.state = Settings.showCommandBar ? .on : .off
         terminalCheckbox.state = Settings.terminalInMenu ? .on : .off
         syncTerminal()
@@ -546,10 +540,6 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func toggleExtensions(_ sender: NSButton) {
         Settings.showAllExtensions = sender.state == .on
-    }
-
-    @objc private func toggleFoldersOnTop(_ sender: NSButton) {
-        Settings.foldersOnTop = sender.state == .on
     }
 }
 

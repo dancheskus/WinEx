@@ -135,12 +135,14 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         guard !reading else { return }
         reading = true
         let folder = folder, showHidden = Settings.showHidden
+        // By name, as the folder's own «Папки сверху» says
+        let foldersOnTop = ViewMode.sortOrder(for: folder).foldersOnTop
         let selected = Set(selection.compactMap { items.indices.contains($0) ? items[$0].url.lastPathComponent : nil })
         DispatchQueue.global(qos: .utility).async {
             let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: FileItem.keys,
                                                                       options: showHidden ? [] : [.skipsHiddenFiles])) ?? []
             // A huge folder: the first thousands are plenty for a desktop portal
-            let loaded = FileItem.sorted(urls.prefix(5000).map(FileItem.init), by: FileItem.SortOrder(key: "name", ascending: true))
+            let loaded = FileItem.sorted(urls.prefix(5000).map(FileItem.init), by: FileItem.SortOrder(key: "name", ascending: true, foldersOnTop: foldersOnTop))
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.folder == folder else { return }  // navigated elsewhere meanwhile
                 self.reading = false

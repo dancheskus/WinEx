@@ -149,21 +149,34 @@ enum Scenarios {
         ])
     }
 
-    /// «Папки сверху» off: folders sorted in among the files, like Finder (a film, then its folder).
+    /// «Папки сверху» from the sort menu, each folder's own: off by default (folders sorted in
+    /// among the files, like Finder — a film, then its folder), on in one folder only.
     static func foldersOnTop(_ s: Scenario) {
-        let base = s.makeFiles(["Show - 02.mp4", "Show - 01.trickplay/", "Show - 01.mp4", "Show - 02.trickplay/", "Zeta/"])
-        let before = Settings.foldersOnTop
+        let base = s.makeFiles(["Show - 02.mp4", "Show - 01.trickplay/", "Show - 01.mp4", "Show - 02.trickplay/", "Zeta/"], in: "one")
+        let other = s.makeFiles(["b.txt", "a/", "c/"], in: "two")
         s.window?.navigate(to: base)
         func shown() -> [String] {
             guard let table = s.table else { return [] }
             return (0..<table.numberOfRows).compactMap { (table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue }
         }
+        /// Clicks «Папки сверху» in the sort menu; its state before the click.
+        func toggle() {
+            guard let menu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.sortMenu?(),
+                  let index = menu.items.firstIndex(where: { $0.title == L("Папки сверху") }) else { return s.note("  (no «Папки сверху» in the sort menu)") }
+            s.note("  menu: «Папки сверху» was \(menu.items[index].state == .on ? "on" : "off")")
+            menu.performActionForItem(at: index)
+        }
         s.run([
-            (1.0, "on", { s.setViewMode(.details); Settings.foldersOnTop = true }),
-            (0.8, "", { s.note("  \(shown())  expect folders first") }),
-            (0.2, "off", { Settings.foldersOnTop = false }),
+            (1.0, "default", { s.setViewMode(.details) }),
             (0.8, "", { s.note("  \(shown())  expect 01.mp4, 01.trickplay, 02.mp4, 02.trickplay, Zeta") }),
-            (0.2, "", { Settings.foldersOnTop = before }),
+            (0.2, "on", { toggle() }),
+            (0.8, "", { s.note("  \(shown())  expect folders first") }),
+            (0.2, "other folder", { s.window?.navigate(to: other) }),
+            (1.0, "", { s.note("  \(shown())  expect a, b.txt, c (off there)") }),
+            (0.2, "back", { s.window?.navigate(to: base) }),
+            (1.0, "", { s.note("  \(shown())  expect folders first (remembered)") }),
+            (0.2, "off", { toggle() }),
+            (0.8, "", { s.note("  \(shown())  expect 01.mp4, 01.trickplay, 02.mp4, 02.trickplay, Zeta") }),
         ])
     }
 
