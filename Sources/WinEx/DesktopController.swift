@@ -658,19 +658,26 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     /// lines, each as wide as its text — as Finder (the empty corners between them don't count:
     /// a rectangle starts there instead of dragging the icon).
     private func catchRects(_ index: Int) -> [NSRect] {
-        [iconRect(at: centers[index]).insetBy(dx: -4, dy: -4)] + textLines(index)
+        [pictureArea(index)] + textLines(index)
     }
 
     private func catches(_ index: Int, _ point: NSPoint) -> Bool {
-        if iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).contains(point) { return true }
+        if pictureArea(index).contains(point) { return true }
         // (The name's lines are measured only when the point is in its cell's label area)
         return labelRect(index).insetBy(dx: -4, dy: -2).contains(point) && textLines(index).contains { $0.contains(point) }
     }
 
     private func reaches(_ index: Int, _ rect: NSRect) -> Bool {
         guard rect.width > 0 || rect.height > 0 else { return false }
-        if iconRect(at: centers[index]).insetBy(dx: -4, dy: -4).intersects(rect) { return true }
+        if pictureArea(index).intersects(rect) { return true }
         return labelRect(index).insetBy(dx: -4, dy: -2).intersects(rect) && textLines(index).contains { $0.intersects(rect) }
+    }
+
+    /// The picture as drawn (a folder is wider than tall, icons have empty margins): what a click or
+    /// a rectangle must reach — the square shown around a selected icon isn't part of it.
+    private func pictureArea(_ index: Int) -> NSRect {
+        let picture = image(for: index)
+        return Self.visibleRect(of: picture, in: Self.aspectFit(picture.size, in: iconRect(at: centers[index])))
     }
 
     /// The name's lines, each as wide as its text.

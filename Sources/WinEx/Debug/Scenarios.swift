@@ -317,6 +317,11 @@ enum Scenarios {
                 let onIcon = grid.itemIndex(at: NSPoint(x: frame.midX, y: frame.minY + 50))
                 let besideName = grid.itemIndex(at: NSPoint(x: frame.minX + 4, y: frame.maxY - 30))
                 s.note("  on the icon: \(onIcon == ia); in the cell beside the short name: \(besideName.map(String.init) ?? "nothing")  expect true, nothing")
+                // Inside the square shown around a selected icon, but beside the picture (a document is narrow)
+                if let view = grid.item(at: IndexPath(item: ia, section: 0))?.view as? GridItemView, let square = view.iconBacking, let picture = view.pictureArea {
+                    let beside = grid.convert(NSPoint(x: square.minX + 2, y: picture.midY), from: view)
+                    s.note("  in the selection square beside the picture: \(grid.itemIndex(at: beside).map(String.init) ?? "nothing")  expect nothing")
+                }
                 // The right button dragged from that empty spot across the first two items
                 guard let window = grid.window, let second = grid.layoutAttributesForItem(at: IndexPath(item: ib, section: 0))?.frame else { return }
                 func event(_ type: NSEvent.EventType, _ point: NSPoint) -> NSEvent? {

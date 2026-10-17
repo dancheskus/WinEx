@@ -308,6 +308,8 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         let picture = iconView.image.map { DesktopView.aspectFit($0.size, in: icon) } ?? icon
         let backing = picture.insetBy(dx: -4, dy: -4)
         itemView.iconBacking = backing
+        // What a click or a selection rectangle must reach: the picture itself (not the square around it)
+        itemView.pictureArea = iconView.image.map { DesktopView.visibleRect(of: $0, in: picture, flipped: false) } ?? picture
         itemView.labelTop = icon.minY - 7
         updatePlayButton()
     }
@@ -482,6 +484,8 @@ final class GridItemView: NSView {
     var isRenaming = false { didSet { needsDisplay = true } }
     var isHorizontal = false { didSet { needsDisplay = true } }
     var iconBacking: NSRect? { didSet { needsDisplay = true } }
+    /// The part of the icon's square the picture covers (what clicks and rectangles must reach).
+    var pictureArea: NSRect?
     /// Icon views: the name's lines, drawn from `labelTop` down.
     var labelLines: [NSAttributedString] = [] { didSet { needsDisplay = true } }
     var labelTop: CGFloat? { didSet { needsDisplay = true } }
@@ -496,7 +500,8 @@ final class GridItemView: NSView {
     var catchRects: [NSRect] {
         guard !isHorizontal, let iconBacking, let top = labelTop else { return [bounds] }
         let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
-        var rects = [iconBacking]
+        // The picture as drawn — the square shown around a selected item isn't part of it
+        var rects = [pictureArea ?? iconBacking]
         for (n, line) in labelLines.enumerated() {
             let width = min(ceil(line.size().width), bounds.width - 4)
             rects.append(NSRect(x: bounds.midX - width / 2 - 5, y: top - lineHeight * CGFloat(n + 1) - 1, width: width + 10, height: lineHeight + 2))
