@@ -904,10 +904,14 @@ enum Scenarios {
                 let contents = item.imageComponents?.first?.contents as? NSImage
                 let shown = (grid.item(at: IndexPath(item: 0, section: 0)) as? FileGridItem)?.imageView
                 let shownImage = shown?.image
-                s.note("  drag image: \(Int(contents?.size.width ?? 0))×\(Int(contents?.size.height ?? 0)), same as shown: \(contents === shownImage)  expect the preview shown (true)")
+                _ = shownImage
+                // Finder's: the preview with the name on its pill, starting over the icon as shown
                 if let shown {
                     let box = shown.convert(shown.bounds, to: grid)
-                    s.note("  frame \(item.draggingFrame.integral) inside the icon's \(box.integral): \(box.insetBy(dx: -1, dy: -1).contains(item.draggingFrame))  expect true")
+                    s.note("  drag picture \(Int(contents?.size.width ?? 0))×\(Int(contents?.size.height ?? 0)) from \(item.draggingFrame.integral), covering the icon \(box.integral) and below it: \(item.draggingFrame.insetBy(dx: -1, dy: -1).intersects(box) && item.draggingFrame.maxY > box.maxY)  expect true")
+                }
+                if let contents, let tiff = contents.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                    try? png.write(to: s.output.appendingPathComponent("drag.png"))
                 }
             }),
         ])

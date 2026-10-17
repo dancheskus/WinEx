@@ -219,7 +219,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                     let side = self.viewMode.iconSize
                     box = NSRect(x: frame.midX - side / 2, y: frame.minY + 4, width: side, height: side)
                 }
-                item.setDraggingFrame(DesktopView.aspectFit(image.size, in: box), contents: image)
+                let iconFrame = DesktopView.aspectFit(image.size, in: box)
+                // With its name, as Finder drags it
+                if let cell = self.collectionView.item(at: path)?.view as? GridItemView {
+                    let picture = cell.dragPicture(icon: image, iconFrame: cell.convert(iconFrame, from: self.collectionView))
+                    item.setDraggingFrame(self.collectionView.convert(picture.frame, from: cell), contents: picture.image)
+                } else {
+                    item.setDraggingFrame(iconFrame, contents: image)
+                }
                 return item
             }
         }

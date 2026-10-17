@@ -1039,6 +1039,34 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         }
     }
 
+    /// What's dragged, as Finder: the icon (the preview the desktop shows) with the name on its
+    /// blue pill under it.
+    private func dragPicture(_ i: Int) -> (image: NSImage, frame: NSRect) {
+        let icon = image(for: i)
+        let iconFrame = Self.aspectFit(icon.size, in: iconRect(at: centers[i]))
+        let attributes = labelAttributes()
+        let label = labelRect(i)
+        let font = attributes[.font] as? NSFont ?? .systemFont(ofSize: 12)
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let lines = DesktopLabel.lines(labelText(for: items[i], attributes: attributes), width: label.width).enumerated().map { n, line -> (NSAttributedString, NSRect) in
+            let width = min(ceil(line.size().width), label.width)
+            return (line, NSRect(x: label.midX - width / 2, y: label.minY + CGFloat(n) * lineHeight, width: width, height: lineHeight))
+        }
+        let frame = lines.reduce(iconFrame) { $0.union($1.1.insetBy(dx: -4, dy: -1)) }.integral
+        // (The desktop is flipped: so is the picture)
+        let image = NSImage(size: frame.size, flipped: true) { _ in
+            icon.draw(in: iconFrame.offsetBy(dx: -frame.minX, dy: -frame.minY), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            for (line, rect) in lines {
+                let shifted = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
+                NSColor.selectedContentBackgroundColor.setFill()
+                NSBezierPath(roundedRect: shifted.insetBy(dx: -4, dy: -1), xRadius: 4, yRadius: 4).fill()
+                line.draw(in: shifted.insetBy(dx: -2, dy: 0))
+            }
+            return true
+        }
+        return (image, frame)
+    }
+
     /// The part of `rect` (where `image` is drawn) that the picture really covers — without the
     /// transparent margins icons have. Measured once per image, on a small copy.
     static func visibleRect(of image: NSImage, in rect: NSRect, flipped: Bool = true) -> NSRect {
@@ -1191,8 +1219,8 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let draggingItems = dragged.map { i -> NSDraggingItem in
             let item = NSDraggingItem(pasteboardWriter: items[i].url as NSURL)
             // The picture the desktop shows (a preview, not the file type's icon), same proportions
-            let image = image(for: i)
-            item.setDraggingFrame(Self.aspectFit(image.size, in: iconRect(at: centers[i])), contents: image)
+            let picture = dragPicture(i)
+            item.setDraggingFrame(picture.frame, contents: picture.image)
             return item
         }
         beginDraggingSession(with: draggingItems, event: event, source: self)

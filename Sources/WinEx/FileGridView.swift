@@ -500,6 +500,31 @@ final class GridItemView: NSView {
         return iconBacking.union(text)
     }
 
+    /// What's dragged, as Finder: the icon with the name on its blue pill under it — the picture and
+    /// where it is, in this view's coordinates (the icon itself where it's drawn: `iconFrame`).
+    func dragPicture(icon: NSImage, iconFrame: NSRect) -> (image: NSImage, frame: NSRect) {
+        guard !isHorizontal, let top = labelTop, !labelLines.isEmpty else { return (icon, iconFrame) }
+        let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
+        let lines = labelLines.enumerated().map { n, line -> (NSAttributedString, NSRect) in
+            let width = min(ceil(line.size().width), bounds.width - 4)
+            return (line, NSRect(x: bounds.midX - width / 2, y: top - lineHeight * CGFloat(n + 1), width: width, height: lineHeight))
+        }
+        let frame = lines.reduce(iconFrame) { $0.union($1.1.insetBy(dx: -5, dy: -1)) }.integral
+        let image = NSImage(size: frame.size, flipped: false) { _ in
+            icon.draw(in: iconFrame.offsetBy(dx: -frame.minX, dy: -frame.minY))
+            for (line, rect) in lines {
+                let shifted = rect.offsetBy(dx: -frame.minX, dy: -frame.minY)
+                NSColor.selectedContentBackgroundColor.setFill()
+                NSBezierPath(roundedRect: shifted.insetBy(dx: -5, dy: -1), xRadius: 5, yRadius: 5).fill()
+                let white = NSMutableAttributedString(attributedString: line)
+                white.addAttribute(.foregroundColor, value: NSColor.white, range: NSRange(location: 0, length: white.length))
+                white.draw(in: shifted.insetBy(dx: -2, dy: 0))
+            }
+            return true
+        }
+        return (image, frame)
+    }
+
     func catches(_ point: NSPoint) -> Bool {
         guard !isHorizontal, let iconBacking, let top = labelTop else { return bounds.contains(point) }
         if iconBacking.contains(point) { return true }
