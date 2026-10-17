@@ -154,9 +154,15 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
 
     private var onDesktop = false
 
-    /// Clear and borderless, but it can be the key window: AppKit puts its sheet on the key window.
+    /// Clear and borderless, but it can be the key window: AppKit puts its sheet on the key window,
+    /// and when the picture comes, asks the key window where it goes.
     private final class HelperWindow: NSWindow {
         override var canBecomeKey: Bool { true }
+
+        override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
+            DeviceImport.requestor(into: DeviceImport.shared.destination, in: contentView, sendType: sendType, returnType: returnType)
+                ?? super.validRequestor(forSendType: sendType, returnType: returnType)
+        }
     }
     private var helperWindow: NSWindow?
 

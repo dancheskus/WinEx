@@ -121,6 +121,13 @@ enum Scenarios {
                         s.note("  desktop window has a sheet: \(window.attachedSheet != nil)  expect false")
                         let others = NSApp.windows.filter { $0.isVisible && $0.attachedSheet != nil }.map { "\(type(of: $0)) \($0.frame.size)" }
                         s.note("  windows with a sheet: \(others)  expect the small clear one")
+                        let key = NSApp.keyWindow
+                        let answer = key?.firstResponder.flatMap { first -> Any? in
+                            var responder: NSResponder? = first
+                            while let r = responder { if let found = r.validRequestor(forSendType: nil, returnType: .init("public.jpeg")) { return found }; responder = r.nextResponder }
+                            return nil
+                        }
+                        s.note("  key window \(key.map { String(describing: type(of: $0)) } ?? "none") answers \(answer.map { String(describing: type(of: $0)) } ?? "nothing")  expect HelperWindow, Anchor")
                         window.attachedSheet.map { window.endSheet($0) }
                         NSApp.windows.compactMap(\.attachedSheet).forEach { $0.sheetParent?.endSheet($0) }
                     }
