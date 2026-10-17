@@ -73,7 +73,71 @@ enum Scenarios {
         "deviceimport": deviceImport,
         "cloudprogress": cloudProgress,
         "devicemenu": deviceMenu,
+        "devicecontext": deviceContext,
     ]
+
+    /// Context menus opened as a right click opens them, in a window and on the desktop: no device
+    /// entries of AppKit's own at the end (plug-ins off; seen only on screen, not in `items`), and
+    /// «Снять фото» on the desktop puts its sheet on a small clear window (turns the iPhone's camera on).
+    static func deviceContext(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt"])
+        s.window?.navigate(to: base)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        func open(plugIns: Bool) {
+            guard let table = s.table, let window = table.window else { return }
+            let menu = NSMenu()
+            menu.addItem(withTitle: "Обновить", action: NSSelectorFromString("refresh:"), keyEquivalent: "")
+            DeviceImport.addItems(to: menu, into: base)
+            menu.allowsContextMenuPlugIns = plugIns
+            MenuStyle.decorate(menu)
+            let point = table.convert(NSPoint(x: 60, y: 60), to: nil)
+            guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+            let check = Timer(timeInterval: 0.3, repeats: false) { _ in
+                s.note("  plug-ins \(plugIns): \(menu.items.map { ($0.isHidden ? "(h)" : "") + ($0.isSeparatorItem ? "—" : $0.title.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespaces)) })")
+                menu.cancelTracking()
+            }
+            RunLoop.main.add(check, forMode: .common)
+            NSMenu.popUpContextMenu(menu, with: event, for: table)
+        }
+        let controller = DesktopController()
+        func desktop() -> DesktopView? { NSApp.windows.compactMap { $0.contentView as? DesktopView }.first { $0.window?.screen == NSScreen.screens.first } }
+        func openDesktop() {
+            guard let view = desktop(), let window = view.window else { return s.note("  (no desktop)") }
+            window.makeKey()
+            let point = NSPoint(x: window.frame.width - 300, y: 300)
+            guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                  let menu = view.menu(for: event) else { return s.note("  (no menu)") }
+            let check = Timer(timeInterval: 3, repeats: false) { _ in
+                s.note("  desktop: \(menu.items.map { ($0.isHidden ? "(h)" : "") + ($0.isSeparatorItem ? "—" : $0.title.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespaces)) })")
+                let row = menu.items.first { $0.identifier == DeviceImport.rowIdentifier }
+                menu.cancelTracking()
+                // «Снять фото» (turns on the iPhone's camera): the sheet must not go on the desktop
+                if let sub = row?.submenu, let take = sub.items.firstIndex(where: { $0.title.contains("фото") }) {
+                    DispatchQueue.main.async { sub.performActionForItem(at: take) }
+                    let later = Timer(timeInterval: 2.5, repeats: false) { _ in
+                        s.note("  desktop window has a sheet: \(window.attachedSheet != nil)  expect false")
+                        let others = NSApp.windows.filter { $0.isVisible && $0.attachedSheet != nil }.map { "\(type(of: $0)) \($0.frame.size)" }
+                        s.note("  windows with a sheet: \(others)  expect the small clear one")
+                        window.attachedSheet.map { window.endSheet($0) }
+                        NSApp.windows.compactMap(\.attachedSheet).forEach { $0.sheetParent?.endSheet($0) }
+                    }
+                    RunLoop.main.add(later, forMode: .common)
+                }
+            }
+            RunLoop.main.add(check, forMode: .common)
+            NSMenu.popUpContextMenu(menu, with: event, for: view)
+        }
+        s.run([
+            (1.5, "", { s.window?.window?.makeFirstResponder(s.table); open(plugIns: true) }),
+            (0.5, "", { open(plugIns: false) }),
+            (0.5, "", { controller.show() }),
+            (2.0, "", { openDesktop() }),
+            (4.5, "", { controller.hide() }),
+        ])
+    }
 
     /// «Импортировать с iPhone» in a WinEx menu: as it opens, AppKit's hidden item has the devices
     /// near, and they move into WinEx's row (needs an iPhone near).
@@ -88,6 +152,7 @@ enum Scenarios {
                     let row = menu.items.first { $0.identifier == DeviceImport.rowIdentifier }
                     s.note("  row «\(row?.title ?? "-")» hidden \(row?.isHidden ?? true), view \(row?.view.map { String(describing: type(of: $0)) } ?? "none")  expect «Импортировать с iPhone», shown, SubmenuRowView")
                     s.note("  its submenu \(row?.submenu?.items.map(\.title) ?? [])  expect the iPhone and its actions")
+                    s.note("  whole menu: \(menu.items.map { ($0.isHidden ? "(h)" : "") + ($0.isSeparatorItem ? "—" : $0.title.replacingOccurrences(of: "\u{FFFC}", with: "").trimmingCharacters(in: .whitespaces)) })  expect no device entries in it")
                     s.note("  AppKit's item still in the menu: \(menu.items.contains { $0.identifier == NSMenuItem.importFromDeviceIdentifier })  expect false")
                     menu.cancelTracking()
                 }

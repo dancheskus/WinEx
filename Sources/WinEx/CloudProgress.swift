@@ -10,6 +10,8 @@ final class CloudProgress {
     static let changed = Notification.Name("WinExCloudProgressChanged")
 
     static let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
+    /// iCloud Drive with the apps' folders (Pages, Numbers…), as Finder counts it.
+    static let mobileDocuments = root.deletingLastPathComponent()
 
     private final class Transfer {
         let progress: Progress
@@ -47,7 +49,7 @@ final class CloudProgress {
             let folders = Array(list.prefix(count))
             MainActor.assumeIsolated { CloudProgress.shared.changed(in: folders) }
         }
-        let resolved = Self.root.resolvingSymlinksInPath().path
+        let resolved = Self.mobileDocuments.resolvingSymlinksInPath().path
         guard let stream = FSEventStreamCreate(nil, callback, &context, [resolved] as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.5,
                                                FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes)) else { return }
         events = stream
@@ -88,7 +90,7 @@ final class CloudProgress {
             subscriptions[path] = (existing.count + 1, existing.token)
             return
         }
-        let rootPath = Self.root.path
+        let rootPath = Self.mobileDocuments.path
         let token = Progress.addSubscriber(forFileURL: folder) { progress in
             let info = progress.userInfo
             let kind = info[.fileOperationKindKey] as? Progress.FileOperationKind

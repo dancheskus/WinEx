@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 /// Finder's «Импортировать с iPhone» (Continuity Camera): AppKit fills the item with the
 /// nearby devices and their actions (take a photo, scan documents, add a sketch); what the device
@@ -6,6 +7,8 @@ import AppKit
 @MainActor
 final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
     static let shared = DeviceImport()
+    /// `log show --predicate 'subsystem == "dev.winex.WinEx" && category == "deviceImport"' --info`
+    static let log = Logger(subsystem: "dev.winex.WinEx", category: "deviceImport")
 
     /// What a device sends: a scan as PDF, a photo as HEIC or JPEG, a sketch as PNG.
     static let types: [NSPasteboard.PasteboardType] = [.pdf, .init("public.heic"), .init("public.jpeg"), .png, .tiff]
@@ -33,6 +36,19 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
     /// What AppKit put in its item as the menu began to open, for the row of a menu its
     /// delegate builds only then (`menuNeedsUpdate`, after AppKit filled the old build's item).
     private static var taken: (title: String, entries: [NSMenuItem])?
+    private static var forwarding: [ObjectIdentifier: (target: AnyObject?, action: Selector?)] = [:]
+
+    @objc private func forward(_ sender: NSMenuItem) {
+        guard let original = Self.forwarding[ObjectIdentifier(sender)], let action = original.action else {
+            return Self.log.error("clicked «\(sender.title, privacy: .public)»: no action kept")
+        }
+        Self.log.info("clicked «\(sender.title, privacy: .public)»: \(NSStringFromSelector(action), privacy: .public) to \(String(describing: original.target), privacy: .public), destination \(self.destination?.path ?? "none", privacy: .public)")
+        // AppKit puts its sheet on the key window
+        if onDesktop { helperWindow?.makeKeyAndOrderFront(nil) }
+        let sent = NSApp.sendAction(action, to: original.target, from: sender)
+        Self.log.info("sent: \(sent, privacy: .public)")
+        if !sent { helperWindow?.orderOut(nil) }
+    }
 
     /// Adds «Импортировать с iPhone» to a context menu: AppKit's item, hidden, and WinEx's row.
     /// AppKit serves only an item that was in the main menu from the start (a copy of it works;
@@ -42,6 +58,8 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
     /// No device near: the row stays hidden.
     static func addItems(to menu: NSMenu, into directory: URL) {
         shared.destination = directory
+        // AppKit would also list the devices at the menu's end, as a context menu's plug-in section
+        menu.allowsContextMenuPlugIns = false
         // For the next time the menu opens (this one is past AppKit's filling)
         seed(menu)
         let row = NSMenuItem(title: L("Импортировать с iPhone"), action: nil, keyEquivalent: "")
@@ -72,8 +90,17 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
         let entries = managed.submenu?.items ?? []
         menu.removeItem(managed)
         retired = [managed]
+        log.info("menu opening: AppKit's item has \(entries.count, privacy: .public) entries")
         guard entries.contains(where: { !$0.isSeparatorItem }) else { taken = nil; return }
         managed.submenu?.removeAllItems()
+        // The actions go through WinEx, which holds their target (a menu holds it weakly: gone
+        // with AppKit's item, the click did nothing)
+        forwarding = [:]
+        for entry in entries where entry.action != nil {
+            forwarding[ObjectIdentifier(entry)] = (entry.target, entry.action)
+            entry.target = shared
+            entry.action = #selector(forward(_:))
+        }
         // (AppKit ends the list with a separator)
         let list = Array(entries.reversed().drop(while: \.isSeparatorItem).reversed())
         let title = managed.title.isEmpty || managed.title.hasPrefix("<<") ? L("Импортировать с iPhone") : managed.title
@@ -112,12 +139,44 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
     /// requestor is a view: a dot in the middle of `view`'s window.
     static func requestor(into directory: URL?, in view: NSView?, sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
         guard let directory, sendType == nil, let returnType, types.contains(returnType) || returnType.rawValue == "NeXT TIFF v4.0 pasteboard type" else { return nil }
+        log.info("asked for a requestor (\(returnType.rawValue, privacy: .public)): \(directory.path, privacy: .public), window \(view?.window.map { String(describing: type(of: $0)) } ?? "none", privacy: .public)")
         shared.destination = directory
-        guard let content = view?.window?.contentView else { return shared }
+        guard let window = view?.window, var content = window.contentView else { return shared }
+        // The sheet darkens its window: on the desktop (a window as big as the screen) it goes on a
+        // small clear window in the middle of the screen instead
+        shared.onDesktop = window.level.rawValue < NSWindow.Level.normal.rawValue
+        if shared.onDesktop, let helper = shared.helper(on: window.screen), let helperContent = helper.contentView { content = helperContent }
         let anchor = shared.anchor
         if anchor.superview !== content { content.addSubview(anchor) }
         anchor.frame = NSRect(x: content.bounds.midX, y: content.bounds.midY, width: 1, height: 1)
         return anchor
+    }
+
+    private var onDesktop = false
+
+    /// Clear and borderless, but it can be the key window: AppKit puts its sheet on the key window.
+    private final class HelperWindow: NSWindow {
+        override var canBecomeKey: Bool { true }
+    }
+    private var helperWindow: NSWindow?
+
+    private func helper(on screen: NSScreen?) -> NSWindow? {
+        guard let area = (screen ?? NSScreen.main)?.visibleFrame else { return nil }
+        let window = helperWindow ?? {
+            let window = HelperWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = false
+            window.level = .floating
+            window.isReleasedWhenClosed = false
+            NotificationCenter.default.addObserver(forName: NSWindow.didEndSheetNotification, object: window, queue: .main) { [weak window] _ in
+                MainActor.assumeIsolated { window?.orderOut(nil) }
+            }
+            helperWindow = window
+            return window
+        }()
+        window.setFrame(NSRect(x: area.midX - 260, y: area.maxY - area.height / 3, width: 520, height: 2), display: false)
+        return window
     }
 
     private lazy var anchor = Anchor(frame: .zero)
@@ -132,6 +191,8 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
     func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool { false }
 
     func readSelection(from pboard: NSPasteboard) -> Bool {
+        Self.log.info("received \(pboard.types?.map(\.rawValue) ?? [], privacy: .public)")
+        helperWindow?.orderOut(nil)
         guard let directory = destination, let type = pboard.availableType(from: Self.types),
               var data = pboard.data(forType: type) else { return false }
         let ext: String
