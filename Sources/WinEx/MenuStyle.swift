@@ -336,7 +336,7 @@ final class SubmenuRowView: NSView {
         self.icon = icon
         self.font = font
         let textWidth = (title as NSString).size(withAttributes: [.font: font]).width
-        super.init(frame: NSRect(x: 0, y: 0, width: ceil(Self.textX(icon: icon != nil) + textWidth + 60), height: Self.height))
+        super.init(frame: NSRect(x: 0, y: 0, width: ceil(Self.textX(icon: icon != nil) + Self.stateColumn + textWidth + 60), height: Self.height))
         autoresizingMask = [.width]
     }
 
@@ -347,6 +347,12 @@ final class SubmenuRowView: NSView {
         icon ? iconX + 22 + 10 : 28
     }
     private static let iconX: CGFloat = 16
+    /// AppKit's checkmark column: the other rows move right by it in a menu with a checked item.
+    private static let stateColumn: CGFloat = 14
+
+    private var shift: CGFloat {
+        enclosingMenuItem?.menu?.items.contains { $0.state != .off } == true ? Self.stateColumn : 0
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let highlighted = enclosingMenuItem?.isHighlighted == true
@@ -357,12 +363,12 @@ final class SubmenuRowView: NSView {
         }
         let textColor: NSColor = !enabled ? .tertiaryLabelColor : (highlighted ? .white : .labelColor)
         if let icon {
-            let frame = NSRect(x: Self.iconX, y: (bounds.height - 20) / 2, width: 22, height: 20)
+            let frame = NSRect(x: Self.iconX + shift, y: (bounds.height - 20) / 2, width: 22, height: 20)
             icon.draw(in: frame, from: .zero, operation: .sourceOver, fraction: enabled ? 1 : 0.4)
         }
         let text = NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: textColor])
         let size = text.size()
-        text.draw(at: NSPoint(x: Self.textX(icon: icon != nil), y: (bounds.height - size.height) / 2))
+        text.draw(at: NSPoint(x: Self.textX(icon: icon != nil) + shift, y: (bounds.height - size.height) / 2))
         // The chevron: the checkmark's size and colour
         if let chevron = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold)) {

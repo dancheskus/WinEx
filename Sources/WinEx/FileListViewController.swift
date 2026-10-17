@@ -295,10 +295,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     func applyViewModeToAllFolders() {
         let alert = NSAlert()
         alert.messageText = L("Открывать все папки в виде «%@»?", viewMode.title)
-        let own = ViewMode.rememberedFolderCount
-        alert.informativeText = L("Этот вид станет видом по умолчанию для всех папок.") + (own > 0
-            ? " " + L("Виды, выбранные для отдельных папок (%@), будут забыты.", "\(own)") : "")
-            + " " + L("Образы дисков по-прежнему открываются значками.")
+        alert.informativeText = L("Этот вид станет видом по умолчанию для всех папок.")
         alert.addButton(withTitle: L("Применить ко всем"))
         alert.addButton(withTitle: L("Отменить"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }

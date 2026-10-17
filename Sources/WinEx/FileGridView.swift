@@ -56,10 +56,6 @@ enum ViewMode: Int, CaseIterable {
         return DiskImageVolumes.isRoot(folder) ? .largeIcons : saved
     }
 
-    /// Folders with a view of their own.
-    static var rememberedFolderCount: Int {
-        (AppDefaults.store.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]).count
-    }
 
     static func remember(_ mode: ViewMode, forFolder folder: URL) {
         var modes = AppDefaults.store.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]

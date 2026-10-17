@@ -365,8 +365,6 @@ enum English {
         "Сведения об объекте": "Item Info",
         "Открывать все папки в виде «%@»?": "Open all folders as “%@”?",
         "Этот вид станет видом по умолчанию для всех папок.": "This view becomes the default for all folders.",
-        "Виды, выбранные для отдельных папок (%@), будут забыты.": "Views chosen for single folders (%@) will be forgotten.",
-        "Образы дисков по-прежнему открываются значками.": "Disk images still open as icons.",
         "Применить ко всем": "Apply to All",
         "Очистить Корзину?": "Empty the Trash?",
         "%@ объектов": "%@ items",
