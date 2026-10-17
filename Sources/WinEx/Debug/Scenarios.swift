@@ -56,6 +56,7 @@ enum Scenarios {
         "aliases": aliases,
         "extensions": extensions,
         "diskimage": diskImage,
+        "finderlook": finderLook,
         "crashoffer": crashOffer,
         "desktopkeys": desktopKeys,
         "renamefield": renameField,
@@ -295,6 +296,40 @@ enum Scenarios {
                 second.window?.close()
             }),
             (0.4, "done", {}),
+        ])
+    }
+
+    /// A disk image styled for Finder (WINEX_DMG, mounted read-only and hidden here): its window in
+    /// WinEx shows the background and the icons where Finder puts them.
+    static func finderLook(_ s: Scenario) {
+        guard let dmg = ProcessInfo.processInfo.environment["WINEX_DMG"] else { s.note("  (no WINEX_DMG)"); return s.run([]) }
+        let mount = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("winex-finderlook")
+        func hdiutil(_ arguments: [String]) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+            process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
+            process.waitUntilExit()
+        }
+        try? FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
+        hdiutil(["attach", dmg, "-readonly", "-nobrowse", "-mountpoint", mount.path, "-quiet"])
+        let look = FinderLook.read(mount)
+        s.note("  look: background \(look?.background.map { "\(Int($0.size.width))×\(Int($0.size.height))" } ?? "-"), icons \(Int(look?.iconSize ?? 0)), places \(look?.positions.count ?? 0), dark text \(look?.textColor == .black)")
+        s.window?.navigate(to: mount)
+        s.run([
+            (0.5, "icons", { s.setViewMode(.largeIcons) }),
+            (1.5, "shot", {
+                if let number = s.window?.window?.windowNumber {
+                    try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.5, "detach", {
+                s.window?.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+                DispatchQueue.global().async { hdiutil(["detach", mount.path, "-quiet"]) }
+            }),
+            (1.0, "done", {}),
         ])
     }
 

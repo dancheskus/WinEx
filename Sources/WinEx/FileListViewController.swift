@@ -112,6 +112,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
         observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
+        // Rows a line taller or shorter
+        observers.add(.itemInfoChanged) { [weak self] in self.map { $0.applyViewMode(previous: $0.viewMode) } }
         // Back from System Settings with access granted: try the Trash again
         observers.add(NSApplication.didBecomeActiveNotification) { [weak self] in
             if self?.location == .trash, self?.errorMessage != nil { self?.reload() }
@@ -246,7 +248,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         if isDetails {
             tableView.reloadData()
         } else {
-            flowLayout.itemSize = viewMode.itemSize
+            // Item info under the names: a line more per row
+            var size = viewMode.itemSize
+            if Settings.showItemInfo && !viewMode.isHorizontalItem { size.height += 14 }
+            flowLayout.itemSize = size
             flowLayout.scrollDirection = viewMode.scrollsHorizontally ? .horizontal : .vertical
             flowLayout.minimumInteritemSpacing = viewMode.isHorizontalItem ? 2 : 0
             flowLayout.minimumLineSpacing = viewMode.isHorizontalItem ? 2 : 0
@@ -254,6 +259,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             gridScrollView.hasHorizontalScroller = viewMode.scrollsHorizontally
             gridScrollView.hasVerticalScroller = !viewMode.scrollsHorizontally
             flowLayout.invalidateLayout()
+            updateFinderLook()
             collectionView.reloadData()
         }
         setSelection(selection, scrollTo: selection.first)
@@ -495,6 +501,32 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// The order `allItems` is sorted in (listings arrive sorted from the background).
     private var allItemsOrder: FileItem.SortOrder?
 
+    // MARK: Finder-styled folders
+
+    /// A folder styled for Finder (a disk image's window): its background, and icons of its size
+    /// where Finder puts them — in the icon views.
+    private var finderLook: FinderLook?
+    private let lookLayout = FinderLookLayout()
+    private let lookBackground = FinderLookBackground()
+
+    private func updateFinderLook() {
+        finderLook = search == nil ? directory.flatMap(FinderLook.read) : nil
+        guard let look = finderLook, viewMode != .details, !viewMode.isHorizontalItem else {
+            if collectionView.collectionViewLayout !== flowLayout { collectionView.collectionViewLayout = flowLayout }
+            collectionView.backgroundView = nil
+            return
+        }
+        lookLayout.look = look
+        lookLayout.names = items.map(\.url.lastPathComponent)
+        lookLayout.itemSize = NSSize(width: max(look.iconSize + 44, 112), height: look.iconSize + 10 + 7 + 30 + (Settings.showItemInfo ? 14 : 0))
+        lookLayout.iconTop = 10
+        if collectionView.collectionViewLayout !== lookLayout { collectionView.collectionViewLayout = lookLayout }
+        lookLayout.invalidateLayout()
+        lookBackground.look = look
+        collectionView.backgroundView = lookBackground
+        collectionView.backgroundViewScrollsWithContent = true
+    }
+
     private func refilter(keepSelection: Bool) {
         let selectedPaths = keepSelection ? Set(selectedURLs.map(\.path)) : []
         let order = sortOrder
@@ -503,6 +535,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             allItemsOrder = order
         }
         items = allItems
+        updateFinderLook()
         if viewMode == .details { tableView.reloadData() } else { collectionView.reloadData() }
         setSelection(IndexSet(items.indices.filter { selectedPaths.contains(items[$0].url.path) }))
     }
@@ -1387,6 +1420,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                         itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: FileGridItem.identifier, for: indexPath) as! FileGridItem
         let file = items[indexPath.item]
+        let look = collectionView.collectionViewLayout === lookLayout ? finderLook : nil
+        item.customIconSide = look?.iconSize
+        item.labelTextColor = look?.textColor
         item.configure(with: file, mode: viewMode, image: image(for: file))
         item.setCut(FileClipboard.shared.isCut(file.url))
         return item

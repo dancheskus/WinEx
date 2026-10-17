@@ -77,7 +77,7 @@ enum Settings {
         get { defaults.object(forKey: "showItemInfo") as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: "showItemInfo")
-            NotificationCenter.default.post(name: .extensionsShownChanged, object: nil)
+            NotificationCenter.default.post(name: .itemInfoChanged, object: nil)
         }
     }
 
@@ -129,6 +129,7 @@ extension Notification.Name {
     static let replaceFinderChanged = Notification.Name("WinExReplaceFinderChanged")
     static let showHiddenChanged = Notification.Name("WinExShowHiddenChanged")
     static let extensionsShownChanged = Notification.Name("WinExExtensionsShownChanged")
+    static let itemInfoChanged = Notification.Name("WinExItemInfoChanged")
     static let keyboardSettingsChanged = Notification.Name("WinExKeyboardSettingsChanged")
     static let commandBarSettingChanged = Notification.Name("WinExCommandBarSettingChanged")
 }

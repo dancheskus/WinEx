@@ -182,6 +182,9 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     private var playing: InlineVideoView?
     /// The file the item info line is for (it arrives later; the item may show another file by then).
     private var infoURL: URL?
+    /// A Finder-styled folder (a disk image's window): its icon size and a text colour for its background.
+    var customIconSide: CGFloat?
+    var labelTextColor: NSColor?
     private var isHovered = false
 
     private var itemView: GridItemView { view as! GridItemView }
@@ -281,22 +284,13 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         guard label.length > 0 else { return }
         let colored = NSMutableAttributedString(attributedString: label)
         let nameRange = NSRange(location: tagDotsLength, length: label.length - tagDotsLength)
-        colored.addAttribute(.foregroundColor, value: isSelected && !mode.isHorizontalItem ? NSColor.white : NSColor.labelColor, range: nameRange)
+        colored.addAttribute(.foregroundColor, value: isSelected && !mode.isHorizontalItem ? NSColor.white : (labelTextColor ?? .labelColor), range: nameRange)
         if mode.isHorizontalItem {
             if !itemView.isRenaming { nameField.attributedStringValue = colored }
         } else {
-            let lines = DesktopLabel.lines(colored, width: view.bounds.width - 12)
-            // With a line of info under it the name takes one line (shortened in the middle)
-            if itemView.detail != nil, lines.count > 1 {
-                let one = NSMutableAttributedString(attributedString: colored)
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.alignment = .center
-                paragraph.lineBreakMode = .byTruncatingMiddle
-                one.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: one.length))
-                itemView.labelLines = [one]
-            } else {
-                itemView.labelLines = lines
-            }
+            // Two lines, as wide as the cell allows (like the desktop's); the item info goes under them
+            // (rows are a line taller while item info is shown)
+            itemView.labelLines = DesktopLabel.lines(colored, width: view.bounds.width - 4)
         }
     }
 
@@ -383,7 +377,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     override func viewDidLayout() {
         super.viewDidLayout()
         let bounds = view.bounds
-        let icon = mode.iconSize
+        let icon = customIconSide ?? mode.iconSize
         switch mode {
         case .smallIcons, .list:
             iconView.frame = NSRect(x: 4, y: (bounds.height - icon) / 2, width: icon, height: icon)
@@ -524,7 +518,7 @@ final class GridItemView: NSView {
         guard !isRenaming, let top = labelTop else { return }
         let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
         for (n, line) in labelLines.enumerated() {
-            let width = min(ceil(line.size().width), bounds.width - 12)
+            let width = min(ceil(line.size().width), bounds.width - 4)
             let rect = NSRect(x: bounds.midX - width / 2, y: top - lineHeight * CGFloat(n + 1), width: width, height: lineHeight)
             if isSelected {
                 NSColor.selectedContentBackgroundColor.setFill()
