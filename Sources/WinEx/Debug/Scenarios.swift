@@ -356,8 +356,17 @@ enum Scenarios {
             }),
             (3.0, "no window of its own; then shown in one, and ejected", {
                 s.note("  new windows on mounting: \(AppDelegate.shared.windowControllers.count - before)  expect 0")
-                AppDelegate.shared.openWindow(at: URL(fileURLWithPath: "/Volumes/WinExScenario"))
-                DispatchQueue.global().async { run(["detach", "/Volumes/WinExScenario", "-quiet"]) }
+                // Every folder in the details view: the image still opens with icons
+                let defaultMode = ViewMode.saved
+                ViewMode.saved = .details
+                let window = AppDelegate.shared.openWindow(at: URL(fileURLWithPath: "/Volumes/WinExScenario"))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    func find(_ view: NSView) -> FileCollectionView? { (view as? FileCollectionView) ?? view.subviews.lazy.compactMap(find).first }
+                    let icons = window.window?.contentView.flatMap(find)?.enclosingScrollView?.isHidden == false
+                    s.note("  disk image with «details» as the default: icons \(icons)  expect true")
+                    ViewMode.saved = defaultMode
+                    DispatchQueue.global().async { run(["detach", "/Volumes/WinExScenario", "-quiet"]) }
+                }
             }),
             (2.0, "its window closed", {
                 s.note("  windows left: \(AppDelegate.shared.windowControllers.count - before)  expect 0")

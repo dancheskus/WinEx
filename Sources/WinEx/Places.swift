@@ -1,4 +1,5 @@
 import AppKit
+import DiskArbitration
 import Network
 import NetFS
 
@@ -215,5 +216,32 @@ enum NetworkMounter {
         guard let url = URL(string: text), url.host != nil else { NSSound.beep(); return }
         AppDefaults.store.set(text, forKey: "lastServerAddress")
         mount(url, completion: completion)
+    }
+}
+
+
+/// Mounted disk images (.dmg, .iso…): macOS's disk list says which disks are images.
+enum DiskImageVolumes {
+    nonisolated(unsafe) private static var known: [String: Bool] = [:]
+    private static let lock = NSLock()
+
+    /// `url` is the top folder of a mounted disk image.
+    static func isRoot(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix("/Volumes/") || path.hasPrefix("/private/var/folders/") || path.hasPrefix("/private/tmp/"),
+              (try? url.resourceValues(forKeys: [.isVolumeKey]))?.isVolume == true else { return false }
+        lock.lock()
+        if let cached = known[path] { lock.unlock(); return cached }
+        lock.unlock()
+        var image = false
+        if let session = DASessionCreate(kCFAllocatorDefault),
+           let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, url as CFURL),
+           let description = DADiskCopyDescription(disk) as? [String: Any] {
+            image = (description[kDADiskDescriptionDeviceModelKey as String] as? String)?.trimmingCharacters(in: .whitespaces) == "Disk Image"
+        }
+        lock.lock()
+        known[path] = image
+        lock.unlock()
+        return image
     }
 }

@@ -44,7 +44,7 @@ enum MenuStyle {
     /// Submenus by title.
     private static let submenuSymbols: [String: String] = [
         L("Вид"): "square.grid.2x2", L("Сортировка"): "arrow.up.arrow.down", L("Создать"): "plus.circle",
-        L("Открыть с помощью"): "arrow.up.forward.app", L("Теги"): "tag",
+        L("Открыть с помощью"): "arrow.up.forward.app", L("Теги"): "tag", L("Показать"): "eye",
     ]
 
     /// Gives every item of `menu` its icon and shortcut. The icon goes into the title (a text

@@ -291,7 +291,17 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         isRestoringFolderView = false
     }
 
+    /// After saying what it does: this view for every folder, the views chosen for single folders forgotten.
     func applyViewModeToAllFolders() {
+        let alert = NSAlert()
+        alert.messageText = L("Открывать все папки в виде «%@»?", viewMode.title)
+        let own = ViewMode.rememberedFolderCount
+        alert.informativeText = L("Этот вид станет видом по умолчанию для всех папок.") + (own > 0
+            ? " " + L("Виды, выбранные для отдельных папок (%@), будут забыты.", "\(own)") : "")
+            + " " + L("Образы дисков по-прежнему открываются значками.")
+        alert.addButton(withTitle: L("Применить ко всем"))
+        alert.addButton(withTitle: L("Отменить"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         ViewMode.applyToAllFolders(viewMode)
     }
 
@@ -1124,7 +1134,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 item.tag = mode.rawValue
             }
             viewMenu.addItem(.separator())
-            viewMenu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyToAllFolders(_:)), keyEquivalent: "").target = self
+            let applyAll = viewMenu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyToAllFolders(_:)), keyEquivalent: "")
+            applyAll.target = self
+            applyAll.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: nil)
             viewItem.submenu = viewMenu
             menu.addItem(viewItem)
 

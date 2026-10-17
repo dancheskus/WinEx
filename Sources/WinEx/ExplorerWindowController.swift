@@ -360,7 +360,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         bar.state = Settings.showCommandBar ? .on : .off
         menu.addItem(withTitle: L("Показать"), action: nil, keyEquivalent: "").submenu = show
         menu.addItem(.separator())
-        menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
+        let applyAll = menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "")
+        applyAll.target = self
+        applyAll.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: nil)
         return menu
     }
 
@@ -411,7 +413,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             item.image = NSImage(systemSymbolName: mode.symbol, accessibilityDescription: nil)
         }
         menu.addItem(.separator())
-        menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "").target = self
+        let applyAll = menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "")
+        applyAll.target = self
+        applyAll.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: nil)
 
         // Two quick toggles in the status bar, like Explorer's bottom-right corner
         viewModeToggle.segmentCount = 2

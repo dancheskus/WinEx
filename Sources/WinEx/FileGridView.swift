@@ -51,12 +51,19 @@ enum ViewMode: Int, CaseIterable {
     /// The view remembered for `folder`, like Explorer does per folder.
     static func forFolder(_ folder: URL) -> ViewMode {
         let modes = AppDefaults.store.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]
-        return modes[folder.standardizedFileURL.path].flatMap(ViewMode.init(rawValue:)) ?? saved
+        if let own = modes[folder.standardizedFileURL.path].flatMap(ViewMode.init(rawValue:)) { return own }
+        // A mounted disk image (an installer's window) opens with icons, whatever the default — as in Finder
+        return DiskImageVolumes.isRoot(folder) ? .largeIcons : saved
+    }
+
+    /// Folders with a view of their own.
+    static var rememberedFolderCount: Int {
+        (AppDefaults.store.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]).count
     }
 
     static func remember(_ mode: ViewMode, forFolder folder: URL) {
         var modes = AppDefaults.store.dictionary(forKey: folderModesKey) as? [String: Int] ?? [:]
-        modes[folder.standardizedFileURL.path] = mode == saved ? nil : mode.rawValue
+        modes[folder.standardizedFileURL.path] = mode == saved && !DiskImageVolumes.isRoot(folder) ? nil : mode.rawValue
         if modes.count > maxRememberedFolders {
             // Forget folders that are gone first, then any others
             modes = modes.filter { FileManager.default.fileExists(atPath: $0.key) }
