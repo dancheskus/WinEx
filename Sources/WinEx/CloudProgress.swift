@@ -188,7 +188,11 @@ final class CloudProgressBar: NSView {
 
     private func update() {
         let fraction = url.flatMap { CloudProgress.shared.fraction(for: $0) }
-        isHidden = fraction == nil
+        // Shown: placed by the icon's layout (which skips it while hidden)
+        if isHidden != (fraction == nil) {
+            isHidden = fraction == nil
+            superview?.needsLayout = true
+        }
         if fraction != self.fraction { self.fraction = fraction; needsDisplay = true }
     }
 
@@ -225,7 +229,7 @@ final class CloudProgressPie: NSView {
 
     deinit { observer.map(NotificationCenter.default.removeObserver) }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: 14, height: 14) }
+    override var intrinsicContentSize: NSSize { NSSize(width: 18, height: 18) }  // Finder's size
 
     private func update() {
         fraction = CloudProgress.shared.total
@@ -236,18 +240,18 @@ final class CloudProgressPie: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let fraction else { return }
-        let side = min(bounds.width, bounds.height) - 2
+        let side = min(bounds.width, bounds.height) - 1
         let circle = NSRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         let color = NSColor.secondaryLabelColor
         color.setStroke()
         let ring = NSBezierPath(ovalIn: circle)
-        ring.lineWidth = 1.2
+        ring.lineWidth = 1.4
         ring.stroke()
         // The done part as a pie from twelve o'clock, clockwise
         let center = NSPoint(x: circle.midX, y: circle.midY)
         let pie = NSBezierPath()
         pie.move(to: center)
-        pie.appendArc(withCenter: center, radius: side / 2 - 2, startAngle: 90, endAngle: 90 - 360 * CGFloat(min(max(fraction, 0.02), 1)), clockwise: true)
+        pie.appendArc(withCenter: center, radius: side / 2 - 2.5, startAngle: 90, endAngle: 90 - 360 * CGFloat(min(max(fraction, 0.02), 1)), clockwise: true)
         pie.close()
         color.setFill()
         pie.fill()

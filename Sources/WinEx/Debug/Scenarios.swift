@@ -73,8 +73,62 @@ enum Scenarios {
         "deviceimport": deviceImport,
         "cloudprogress": cloudProgress,
         "devicemenu": deviceMenu,
+        "scrollperf": scrollPerf,
+        "foldersontop": foldersOnTop,
         "devicecontext": deviceContext,
     ]
+
+    /// «Папки сверху» off: folders sorted in among the files, like Finder (a film, then its folder).
+    static func foldersOnTop(_ s: Scenario) {
+        let base = s.makeFiles(["Show - 02.mp4", "Show - 01.trickplay/", "Show - 01.mp4", "Show - 02.trickplay/", "Zeta/"])
+        let before = Settings.foldersOnTop
+        s.window?.navigate(to: base)
+        func shown() -> [String] {
+            guard let table = s.table else { return [] }
+            return (0..<table.numberOfRows).compactMap { (table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue }
+        }
+        s.run([
+            (1.0, "on", { s.setViewMode(.details); Settings.foldersOnTop = true }),
+            (0.8, "", { s.note("  \(shown())  expect folders first") }),
+            (0.2, "off", { Settings.foldersOnTop = false }),
+            (0.8, "", { s.note("  \(shown())  expect 01.mp4, 01.trickplay, 02.mp4, 02.trickplay, Zeta") }),
+            (0.2, "", { Settings.foldersOnTop = before }),
+        ])
+    }
+
+    /// Scrolling a big folder in big icons (WINEX_SCROLL_FOLDER, default a NAS folder of videos):
+    /// how long each step of scrolling takes, drawn.
+    static func scrollPerf(_ s: Scenario) {
+        let folder = URL(fileURLWithPath: ProcessInfo.processInfo.environment["WINEX_SCROLL_FOLDER"] ?? "/Volumes/video/TV/Rebelde Way/Season 1")
+        s.window?.window?.setFrame(NSRect(x: 100, y: 100, width: 1200, height: 800), display: true)
+        s.window?.navigate(to: folder)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        func measure(_ label: String) {
+            guard let grid = s.grid, let clip = grid.enclosingScrollView?.contentView else { return s.note("  (no grid)") }
+            var times: [Double] = []
+            var y: CGFloat = 0
+            let maxY = max(grid.frame.height - clip.bounds.height, 0)
+            for _ in 0..<80 {
+                y = min(y + 60, maxY)
+                let start = CACurrentMediaTime()
+                clip.scroll(to: NSPoint(x: 0, y: y))
+                grid.enclosingScrollView?.reflectScrolledClipView(clip)
+                grid.window?.displayIfNeeded()
+                times.append((CACurrentMediaTime() - start) * 1000)
+                if y >= maxY { break }
+            }
+            let sorted = times.sorted()
+            s.note(String(format: "  %@: %d steps, median %.1f ms, 90%% %.1f ms, max %.1f ms, total %.0f ms", label, times.count,
+                          sorted[sorted.count / 2], sorted[min(sorted.count - 1, sorted.count * 9 / 10)], sorted.last ?? 0, times.reduce(0, +)))
+            clip.scroll(to: .zero)
+        }
+        s.run([
+            (1.0, "", { s.setViewMode(.largeIcons) }),
+            (6.0, "first scroll (thumbnails being made)", { s.note("  items \(s.grid?.numberOfItems(inSection: 0) ?? 0)"); measure("first") }),
+            (3.0, "second scroll", { measure("second") }),
+        ])
+    }
 
     /// Context menus opened as a right click opens them, in a window and on the desktop: no device
     /// entries of AppKit's own at the end (plug-ins off; seen only on screen, not in `items`), and

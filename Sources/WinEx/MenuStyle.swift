@@ -388,7 +388,8 @@ final class SubmenuRowView: NSView {
         }
         let text = NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: textColor])
         let size = text.size()
-        text.draw(at: NSPoint(x: Self.textX(icon: icon != nil) + shift, y: (bounds.height - size.height) / 2))
+        // (Without icons, 28 already is where AppKit puts the text after its checkmark column)
+        text.draw(at: NSPoint(x: Self.textX(icon: icon != nil) + (icon != nil ? shift : 0), y: (bounds.height - size.height) / 2))
         // The chevron: the checkmark's size and colour
         if let chevron = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold)) {

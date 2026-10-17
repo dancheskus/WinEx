@@ -61,6 +61,16 @@ enum Settings {
         set { defaults.set(newValue, forKey: "windowsKeys") }
     }
 
+    /// Folders before files when sorting, like Explorer (on, the default); off, they're sorted in
+    /// among the files, like Finder (a film, then its folder of the same name).
+    static var foldersOnTop: Bool {
+        get { defaults.object(forKey: "foldersOnTop") as? Bool ?? true }
+        set {
+            defaults.set(newValue, forKey: "foldersOnTop")
+            NotificationCenter.default.post(name: .extensionsShownChanged, object: nil)
+        }
+    }
+
     /// Finder's «Показывать все расширения имён файлов»: on (the default), every name shows its
     /// extension; off, a file whose extension was hidden (Свойства ▸ Скрыть расширение, or saved so)
     /// shows its name without it.
@@ -211,7 +221,21 @@ final class FileItem {
     var tagColors: [NSColor] { tags.compactMap { FileTags.color(forIndex: $0.color) } }
 
     /// File icon; customized folders (tag color, symbol / emoji) are drawn like macOS 26 Finder does.
-    lazy var icon: NSImage = {
+    /// Made on first use — it reads the disk, slow on a server (see `hasIcon`, `makeIcon`).
+    var icon: NSImage {
+        get {
+            if let iconStorage { return iconStorage }
+            let made = Self.makeIcon(url: url, isFolder: isFolder, aliasTarget: aliasTarget, tags: tags)
+            iconStorage = made
+            return made
+        }
+        set { iconStorage = newValue }
+    }
+    private var iconStorage: NSImage?
+    var hasIcon: Bool { iconStorage != nil }
+
+    /// The icon, made from what it depends on (any thread).
+    static func makeIcon(url: URL, isFolder: Bool, aliasTarget: URL?, tags: [FileTags.Tag]) -> NSImage {
         // An alias: what it points to (a folder with its look, an app, the file's type), with the arrow
         if let aliasTarget { return AliasIcon.badged(FileItem(url: aliasTarget).icon) }
         // The last tag put on it (with a color) colors it, as in Finder
@@ -220,7 +244,7 @@ final class FileItem {
             return custom
         }
         return NSWorkspace.shared.icon(forFile: url.path)
-    }()
+    }
 
     var sizeDescription: String? {
         size.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
@@ -232,13 +256,14 @@ final class FileItem {
         var ascending: Bool
     }
 
-    /// Folders first, like in Explorer; ties are broken by name.
+    /// Folders first, like in Explorer (unless `Settings.foldersOnTop` is off); ties are broken by name.
     static func sort(_ items: inout [FileItem], by order: SortOrder) {
         func compare<T: Comparable>(_ a: T, _ b: T) -> ComparisonResult {
             a < b ? .orderedAscending : (a > b ? .orderedDescending : .orderedSame)
         }
+        let foldersOnTop = Settings.foldersOnTop
         items.sort { a, b in
-            if a.isFolder != b.isFolder { return a.isFolder }
+            if foldersOnTop, a.isFolder != b.isFolder { return a.isFolder }
             let result: ComparisonResult
             switch order.key {
             case "date": result = compare(a.modified ?? .distantPast, b.modified ?? .distantPast)

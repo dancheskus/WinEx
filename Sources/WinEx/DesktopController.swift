@@ -1096,9 +1096,14 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                 image.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
                 NSGraphicsContext.restoreGraphicsState()
                 var minX = side, minY = side, maxX = -1, maxY = -1
-                for y in 0..<side {
-                    for x in 0..<side where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 {
-                        minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                // The alpha bytes read directly (`colorAt` made an NSColor per pixel: slow with
+                // hundreds of new previews while scrolling)
+                if let data = rep.bitmapData {
+                    let row = rep.bytesPerRow, step = rep.bitsPerPixel / 8
+                    for y in 0..<side {
+                        for x in 0..<side where data[y * row + x * step + 3] > 25 {
+                            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+                        }
                     }
                 }
                 if maxX >= minX, maxY >= minY {

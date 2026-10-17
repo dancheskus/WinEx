@@ -42,6 +42,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             guard directory != oldValue else { return }
             oldValue.map(CloudProgress.shared.unfollow)
             directory.map(CloudProgress.shared.follow)
+            isRemoteFolder = directory.flatMap { try? $0.resourceValues(forKeys: [.volumeIsLocalKey]).volumeIsLocal }.map { !$0 } ?? false
         }
     }
 
@@ -1185,6 +1186,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: tableView.sortDescriptors.first?.ascending ?? true)]
     }
 
+    @objc private func toggleFoldersOnTop(_ sender: NSMenuItem) { Settings.foldersOnTop.toggle() }
+
     @objc private func sortOrder(_ sender: NSMenuItem) {
         let key = tableView.sortDescriptors.first?.key ?? "name"
         tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: sender.tag == 1)]
@@ -1352,6 +1355,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.tag = ascending ? 1 : 0
             item.state = (current?.ascending ?? true) == ascending ? .on : .off
         }
+        // Explorer keeps folders first; Finder sorts them in among the files (for all windows)
+        sortMenu.addItem(.separator())
+        let foldersOnTop = sortMenu.addItem(withTitle: L("Папки сверху"), action: #selector(toggleFoldersOnTop(_:)), keyEquivalent: "")
+        foldersOnTop.target = self
+        foldersOnTop.state = Settings.foldersOnTop ? .on : .off
         return sortMenu
     }
 
@@ -1645,14 +1653,64 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     // MARK: - Thumbnails
 
     /// Big icon modes show previews (photos, documents…) like Explorer; everything else uses the file icon.
+    /// On a server every icon is a trip over the network: the type's icon is shown at once and the
+    /// real one (a folder's look, an app's icon) is made in the background, then put in.
+    private func quickIcon(_ file: FileItem) -> NSImage {
+        guard isRemoteFolder, !file.hasIcon else { return file.icon }
+        loadIcon(file)
+        let ext = file.isFolder ? "/" : file.url.pathExtension.lowercased()
+        if let known = Self.typeIcons[ext] { return known }
+        // (One image per type: the icon's measured shape is remembered per image)
+        let icon = file.isFolder ? NSWorkspace.shared.icon(for: .folder) : NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .data)
+        Self.typeIcons[ext] = icon
+        return icon
+    }
+    private static var typeIcons: [String: NSImage] = [:]
+
+    /// The folder shown is on a server (not a local disk).
+    private var isRemoteFolder = false
+    private var loadingIcons: Set<String> = []
+    private static let iconQueue: OperationQueue = {
+        let queue = OperationQueue()
+        queue.maxConcurrentOperationCount = 4
+        queue.qualityOfService = .userInitiated
+        return queue
+    }()
+
+    private func loadIcon(_ file: FileItem) {
+        let path = file.url.path
+        guard loadingIcons.insert(path).inserted else { return }
+        let url = file.url, isFolder = file.isFolder, alias = file.aliasTarget, tagged = !file.tagNames.isEmpty
+        Self.iconQueue.addOperation { [weak self] in
+            let icon = FileItem.makeIcon(url: url, isFolder: isFolder, aliasTarget: alias, tags: tagged ? FileTags.tags(of: url) : [])
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.loadingIcons.remove(path)
+                guard let index = self.items.firstIndex(where: { $0.url.path == path }) else { return }
+                let item = self.items[index]
+                item.icon = icon
+                // (A preview may have come first: it stays)
+                let key = "\(Int(self.viewMode.iconSize))|\(path)" as NSString
+                guard self.thumbnails.object(forKey: key) == nil else { return }
+                if self.viewMode == .details {
+                    if index < self.tableView.numberOfRows, let column = self.tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "name" }) {
+                        self.tableView.reloadData(forRowIndexes: [index], columnIndexes: [column])
+                    }
+                } else if let cell = self.collectionView.item(at: IndexPath(item: index, section: 0)) as? FileGridItem {
+                    cell.setImage(icon)
+                }
+            }
+        }
+    }
+
     private func image(for file: FileItem) -> NSImage {
         // Small icons: previews too, as in Finder's lists — for pictures, videos and PDFs
         guard !file.isFolder, !AliasIcon.isContainer(file),
-              viewMode.usesThumbnails || Self.hasSmallPreview(AliasIcon.previewSource(file)) else { return file.icon }
+              viewMode.usesThumbnails || Self.hasSmallPreview(AliasIcon.previewSource(file)) else { return quickIcon(file) }
         let side = viewMode.iconSize
         let key = "\(Int(side))|\(file.url.path)" as NSString
         if let cached = thumbnails.object(forKey: key) { return cached }
-        guard !requestedThumbnails.contains(key) else { return file.icon }
+        guard !requestedThumbnails.contains(key) else { return quickIcon(file) }
         requestedThumbnails.insert(key)
 
         let request = QLThumbnailGenerator.Request(
@@ -1679,7 +1737,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 item.setImage(image)
             }
         }
-        return file.icon
+        return quickIcon(file)
     }
 
     private static func hasSmallPreview(_ url: URL) -> Bool {
