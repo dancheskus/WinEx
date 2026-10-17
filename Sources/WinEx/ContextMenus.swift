@@ -143,6 +143,7 @@ final class OpenWithMenu: NSObject {
         let other = menu.addItem(withTitle: L("Выбрать другую программу…"), action: #selector(chooseOther(_:)), keyEquivalent: "")
         other.target = shared
         other.representedObject = Request(urls: urls, app: nil)
+        other.image = NSImage(systemSymbolName: "app.dashed", accessibilityDescription: nil)
         // Files of one type: the app chosen can become the one for all of them (the menu stays open
         // for the checkbox)
         shared.makeDefault = false
