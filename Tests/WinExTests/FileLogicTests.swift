@@ -440,3 +440,30 @@ extension FenceGapTests {
         #expect(rect.minX == 100)
     }
 }
+
+struct ServerTests {
+    @Test func onlyDiskSharesAreListed() {
+        let list: [String: Any] = [
+            "homes": ["NetShareTypeStr": "Disk"],
+            "Общее": ["NetShareTypeStr": "Disk"],
+            "IPC$": ["NetShareTypeStr": "Pipe"],
+            "admin$": ["NetShareTypeStr": "Disk"],
+            "printer": ["NetShareTypeStr": "Printer"],
+            "AFP share": [String: Any](),
+        ]
+        #expect(Set(ServerShares.diskShares(list)) == ["homes", "Общее", "AFP share"])
+    }
+
+    @Test func oneServerHoweverItIsReached() throws {
+        let bonjour = try #require(URL(string: "smb://dancheskus@NAS._smb._tcp.local/Daniel"))
+        let host = try #require(URL(string: "smb://NAS.local/video"))
+        #expect(Places.serverName(of: bonjour) == "NAS")
+        #expect(Places.sameServer(bonjour, host))
+        #expect(Places.serverRoot(bonjour)?.absoluteString == "smb://NAS._smb._tcp.local")
+        #expect(Places.isServerRoot(try #require(URL(string: "smb://NAS._smb._tcp.local"))))
+        #expect(!Places.isServerRoot(host))
+        #expect(Location(bonjour) != Location(try #require(URL(string: "smb://nas.local"))))
+        #expect(Location(try #require(URL(string: "smb://nas.local/"))) == Location(try #require(URL(string: "smb://NAS._smb._tcp.local"))))
+        #expect(Places.serverName(of: try #require(URL(string: "smb://192.168.1.10/share"))) == "192.168.1.10")
+    }
+}

@@ -67,7 +67,90 @@ enum Scenarios {
         "desktopvideo": desktopVideo,
         "selfupdate": selfUpdate,
         "updated": updated,
+        "nas": nas,
     ]
+
+    /// A file server as Finder shows it: found by Bonjour, its shares listed with the saved login
+    /// (nothing mounted), one opened (mounted), the sidebar's one entry for it, "Отключить" → "Сеть".
+    /// Mounts and ejects a real share of the first SMB server found.
+    static func nas(_ s: Scenario) {
+        NetworkBrowser.shared.start()
+        var server: URL?
+        func outline() -> NSOutlineView? {
+            s.findAll(NSOutlineView.self, in: s.window?.window?.contentView ?? NSView()).first { $0.dataSource is SidebarViewController }
+        }
+        func servers() -> [String] {
+            guard let outline = outline() else { return [] }
+            return (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? SidebarViewController.Item }
+                .filter { $0.place == .servers }.map { "\($0.title) \($0.url.absoluteString) eject=\($0.ejectable)" }
+        }
+        func texts(_ view: NSView?) -> [String] {
+            guard let view, !view.isHidden else { return [] }
+            var result: [String] = []
+            if let field = view as? NSTextField, !field.isEditable, !field.stringValue.isEmpty, field.frame.height < 30 { result.append(field.stringValue) }
+            if let button = view as? NSButton, !button.title.isEmpty { result.append("[\(button.title)]") }
+            return result + view.subviews.flatMap(texts)
+        }
+        func bar() -> [String] {
+            texts(s.window?.window?.contentView).filter { $0.hasPrefix("Подключ") || $0.hasPrefix("Не подключ") || $0.hasPrefix("[Подключ") || $0 == "[Отключить]" }
+        }
+        func snapshot(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        s.run([
+            (3.0, "find a server", {
+                server = NetworkBrowser.shared.servers.first { $0.url.scheme == "smb" }?.url
+                s.note("  \(server?.absoluteString ?? "none")  mounted now: \(Places.mountedShares().map(\.volume.path))")
+                if let server { s.window?.navigate(to: server) }
+                s.setViewMode(.mediumIcons)
+            }),
+            (4.0, "shares listed with the saved login", {
+                s.note("  bar: \(bar())")
+                s.note("  sidebar (nothing mounted): \(servers())  expect NAS")
+                let menu = NSMenu()
+                if let list = s.window?.window?.contentView.flatMap({ s.findAll(NSTableView.self, in: $0).first { $0.menu?.delegate is FileListViewController } }),
+                   let delegate = list.menu?.delegate {
+                    delegate.menuNeedsUpdate?(menu)
+                }
+                s.note("  background menu: \(menu.items.map { $0.isSeparatorItem ? "—" : $0.title })")
+                snapshot("server.png")
+                s.setViewMode(.details)
+            }),
+            (1.0, "", { s.note("  \(s.names())") }),
+            (0.2, "open Daniel (mounts it)", {
+                s.select("Daniel")
+                s.send("openSelected:")
+            }),
+            (6.0, "opened", {
+                s.note("  tab: \(s.window?.selectedTab.url.path ?? "-")")
+                s.note("  sidebar: \(servers())  expect one entry")
+                s.window?.goUp(nil)
+            }),
+            (3.0, "back on the server", {
+                s.note("  tab: \(s.window?.selectedTab.url.absoluteString ?? "-") selected \(s.selectedNames)")
+                s.note("  bar: \(bar())  expect Подключен + Отключить")
+                snapshot("connected.png")
+                if let server { Places.disconnect(server) }
+            }),
+            (0.5, "connect window", {
+                ConnectToServerWindow.show { s.note("  connect to \($0)") }
+            }),
+            (1.0, "Просмотреть", {
+                let before = AppDelegate.shared.windowControllers.count
+                if let window = ConnectToServerWindow.shared?.window {
+                    s.findAll(NSButton.self, in: window.contentView ?? NSView()).first { $0.title == L("Просмотреть") }?.performClick(nil)
+                }
+                s.note("  windows \(before) → \(AppDelegate.shared.windowControllers.count); connect window open: \(ConnectToServerWindow.shared?.window?.isVisible == true)")
+                ConnectToServerWindow.shared?.window?.close()
+            }),
+            (5.0, "after Отключить", {
+                s.note("  tab: \(s.window?.selectedTab.url.absoluteString ?? "-")  expect network")
+                s.note("  sidebar: \(servers())  expect none; mounted: \(Places.mountedShares().map(\.volume.path))")
+            }),
+        ])
+    }
 
     /// A video in icon view: its preview, its length under the name, the play button on hover, and
     /// playing in place; in the details view a small preview instead of the file type's icon.

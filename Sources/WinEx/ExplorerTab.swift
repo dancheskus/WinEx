@@ -11,17 +11,17 @@ final class ExplorerTab {
     var pendingSelection: [URL] = []
 
     init(url: URL) {
-        self.url = url.standardizedFileURL
+        self.url = Self.normalized(url)
     }
 
     var location: Location { Location(url) }
     var title: String { location.title }
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
-    var canGoUp: Bool { url.isFileURL && url.path != "/" }
+    var canGoUp: Bool { (url.isFileURL && url.path != "/") || Places.isServer(url) }
 
     func navigate(to newURL: URL) {
-        let target = newURL.standardizedFileURL
+        let target = Self.normalized(newURL)
         guard Location(target) != location else { return }
         backStack.append(url)
         forwardStack.removeAll()
@@ -54,6 +54,20 @@ final class ExplorerTab {
     func goUp() {
         guard canGoUp else { return }
         pendingSelection = [url]
-        navigate(to: url.deletingLastPathComponent())
+        navigate(to: Self.parent(of: url))
+    }
+
+    /// A server is kept as its address alone (smb://NAS._smb._tcp.local, no user or share).
+    private static func normalized(_ url: URL) -> URL {
+        Places.listsShares(url) ? Location(url).url : url.standardizedFileURL
+    }
+
+    /// Up from a share's top folder is its server's list of shares; up from a server, "Сеть".
+    private static func parent(of url: URL) -> URL {
+        if Places.isServer(url) { return Places.networkURL }
+        if (try? url.resourceValues(forKeys: [.isVolumeKey]))?.isVolume == true, let server = Places.serverURL(ofVolume: url) {
+            return server
+        }
+        return url.deletingLastPathComponent()
     }
 }

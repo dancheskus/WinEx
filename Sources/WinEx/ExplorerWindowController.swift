@@ -493,14 +493,30 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     @objc func connectToServer(_ sender: Any?) {
+        // (The window may be gone by the time the server answers: then a new one shows it)
         NetworkMounter.askAndMount { [weak self] mounted in
-            if let mounted { self?.navigate(to: mounted) }
+            guard let mounted else { return }
+            if let self, self.window?.isVisible == true {
+                self.navigate(to: mounted)
+                self.window?.makeKeyAndOrderFront(nil)
+            } else {
+                _ = AppDelegate.shared.openWindow(at: mounted)
+            }
         }
     }
 
     @objc func goToNetwork(_ sender: Any?) { navigate(to: Places.networkURL) }
     @objc func goToTrash(_ sender: Any?) { navigate(to: Places.trashURL) }
     @objc func openAirDrop(_ sender: Any?) { Places.openAirDrop() }
+
+    /// The server's last share was ejected: its tabs show "Сеть" instead of a list of nothing.
+    func leaveServer(_ server: URL) {
+        for (index, tab) in tabs.enumerated() where tab.location == .server(server) {
+            tab.navigate(to: Places.networkURL)
+            if index == selectedIndex { showSelectedTab() }
+        }
+        tabBar.reload()
+    }
 
     func navigate(to url: URL) {
         guard Location(url).isBrowsable else {
@@ -847,9 +863,17 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         pathField.stringValue = Location(selectedTab.url).addressText
     }
 
-    /// Accepts "/path", "~/path" and "file:///path". A file path reveals the file in its folder.
+    /// Accepts "/path", "~/path", "file:///path" and a server ("smb://NAS/share"). A file path
+    /// reveals the file in its folder.
     private func commitPath() {
         let raw = pathField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let server = URL(string: raw), Places.isServer(server), server.host != nil {
+            window?.makeFirstResponder(fileList.focusView)
+            // The server shown now, as the address bar spells it: stay
+            guard raw != Location(selectedTab.url).addressText else { return }
+            fileList(fileList, open: server, in: .current)
+            return
+        }
         let path: String
         if raw.hasPrefix("file://"), let url = URL(string: raw) {
             path = url.path
@@ -913,8 +937,12 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     // MARK: - FileListDelegate
 
     func fileList(_ list: FileListViewController, open url: URL, in target: FileListViewController.OpenTarget) {
-        // A server in "Сеть": mount it (system login / share picker), then show the share
-        if Places.isServer(url) {
+        // A share of a server: mount it (the system login if needed), then show it. A whole
+        // server is shown as a list of its shares (an NFS or FTP one mounts as it is)
+        if Places.isServer(url), !Places.listsShares(url) {
+            if !Places.isServerRoot(url), let mounted = NetworkMounter.existingMount(for: url) {
+                return fileList(list, open: mounted, in: target)
+            }
             NetworkMounter.mount(url) { [weak self] mounted in
                 guard let self, let mounted else { return }
                 self.fileList(list, open: mounted, in: target)
@@ -927,7 +955,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             FileCommands.extract(url)
             return
         }
-        guard url.isBrowsableDirectory else {
+        guard Location(url).isBrowsable else {
             NSWorkspace.shared.open(url)
             return
         }

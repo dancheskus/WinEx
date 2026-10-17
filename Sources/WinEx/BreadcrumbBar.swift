@@ -42,6 +42,9 @@ final class BreadcrumbBar: NSView {
             return (symbol("desktopcomputer"), Places.computerURL, [Crumb(title: L("Этот Mac"), url: Places.computerURL, folder: nil)])
         case .network:
             return (symbol("network"), Places.networkURL, [Crumb(title: L("Сеть"), url: Places.networkURL, folder: nil)])
+        case .server(let url):
+            return (symbol("network"), Places.networkURL, [Crumb(title: L("Сеть"), url: Places.networkURL, folder: nil),
+                                                          Crumb(title: location.title, url: url, folder: nil)])
         case .trash:
             return (symbol("trash"), Places.trashURL, [Crumb(title: L("Корзина"), url: Places.trashURL, folder: nil)])
         case .tag(let name):
@@ -62,7 +65,9 @@ final class BreadcrumbBar: NSView {
         let network = values?.volumeIsLocal == false
         if network {
             result.append(Crumb(title: L("Сеть"), url: Places.networkURL, folder: nil))
-            if let server = Places.serverName(ofVolume: volume) { result.append(Crumb(title: server, url: Places.networkURL, folder: nil)) }
+            if let server = Places.serverURL(ofVolume: volume) {
+                result.append(Crumb(title: Places.serverName(of: server) ?? "", url: server, folder: nil))
+            }
         }
         let volumeName = values?.volumeLocalizedName ?? fm.displayName(atPath: volume.path)
         result.append(Crumb(title: volumeName, url: volume, folder: volume))

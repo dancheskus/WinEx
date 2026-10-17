@@ -18,7 +18,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         let symbol: String
         /// Tag entries show a colored dot instead of a symbol.
         let tagColor: Int?
-        /// Removable and network volumes get an eject button.
+        /// Removable disks and servers get an eject button.
         var ejectable = false
         /// Entries that do something instead of navigating (AirDrop).
         var action: (() -> Void)?
@@ -82,6 +82,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         }
         observers.add(SidebarConfig.didChange) { [weak self] in self?.rebuild() }
         observers.add(TagLibrary.didChange) { [weak self] in self?.rebuild() }
+        observers.add(ServerShares.connectionsChanged) { [weak self] in self?.rebuild() }
         rebuild()
     }
 
@@ -113,16 +114,31 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         }
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey,
                                       .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]
+        var servers: [Item] = []
         for url in fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [] {
             let values = try? url.resourceValues(forKeys: Set(keys))
             let name = values?.volumeLocalizedName ?? url.lastPathComponent
             let item: Item
             let place: SidebarConfig.Place
             if values?.volumeIsLocal == false {
-                let server = Places.serverName(ofVolume: url)
-                item = Item(title: server.map { L("%@ на %@", name, $0) } ?? name, url: url, symbol: "externaldrive.connected.to.line.below")
-                item.toolTip = (try? url.resourceValues(forKeys: [.volumeURLForRemountingKey]))?.volumeURLForRemounting?.absoluteString
-                place = .servers
+                // Shares go under their server, one entry each, as in Finder: it lists all the
+                // server's shares, and ⏏ disconnects them all
+                guard let server = Places.serverURL(ofVolume: url) else {
+                    item = Item(title: name, url: url, symbol: "externaldrive.connected.to.line.below")
+                    item.ejectable = true
+                    add(.servers, item)
+                    continue
+                }
+                if let known = servers.first(where: { Places.sameServer($0.url, server) }) {
+                    known.toolTip = (known.toolTip ?? "") + ", " + name
+                } else {
+                    let entry = Item(title: Places.serverName(of: server) ?? name, url: server, symbol: "server.rack")
+                    entry.toolTip = L("Подключено: %@", name)
+                    entry.ejectable = true
+                    servers.append(entry)
+                    add(.servers, entry)
+                }
+                continue
             } else {
                 // (A disk image doesn't say: it's taken as external when it can be ejected, like a USB disk)
                 let isInternal = values?.volumeIsInternal ?? !(values?.volumeIsEjectable == true || values?.volumeIsRemovable == true)
@@ -130,8 +146,15 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
                 place = isInternal ? .internalDisks : .externalDisks
             }
             item.ejectable = !(values?.volumeIsRootFileSystem ?? false)
-                && (values?.volumeIsLocal == false || values?.volumeIsEjectable == true || values?.volumeIsRemovable == true)
+                && (values?.volumeIsEjectable == true || values?.volumeIsRemovable == true)
             add(place, item)
+        }
+        // Servers logged in to with nothing mounted yet: still there, as in Finder
+        for server in ServerShares.connected where !servers.contains(where: { Places.sameServer($0.url, server) }) {
+            let entry = Item(title: Places.serverName(of: server) ?? server.absoluteString, url: server, symbol: "server.rack")
+            entry.ejectable = true
+            servers.append(entry)
+            add(.servers, entry)
         }
         if let link = URL(string: "x-winex-airdrop://airdrop") {
             let airDrop = Item(title: "AirDrop", url: link, symbol: "airplayaudio")
@@ -163,7 +186,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         defer { suppressSelection = false }
         for section in sections {
             if let item = section.items.first(where: {
-                $0.url.isFileURL == url.isFileURL && ($0.url.isFileURL ? $0.url.standardizedFileURL.path == url.path : $0.url == url)
+                $0.url.isFileURL == url.isFileURL && ($0.url.isFileURL ? $0.url.standardizedFileURL.path == url.path : Location($0.url) == Location(url))
             }) {
                 let row = outlineView.row(forItem: item)
                 if row >= 0 { outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
@@ -227,7 +250,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             view.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(view)
         }
-        // Eject button for removable disks and network shares, like Finder
+        // Eject button for removable disks and servers, like Finder
         var trailing = cell.trailingAnchor
         if item.ejectable {
             let eject = SidebarEjectButton(volume: item.url)
@@ -433,7 +456,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     }
 }
 
-/// "⏏" next to a removable disk or a network share.
+/// "⏏" next to a removable disk or a server (all its shares).
 private final class SidebarEjectButton: NSButton {
     private let volume: URL
 
@@ -452,6 +475,6 @@ private final class SidebarEjectButton: NSButton {
     required init?(coder: NSCoder) { fatalError() }
 
     @objc private func eject(_ sender: Any?) {
-        Places.unmount(volume)
+        if Places.isServer(volume) { Places.disconnect(volume) } else { Places.unmount(volume) }
     }
 }

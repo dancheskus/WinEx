@@ -29,6 +29,8 @@ enum MenuStyle {
         "putBackFromTrash:": ("arrow.uturn.backward", "", []),
         "deleteForever:": ("trash.slash", "", []),
         "emptyTrash:": ("trash", "", []),
+        "disconnectFromServer:": ("eject", "", []),
+        "ejectSelectedShares:": ("eject", "", []),
         "openFullDiskAccess:": ("lock.shield", "", []),
         "refresh:": ("arrow.clockwise", "r", .command),
         "refreshAction:": ("arrow.clockwise", "r", .command),

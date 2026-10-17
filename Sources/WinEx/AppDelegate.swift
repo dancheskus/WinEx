@@ -173,12 +173,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// A disk ejected (a disk image, a USB disk, a network share): its tabs close — a window showing
-    /// only that disk closes, as Finder's does.
+    /// only that disk closes, as Finder's does. A server left with no shares mounted: tabs showing
+    /// it go to "Сеть" (Finder leaves the server's window too).
     private var unmountObserver: NSObjectProtocol?
+    private var mountObserver: NSObjectProtocol?
     private func closeTabsOfEjectedVolumes() {
+        Places.rememberShareServers()
+        mountObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { Places.rememberShareServers() }
+        }
         unmountObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didUnmountNotification, object: nil, queue: .main) { [weak self] note in
             MainActor.assumeIsolated {
                 guard let self, let volume = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL else { return }
+                if let server = Places.server(ofEjected: volume), Places.mountedShares(on: server).isEmpty {
+                    Places.disconnect(server)
+                }
                 let root = volume.standardizedFileURL.path
                 func onVolume(_ tab: ExplorerTab) -> Bool {
                     guard let directory = Location(tab.url).directory?.standardizedFileURL.path else { return false }

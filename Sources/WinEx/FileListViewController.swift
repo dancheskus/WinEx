@@ -30,8 +30,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private let drivesView = DrivesView()
     /// "Эта папка пуста", "Ничего не найдено", no access to the Trash…
     private let emptyState = EmptyStateView()
-    private let trashBar = TrashBar()
-    private var trashBarHeight = NSLayoutConstraint()
+    /// Finder's bar above the Trash ("Очистить") and a server ("Подключен: …", "Отключить").
+    private let placeBar = PlaceBar()
+    private var placeBarHeight = NSLayoutConstraint()
     private let gridScrollView = NSScrollView()
     private let flowLayout = LeftAlignedFlowLayout()
 
@@ -85,23 +86,22 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             delegate?.fileList(self, open: url, in: .newTab)
         }
         drivesView.onProperties = { PropertiesWindowController.show(for: [$0]) }
-        // Finder's Trash bar: its name and "Очистить" above the list
-        trashBar.translatesAutoresizingMaskIntoConstraints = false
-        trashBar.isHidden = true
-        trashBar.onEmpty = { [weak self] in self?.emptyTrash(nil) }
-        container.addSubview(trashBar)
-        trashBarHeight = trashBar.heightAnchor.constraint(equalToConstant: 0)
+        // Finder's bar above the Trash and a server's shares
+        placeBar.translatesAutoresizingMaskIntoConstraints = false
+        placeBar.isHidden = true
+        container.addSubview(placeBar)
+        placeBarHeight = placeBar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            trashBar.topAnchor.constraint(equalTo: container.topAnchor),
-            trashBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            trashBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            trashBarHeight,
+            placeBar.topAnchor.constraint(equalTo: container.topAnchor),
+            placeBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            placeBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            placeBarHeight,
         ])
         for scrollView in [tableScrollView, gridScrollView, drivesView, emptyState] as [NSView] {
             scrollView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(scrollView)
             NSLayoutConstraint.activate([
-                scrollView.topAnchor.constraint(equalTo: trashBar.bottomAnchor),
+                scrollView.topAnchor.constraint(equalTo: placeBar.bottomAnchor),
                 scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
                 scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                 scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -126,7 +126,13 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             }
         }
         observers.add(.folderViewDefaultsChanged) { [weak self] in self?.showFolderView() }
-        observers.add(NetworkBrowser.didChange) { [weak self] in if self?.showingNetwork == true { self?.reload() } }
+        observers.add(NetworkBrowser.didChange) { [weak self] in if self?.location == .network { self?.reload() } }
+        // A server's list marks which of its shares are mounted
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            observers.add(name, center: NSWorkspace.shared.notificationCenter) { [weak self] in
+                if case .server = self?.location { self?.reload() }
+            }
+        }
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
         observers.add(FileClipboard.didChange) { [weak self] in self?.updateCutAppearance() }
     }
@@ -344,6 +350,13 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             showNetworkServers()
             refilter(keepSelection: false)
             return
+        case .server(let server):
+            // A server: its shares, read in the background; double-click mounts one
+            directory = nil
+            watcher = nil; tagWatcher = nil
+            allItems = []
+            showServerShares(server, login: .allowed, select: select)
+            return
         case .tag(let tag):
             // A tag location: every file with the tag, found by Spotlight (updates live)
             startSearch(FileSearch(predicate: NSPredicate(format: "kMDItemUserTags == %@", tag), scope: nil))
@@ -399,9 +412,13 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
         reloadAfterEditing = false
         if let completion { reloadCompletions.append(completion) }
-        if showingNetwork {
+        if location == .network {
             showNetworkServers()
             finishReload()
+            return
+        }
+        if case .server(let server) = location {
+            showServerShares(server, login: .silent, then: { [weak self] in self?.finishReload() })
             return
         }
         let produce: FolderLoader.Produce
@@ -498,17 +515,96 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     /// What is shown: a folder, the Trash, a tag or the network.
     private(set) var location: Location?
-    private var showingNetwork: Bool { location == .network }
+    /// The network or a server: a list of servers or shares, not files.
+    private var showingNetwork: Bool {
+        if case .server = location { return true }
+        return location == .network
+    }
 
     private func showNetworkServers() {
-        let icon = NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
-            .map { symbol in NSImage(size: NSSize(width: 64, height: 64), flipped: false) { rect in
-                symbol.withSymbolConfiguration(.init(pointSize: 40, weight: .light))?.draw(in: DesktopView.aspectFit(symbol.size, in: rect.insetBy(dx: 8, dy: 8)))
-                return true
-            } } ?? NSImage()
-        allItems = NetworkBrowser.shared.servers.map { FileItem(virtual: $0.name, url: $0.url, icon: icon, kind: L("Сервер (%@)", $0.url.scheme?.uppercased() ?? "")) }
+        // Finder's server picture
+        let icon = NSWorkspace.shared.icon(for: UTType("com.apple.xserve") ?? .volume)
+        allItems = NetworkBrowser.shared.serversWithConnected.map { FileItem(virtual: $0.name, url: $0.url, icon: icon, kind: L("Сервер (%@)", $0.url.scheme?.uppercased() ?? "")) }
         allItemsOrder = nil
         errorMessage = nil
+    }
+
+    /// The shown server's shares (the last list while logging in again).
+    private var serverListing: ServerShares.Listing?
+
+    /// Logged in to the shown server, as whom: the bar says so and offers what Finder's does.
+    private enum ServerLogin { case connecting, connected(user: String?), failed }
+    private var serverLogin = ServerLogin.connecting
+
+    /// A server's shares: the last list at once, then the fresh one. Every item is the share's
+    /// address, so opening it mounts it if needed.
+    private func showServerShares(_ server: URL, login: ServerShares.Login, select: [URL] = [], then completion: (() -> Void)? = nil) {
+        // Opening the server: the last list at once, "Подключение…" until logged in. «Подключиться
+        // как…» changes nothing until its login window is answered
+        let fresh = completion == nil && login != .ask
+        if fresh {
+            serverListing = ServerShares.cached(server)
+            serverLogin = .connecting
+            showShares()
+            refilter(keepSelection: false)
+        }
+        ServerShares.list(server, login: login) { [weak self] listing in
+            guard let self, self.location == .server(server) else { return }
+            if login == .ask, listing == nil { return }  // cancelled: as it was
+            serverLogin = listing.map { .connected(user: $0.user) } ?? .failed
+            serverListing = listing
+            showShares()
+            if let completion { return completion() }
+            refilter(keepSelection: true)
+            // Up from a share's folder: that share selected
+            let volumes = Set(select.map(\.standardizedFileURL.path))
+            let names = Set(listing?.shares.filter { $0.volume.map { volumes.contains($0.standardizedFileURL.path) } == true }.map(\.name) ?? [])
+            let indexes = IndexSet(items.indices.filter { names.contains(self.items[$0].name) })
+            if !indexes.isEmpty { setSelection(indexes, scrollTo: indexes.first ?? 0) }
+        }
+    }
+
+    private func showShares() {
+        // Finder's shared-folder picture, mounted or not
+        let icon = NSWorkspace.shared.icon(for: UTType("public.file-sharepoint") ?? .folder)
+        allItems = (serverListing?.shares ?? []).map { share in
+            FileItem(virtual: share.name, url: share.url, icon: icon, kind: share.volume == nil ? L("Общая папка") : L("Подключена"))
+        }
+        allItemsOrder = nil
+        errorMessage = nil
+    }
+
+    /// The bar above the list: the Trash's "Очистить"; a server's login and "Отключить".
+    private func updatePlaceBar() {
+        var shown = true
+        switch location {
+        case .trash:
+            placeBar.show(L("Корзина"), emphasized: true, buttons: [
+                PlaceBar.Button(title: L("Очистить"), toolTip: L("Удалить навсегда всё, что лежит в Корзине"),
+                                enabled: errorMessage == nil && !allItems.isEmpty) { [weak self] in self?.emptyTrash(nil) },
+            ])
+        case .server(let server):
+            let connectAs = PlaceBar.Button(title: L("Подключиться как…"), toolTip: nil, enabled: true) { [weak self] in
+                self?.showServerShares(server, login: .ask)
+            }
+            switch serverLogin {
+            case .connecting:
+                placeBar.show(L("Подключение…"), emphasized: false, buttons: [])
+            case .failed:
+                placeBar.show(L("Не подключен"), emphasized: false, buttons: [connectAs])
+            case .connected(let user):
+                // As in Finder: connected means "Отключить" (another login is offered once disconnected)
+                placeBar.show(user.map { L("Подключен: %@", $0) } ?? L("Подключен как гость"), emphasized: false, buttons: [
+                    PlaceBar.Button(title: L("Отключить"), toolTip: L("Извлечь все подключённые папки «%@» и выйти из него", location?.title ?? ""), enabled: true) { [weak self] in
+                        self?.disconnect(from: server)
+                    },
+                ])
+            }
+        default:
+            shown = false
+        }
+        placeBar.isHidden = !shown
+        placeBarHeight.constant = shown ? PlaceBar.height : 0
     }
 
     private func apply(_ listing: FolderLoader.Listing) {
@@ -629,10 +725,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     /// A message instead of an empty list: why it's empty and what to do about it.
     private func updateEmptyState() {
-        let inTrash = location == .trash
-        trashBar.isHidden = !inTrash
-        trashBarHeight.constant = inTrash ? TrashBar.height : 0
-        trashBar.canEmpty = inTrash && errorMessage == nil && !allItems.isEmpty
+        updatePlaceBar()
         guard items.isEmpty, drivesView.isHidden else { return emptyState.isHidden = true }
         if location == .trash, errorMessage != nil {
             emptyState.show(L("Нет доступа к Корзине"),
@@ -646,6 +739,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             if searchState.gathering || searchState.walking { emptyState.isHidden = true } else { emptyState.show(L("Ничего не найдено")) }
         } else if location == .network {
             emptyState.show(L("Серверы не найдены"), detail: L("Подключиться к серверу по адресу — ⌘K."))
+        } else if case .server(let server) = location {
+            if case .failed = serverLogin {
+                emptyState.show(L("Нет списка общих папок"),
+                                detail: L("Чтобы увидеть папки «%@», подключитесь к нему.", Places.serverName(of: server) ?? ""),
+                                button: L("Подключиться как…")) { [weak self] in self?.showServerShares(server, login: .ask) }
+            } else {
+                emptyState.isHidden = true
+            }
         } else if case .tag = location {
             emptyState.isHidden = !(search.map { !$0.state.gathering } ?? true)
             if !emptyState.isHidden { emptyState.show(L("Нет файлов с этим тегом")) }
@@ -761,6 +862,24 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         for url in urls.dropFirst() {
             delegate?.fileList(self, open: url, in: .newTab)
         }
+    }
+
+    /// In a server's list: the selected shares that are mounted.
+    private var mountedSelectedShares: [URL] {
+        targetURLs.compactMap { NetworkMounter.existingMount(for: $0) }
+    }
+
+    @objc private func ejectSelectedShares(_ sender: Any?) {
+        mountedSelectedShares.forEach(Places.unmount)
+    }
+
+    /// «Отключить» / «Извлечь «NAS»»: the server's shares ejected, and back to "Сеть".
+    private func disconnect(from server: URL) {
+        Places.disconnect(server)
+    }
+
+    @objc private func disconnectFromServer(_ sender: Any?) {
+        if case .server(let server) = location { disconnect(from: server) }
     }
 
     @objc func openInNewTab(_ sender: Any?) {
@@ -1115,8 +1234,17 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         func add(_ title: String, _ action: Selector) {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
-        if clickedIndex >= 0 && showingNetwork {
+        if clickedIndex >= 0 && location == .network {
             add(L("Подключиться"), #selector(openSelected(_:)))
+            return
+        }
+        if clickedIndex >= 0, case .server = location {
+            add(L("Открыть"), #selector(openSelected(_:)))
+            add(L("Открыть в новой вкладке"), #selector(openInNewTab(_:)))
+            if !mountedSelectedShares.isEmpty {
+                menu.addItem(.separator())
+                add(L("Извлечь"), #selector(ejectSelectedShares(_:)))
+            }
             return
         }
         if clickedIndex >= 0 && location == .trash {
@@ -1144,6 +1272,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 menu.insertItem(reveal, at: open + 1)
             }
         } else {
+            // A server, as in Finder: «Извлечь «NAS»» first
+            if case .server = location, case .connected = serverLogin {
+                add(L("Извлечь «%@»", menuName(location?.title ?? "")), #selector(disconnectFromServer(_:)))
+                menu.addItem(.separator())
+            }
             let viewItem = NSMenuItem(title: L("Вид"), action: nil, keyEquivalent: "")
             let viewMenu = NSMenu()
             for mode in ViewMode.allCases {
@@ -1166,6 +1299,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             let sortMenu = makeSortMenu()
             menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
             add(L("Обновить"), #selector(refresh(_:)))
+            // The network and a server hold no files: nothing to create, paste or copy the path of
+            if showingNetwork { return }
             menu.addItem(.separator())
             menu.addItem(NewItemTemplate.menuItem(target: self, action: #selector(createNewItem(_:)), withFolder: false))
             menu.addItem(.separator())
@@ -1619,33 +1754,40 @@ final class FileTableView: NSTableView {
     }
 }
 
-/// The bar above the Trash: "Корзина" and the "Очистить" button, like Finder's.
-private final class TrashBar: NSView {
+/// The bar above the Trash ("Корзина", "Очистить") and a server ("Подключен: …", "Отключить"),
+/// like Finder's.
+private final class PlaceBar: NSView {
     static let height: CGFloat = 40
-    var onEmpty: (() -> Void)?
-    var canEmpty = false { didSet { button.isEnabled = canEmpty } }
-    private let button = NSButton(title: L("Очистить"), target: nil, action: nil)
+
+    struct Button {
+        let title: String
+        let toolTip: String?
+        let enabled: Bool
+        let action: () -> Void
+    }
+
+    private let title = NSTextField(labelWithString: "")
+    private let buttons = NSStackView()
+    private var actions: [() -> Void] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        let title = NSTextField(labelWithString: L("Корзина"))
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        button.bezelStyle = .push
-        button.controlSize = .regular
-        button.toolTip = L("Удалить навсегда всё, что лежит в Корзине")
-        button.target = self
-        button.action = #selector(empty(_:))
+        title.lineBreakMode = .byTruncatingTail
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        buttons.orientation = .horizontal
+        buttons.spacing = 8
         let line = NSBox()
         line.boxType = .separator
-        for view in [title, button, line] {
+        for view in [title, buttons, line] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         NSLayoutConstraint.activate([
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
-            button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            button.centerYAnchor.constraint(equalTo: centerYAnchor),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: buttons.leadingAnchor, constant: -12),
+            buttons.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            buttons.centerYAnchor.constraint(equalTo: centerYAnchor),
             line.leadingAnchor.constraint(equalTo: leadingAnchor),
             line.trailingAnchor.constraint(equalTo: trailingAnchor),
             line.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -1655,7 +1797,27 @@ private final class TrashBar: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc private func empty(_ sender: Any?) { onEmpty?() }
+    /// `emphasized`: a place's name in bold (the Trash); otherwise a quiet status line (a server).
+    func show(_ text: String, emphasized: Bool, buttons list: [Button]) {
+        title.stringValue = text
+        title.font = .systemFont(ofSize: 13, weight: emphasized ? .semibold : .regular)
+        title.textColor = emphasized ? .labelColor : .secondaryLabelColor
+        actions = list.map(\.action)
+        buttons.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (index, item) in list.enumerated() {
+            let button = NSButton(title: item.title, target: self, action: #selector(press(_:)))
+            button.bezelStyle = .push
+            button.controlSize = .regular
+            button.tag = index
+            button.toolTip = item.toolTip
+            button.isEnabled = item.enabled
+            buttons.addArrangedSubview(button)
+        }
+    }
+
+    @objc private func press(_ sender: NSButton) {
+        if actions.indices.contains(sender.tag) { actions[sender.tag]() }
+    }
 }
 
 /// The columns of the "Таблица" view.
