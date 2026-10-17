@@ -72,7 +72,42 @@ enum Scenarios {
         "releasenotes": releaseNotes,
         "deviceimport": deviceImport,
         "cloudprogress": cloudProgress,
+        "devicemenu": deviceMenu,
     ]
+
+    /// «Импортировать с iPhone»: AppKit fills a copy of the File menu's item as the menu opens
+    /// (needs an iPhone near); an item left unfilled (no device) is hidden, not greyed out.
+    static func deviceMenu(_ s: Scenario) {
+        func state(_ item: NSMenuItem?) -> String {
+            guard let item else { return "nil" }
+            return "«\(item.title)» hidden \(item.isHidden) enabled \(item.isEnabled) submenu \(item.submenu?.items.map(\.title) ?? [])"
+        }
+        let main = NSApp.mainMenu?.items.compactMap(\.submenu).flatMap(\.items).first { $0.identifier == NSMenuItem.importFromDeviceIdentifier }
+        s.note("  main at start: \(state(main))")
+        let menu = NSMenu()
+        let copy = main?.copy() as? NSMenuItem
+        copy.map(menu.addItem)
+        // An item AppKit won't fill: as with no device near
+        let empty = NSMenuItem(title: "empty", action: nil, keyEquivalent: "")
+        empty.identifier = NSMenuItem.importFromDeviceIdentifier
+        menu.addItem(empty)
+        s.note("  copy made: \(state(copy))")
+        menu.update()
+        s.note("  copy after update: \(state(copy))")
+        s.run([
+            (1.0, "", { s.note("  copy 1 s later: \(state(copy)); main \(state(main))") }),
+            (0.1, "", {
+                let check = Timer(timeInterval: 0.1, repeats: false) { _ in
+                    s.note("  copy 0.1 s into tracking: \(state(copy))  expect shown, with the iPhone")
+                    s.note("  unfilled item hidden \(empty.isHidden)  expect true")
+                    menu.cancelTracking()
+                }
+                RunLoop.main.add(check, forMode: .common)
+                menu.popUp(positioning: nil, at: NSPoint(x: 300, y: 300), in: nil)
+                s.note("  main after: \(state(main))")
+            }),
+        ])
+    }
 
     /// iCloud's uploads: a bar on the file's icon (list and icons) and a circle by «iCloud Drive»
     /// in the sidebar — first with a made-up 40 %, then for real: a file written into iCloud Drive

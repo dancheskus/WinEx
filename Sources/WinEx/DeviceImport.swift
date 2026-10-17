@@ -16,6 +16,21 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
     /// Once at launch: AppKit asks for a requestor only for types an app has registered.
     static func register() {
         NSApp.registerServicesMenuSendTypes([], returnTypes: types)
+        // AppKit fills the item with the devices as the menu opens; with none near, it isn't
+        // shown at all (not even greyed out)
+        NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
+            guard let menu = note.object as? NSMenu else { return }
+            MainActor.assumeIsolated {
+                let items = menu.items.filter { $0.identifier == NSMenuItem.importFromDeviceIdentifier }
+                guard !items.isEmpty else { return }
+                let check = Timer(timeInterval: 0.03, repeats: false) { _ in
+                    MainActor.assumeIsolated {
+                        for item in items { item.isHidden = !(item.submenu?.items.contains { !$0.isSeparatorItem } ?? false) }
+                    }
+                }
+                RunLoop.main.add(check, forMode: .common)
+            }
+        }
     }
 
     /// The item for a context menu. AppKit serves only the item that was in the main menu from the
