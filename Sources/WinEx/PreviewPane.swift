@@ -211,7 +211,7 @@ final class PreviewPane: NSView {
             return showText(of: url)
         }
         // Made as large as the frame can get, so a wider pane doesn't need a new one
-        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.maximumWidth, height: Self.previewHeight),
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.maximumWidth, height: Self.pictureHeight),
                                                    scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
         thumbnailRequest = request
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
@@ -259,6 +259,8 @@ final class PreviewPane: NSView {
 
     /// The frame's height at most (it's as wide as the pane).
     private static let previewHeight: CGFloat = 340
+    /// A page or picture's height at most: a portrait page gets the pane's whole width, as in Finder.
+    private static let pictureHeight: CGFloat = 520
 
     /// One icon, or a few fanned out behind each other for several items.
     private static func icon(for urls: [URL]) -> NSImage? {
@@ -369,8 +371,16 @@ final class PreviewPane: NSView {
             document.frame = NSRect(x: 0, y: 0, width: width, height: scrollView.contentSize.height)
             return
         }
-        let previewHeight = min(max(inner * 0.9, 120), Self.previewHeight)
-        let area = NSRect(x: margin, y: y, width: inner, height: previewHeight)
+        var previewHeight = min(max(inner * 0.9, 120), Self.previewHeight)
+        var area = NSRect(x: margin, y: y, width: inner, height: previewHeight)
+        // A page or picture: the frame hugs it (no empty bands beside a narrow page), as wide as
+        // the pane allows and as tall as its proportions make it
+        if let image = thumbnailView.image, !previewBox.isHidden, image.size.width > 0, image.size.height > 0 {
+            let scale = min(inner / image.size.width, min(inner * 1.5, Self.pictureHeight) / image.size.height)
+            let size = NSSize(width: (image.size.width * scale).rounded() + 2, height: (image.size.height * scale).rounded() + 2)
+            area = NSRect(x: margin + (inner - size.width) / 2, y: y, width: size.width, height: size.height)
+            previewHeight = size.height
+        }
         previewBox.frame = area
         let fitted = previewBox.bounds.insetBy(dx: 1, dy: 1)
         preview?.frame = fitted
