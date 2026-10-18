@@ -31,6 +31,8 @@ enum FileContextMenu {
     /// The Explorer-like menu for right-clicked files: tag colors, Open, Open with, clipboard,
     /// rename / trash / share, tags, folder look, properties.
     static func addItems(to menu: NSMenu, for urls: [URL], target: FileMenuActions, folderTabs: Bool, customizableFolder: Bool) {
+        // (Not AppKit's devices section at the end: «Импортировать с iPhone» is for a folder's own menu)
+        menu.allowsContextMenuPlugIns = false
         func add(_ title: String, _ action: Selector) {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = target
         }
