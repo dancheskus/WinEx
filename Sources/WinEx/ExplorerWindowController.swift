@@ -27,6 +27,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let pathField = AddressField()
     private let viewModeButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let viewModeToggle = NSSegmentedControl()
+    /// Next to the view toggles: the preview pane on and off (lit while it's shown).
+    private let previewToggle = NSSegmentedControl()
     private let searchField = RoomySearchField()
     private let splitView = NSSplitView()
     private let sidebar = SidebarViewController()
@@ -243,6 +245,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let statusBar = NSView()
         statusBar.addSubview(statusLabel)
         statusBar.addSubview(viewModeToggle)
+        statusBar.addSubview(previewToggle)
 
         let topSeparator = NSBox(); topSeparator.boxType = .separator
         let bottomSeparator = NSBox(); bottomSeparator.boxType = .separator
@@ -251,7 +254,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let fileView = filesSplit
         previewPane.onOpen = { [weak self] in self?.fileList.openSelected(nil) }
         filesSplit.isPaneShown = PreviewPane.isShownByDefault
-        for view in [tabBar, navBar, navStack, topSeparator, commandBar, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle, fileView] as [NSView] {
+        previewToggle.setSelected(filesSplit.isPaneShown, forSegment: 0)
+        for view in [tabBar, navBar, navStack, topSeparator, commandBar, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle, previewToggle, fileView] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         content.addSubview(splitView)
@@ -316,6 +320,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
             viewModeToggle.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -8),
             viewModeToggle.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            previewToggle.trailingAnchor.constraint(equalTo: viewModeToggle.leadingAnchor, constant: -8),
+            previewToggle.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
         ])
 
         window.layoutIfNeeded()
@@ -486,6 +492,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     @objc func togglePreviewPane(_ sender: Any?) {
         filesSplit.isPaneShown.toggle()
         PreviewPane.isShownByDefault = filesSplit.isPaneShown
+        previewToggle.setSelected(filesSplit.isPaneShown, forSegment: 0)
         updatePreviewPane()
         commandBar.updateState()
     }
@@ -499,6 +506,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     #if DEBUG
     var debugPreviewPane: PreviewPane? { filesSplit.isPaneShown ? previewPane : nil }
+    var debugPreviewToggle: NSSegmentedControl { previewToggle }
     #endif
 
     @objc func toggleCommandBar(_ sender: Any?) {
@@ -549,6 +557,17 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         viewModeToggle.setToolTip(L("Значки"), forSegment: 1)
         viewModeToggle.target = self
         viewModeToggle.action = #selector(viewModeToggleChanged(_:))
+
+        previewToggle.segmentCount = 1
+        previewToggle.trackingMode = .selectAny
+        previewToggle.segmentStyle = .texturedRounded
+        previewToggle.controlSize = .regular
+        previewToggle.setImage(NSImage(systemSymbolName: BarCommand.preview.symbol, accessibilityDescription: L("Панель предпросмотра"))?
+            .withSymbolConfiguration(toggleSymbol), forSegment: 0)
+        previewToggle.setWidth(34, forSegment: 0)
+        previewToggle.setToolTip(L("Панель предпросмотра (⇧⌘P)"), forSegment: 0)
+        previewToggle.target = self
+        previewToggle.action = #selector(togglePreviewPane(_:))
     }
 
     private func updateViewModeControls() {

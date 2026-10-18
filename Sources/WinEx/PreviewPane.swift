@@ -39,6 +39,11 @@ final class PreviewPane: NSView {
     private let thumbnailView = NSImageView()
     /// The thumbnail being made (a newer selection replaces it).
     private var thumbnailRequest: QLThumbnailGenerator.Request?
+    /// Text files are shown as text, as in Finder: wrapped, scrolled, selectable.
+    private let textScroll = NSScrollView()
+    private let textView = NSTextView()
+    /// The file whose text is being read (a newer selection replaces it).
+    private var textURL: URL?
     private let nameLabel = NSTextField(wrappingLabelWithString: "")
     private let kindLabel = NSTextField(wrappingLabelWithString: "")
     private let placeholder = NSTextField(labelWithString: L("Нет предпросмотра"))
@@ -73,6 +78,21 @@ final class PreviewPane: NSView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         thumbnailView.imageScaling = .scaleProportionallyUpOrDown
         previewBox.addSubview(thumbnailView)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textScroll.documentView = textView
+        textScroll.hasVerticalScroller = true
+        textScroll.autohidesScrollers = true
+        textScroll.scrollerStyle = .overlay
+        textScroll.drawsBackground = false
+        textScroll.isHidden = true
+        previewBox.addSubview(textScroll)
         nameLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         nameLabel.isSelectable = true
         kindLabel.font = .systemFont(ofSize: 13)
@@ -171,6 +191,9 @@ final class PreviewPane: NSView {
         if let request = thumbnailRequest { QLThumbnailGenerator.shared.cancel(request) }
         thumbnailRequest = nil
         thumbnailView.image = nil
+        textURL = nil
+        textScroll.isHidden = true
+        textView.string = ""
         preview?.previewItem = nil
         preview?.removeFromSuperview()
         previewBox.isHidden = true
@@ -183,6 +206,9 @@ final class PreviewPane: NSView {
             previewBox.isHidden = false
             iconView.isHidden = true
             return needsLayout = true
+        }
+        if type?.conforms(to: .plainText) == true {
+            return showText(of: url)
         }
         // Made as large as the frame can get, so a wider pane doesn't need a new one
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.maximumWidth, height: Self.previewHeight),
@@ -199,6 +225,36 @@ final class PreviewPane: NSView {
                 self.needsLayout = true
             }
         }
+    }
+
+    /// The beginning of a text file (scripts, notes, source code, JSON…), read in the background.
+    private func showText(of url: URL) {
+        textURL = url
+        Task { [weak self] in
+            let text = await Task.detached(priority: .userInitiated) { Self.beginning(of: url) }.value
+            guard let self, self.textURL == url, let text else { return }
+            self.textView.string = text
+            self.textView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+            self.textView.textColor = .labelColor
+            self.textView.scroll(.zero)
+            self.textScroll.isHidden = false
+            self.previewBox.isHidden = false
+            self.iconView.isHidden = true
+            self.needsLayout = true
+        }
+    }
+
+    /// The first 200 KB as text (UTF-8, else what the file says, else Latin 1); nil for a file
+    /// that isn't text after all.
+    nonisolated private static func beginning(of url: URL) -> String? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard var data = try? handle.read(upToCount: 200_000) else { return nil }
+        if data.contains(0) { return nil }
+        // A UTF-8 character cut at the end
+        for _ in 0..<3 where String(data: data, encoding: .utf8) == nil && !data.isEmpty { data.removeLast() }
+        if let text = String(data: data, encoding: .utf8) { return text }
+        return String(data: data, encoding: .windowsCP1251) ?? String(data: data, encoding: .isoLatin1)
     }
 
     /// The frame's height at most (it's as wide as the pane).
@@ -319,6 +375,7 @@ final class PreviewPane: NSView {
         let fitted = previewBox.bounds.insetBy(dx: 1, dy: 1)
         preview?.frame = fitted
         thumbnailView.frame = fitted
+        textScroll.frame = fitted
         let iconSide = min(area.width, area.height, 160)
         iconView.frame = NSRect(x: area.midX - iconSide / 2, y: area.midY - iconSide / 2, width: iconSide, height: iconSide)
         y += previewHeight + 12
@@ -361,6 +418,7 @@ final class PreviewPane: NSView {
     var debugLines: [String] { lines.map { $0.label.stringValue + ($0.value.map { ": " + $0.stringValue } ?? "") } }
     var debugShowsLivePreview: Bool { preview?.superview != nil }
     var debugShowsThumbnail: Bool { !previewBox.isHidden && thumbnailView.image != nil }
+    var debugText: String { textScroll.isHidden ? "" : String(textView.string.prefix(30)) }
     var debugButtons: [String] { buttons.map(\.title) }
     var debugGeometry: String {
         "pane \(Int(frame.width)), clip \(Int(scrollView.contentView.frame.width)), scroller \(scrollView.verticalScroller.map { "\(Int($0.frame.width)) \($0.isHidden ? "hidden" : "shown") style \($0.scrollerStyle.rawValue)" } ?? "-"), name right \(Int(nameLabel.frame.maxX)), doc \(Int(document.frame.width))"

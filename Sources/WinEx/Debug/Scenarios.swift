@@ -294,6 +294,7 @@ enum Scenarios {
     /// take the whole width.
     static func previewPane(_ s: Scenario) {
         let base = s.makeFiles(["notes.txt", "Box/", "Box/one.txt", "Box/two.txt"], in: "preview")
+        try? "#!/usr/bin/env bash\n\nset -euo pipefail\n# Установка\nDEFAULT_PORT=\"8090\"\n".write(to: base.appendingPathComponent("install.sh"), atomically: true, encoding: .utf8)
         // A document of a few pages: Finder shows its first page whole
         let page = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
         page.string = (1...80).map { "Строка \($0): план действий, маршрут и всё остальное." }.joined(separator: "\n")
@@ -308,7 +309,7 @@ enum Scenarios {
         func pane() -> PreviewPane? { s.window?.debugPreviewPane }
         func report(_ expect: String) {
             guard let pane = pane() else { return s.note("  pane hidden  \(expect)") }
-            s.note("  «\(pane.debugName)» — \(pane.debugKind); live \(pane.debugShowsLivePreview), picture \(pane.debugShowsThumbnail); buttons \(pane.debugButtons)  \(expect)")
+            s.note("  «\(pane.debugName)» — \(pane.debugKind); live \(pane.debugShowsLivePreview), picture \(pane.debugShowsThumbnail), text «\(pane.debugText)»; buttons \(pane.debugButtons)  \(expect)")
             s.note("    \(pane.debugLines)")
             s.note("    \(pane.debugGeometry)")
         }
@@ -336,6 +337,11 @@ enum Scenarios {
                 report("expect picture true, live false")
                 if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8) }
             }),
+            (0.2, "select the script", { s.select("install.sh") }),
+            (0.8, "", {
+                report("expect text «#!/usr/bin/env bash…», picture false")
+                if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-2"), atomically: true, encoding: .utf8) }
+            }),
             (1.0, "select the folder", { s.select("Box") }),
             (0.8, "", { report("expect Box, live false, Содержит: 2") }),
             (0.2, "select two", {
@@ -348,6 +354,14 @@ enum Scenarios {
                 window.setFrame(NSRect(x: window.frame.minX, y: window.frame.minY, width: 820, height: window.frame.height), display: true)
             }),
             (0.4, "", { s.note("  \(widths())  expect files ≥ 300") }),
+            (0.2, "", { s.note("  status bar button lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect true") }),
+            (0.2, "status bar button", {
+                guard let toggle = s.window?.debugPreviewToggle else { return }
+                s.click(toggle, at: NSPoint(x: toggle.bounds.midX, y: toggle.bounds.midY))
+            }),
+            (0.5, "", { report("expect hidden"); s.note("  lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect false") }),
+            (0.2, "⇧⌘P", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
+            (0.5, "", { s.note("  lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect true") }),
             (0.2, "⇧⌘P again", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
             (0.5, "", { report("expect hidden"); s.note("  \(widths()); default now \(PreviewPane.isShownByDefault)  expect false") }),
         ])
