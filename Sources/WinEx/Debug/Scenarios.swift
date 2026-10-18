@@ -29,6 +29,7 @@ enum Scenarios {
         "update": update,
         "settings": settingsTabs,
         "sidebar": sidebar,
+        "recents": recents,
         "commandbar": commandBarScenario,
         "menuswitch": menuSwitch,
         "properties": properties,
@@ -2201,6 +2202,50 @@ enum Scenarios {
 
     /// The properties window: a photo with camera data (all three tabs), a folder, an app's
     /// details. Photographed by scripts/capture-window.sh properties 5.
+    /// «Недавние» and «Общий доступ» in the sidebar and their lists; a folder's «Доступ» tab with
+    /// editable permissions and network sharing (photographed with scripts/capture-window.sh recents 3).
+    static func recents(_ s: Scenario) {
+        let folder = s.makeFiles(["a.txt"], in: "Общая")
+        func outline() -> NSOutlineView? {
+            s.findAll(NSOutlineView.self, in: s.window?.window?.contentView ?? NSView()).first { $0.dataSource is SidebarViewController }
+        }
+        func titles() -> [String] {
+            guard let outline = outline() else { return [] }
+            return (0..<outline.numberOfRows).compactMap { (outline.item(atRow: $0) as? SidebarViewController.Item)?.title }
+        }
+        func properties() -> NSWindow? { NSApp.windows.first { $0.isVisible && $0.title.hasPrefix(L("Свойства")) } }
+        func shot(_ index: Int, _ window: NSWindow?) {
+            if let number = window?.windowNumber {
+                try? "\(number)".write(to: s.output.appendingPathComponent("tab-\(index)"), atomically: true, encoding: .utf8)
+            }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        s.run([
+            (1.0, "sidebar", {
+                s.note("  first favourite: \(titles().first ?? "-")  expect Недавние; has Общий доступ: \(titles().contains(L("Общий доступ")))")
+                s.window?.navigate(to: Places.recentsURL)
+            }),
+            (3.0, "Recents", {
+                s.note("  title: \(s.window?.window?.title ?? "")")
+                shot(0, s.window?.window)
+            }),
+            (2.0, "Shared", { s.window?.navigate(to: Places.sharedURL) }),
+            (3.0, "Shared shown", { shot(1, s.window?.window) }),
+            (2.0, "unpin Recents, restore it", {
+                SidebarConfig.unpin(Places.recentsURL)
+                let gone = !titles().contains(L("Недавние"))
+                if let recents = SidebarConfig.standardFavorites.first(where: { $0.url == Places.recentsURL }) { SidebarConfig.restore(recents) }
+                s.note("  removed: \(gone), back first: \(titles().first == L("Недавние"))  expect true, true")
+                s.note("  shares: \(FolderSharing.shares().map(\.name)); file sharing on: \(FolderSharing.isFileSharingOn)")
+                PropertiesWindowController.show(for: [folder])
+            }),
+            (1.5, "Доступ tab", { s.find(PropertiesTabBar.self, in: properties()?.contentView)?.onSelect?(1) }),
+            (1.0, "photograph", { shot(2, properties()) }),
+            (2.0, "done", { properties()?.close() }),
+        ])
+    }
+
     static func properties(_ s: Scenario) {
         let photo = s.sandbox.appendingPathComponent("фото.jpg")
         let size = 640

@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// What to look for: words in the name (all of them), optionally in the contents too, in a folder
 /// with its subfolders or on the whole Mac. Stored in a tab as an `x-winex-search://` URL.
@@ -104,12 +105,18 @@ final class FileSearch {
     private var walk: CancelFlag?
     private var walkedOnce = false
 
-    /// `nameMatch` enables the fallback walk of `scope` (name searches only).
-    init(predicate: NSPredicate, scope: URL?, nameMatch: ((String) -> Bool)? = nil) {
+    /// Items inside another result are dropped (a shared folder stands for what's in it).
+    private let topLevelOnly: Bool
+
+    /// `nameMatch` enables the fallback walk of `scope` (name searches only). `newestFirst`: the
+    /// attribute (a date) to keep the latest matches by when there are too many.
+    init(predicate: NSPredicate, scope: URL?, nameMatch: ((String) -> Bool)? = nil,
+         newestFirst: String? = nil, topLevelOnly: Bool = false) {
         query.predicate = predicate
         query.searchScopes = [scope ?? NSMetadataQueryLocalComputerScope]
-        // Keep the most relevant matches when there are too many
-        query.sortDescriptors = [NSSortDescriptor(key: NSMetadataQueryResultContentRelevanceAttribute, ascending: false)]
+        // Keep the most relevant (or the latest) matches when there are too many
+        query.sortDescriptors = [NSSortDescriptor(key: newestFirst ?? NSMetadataQueryResultContentRelevanceAttribute, ascending: false)]
+        self.topLevelOnly = topLevelOnly
         // Live updates at most twice a second (a download or a build can change thousands of files)
         query.notificationBatchingInterval = 0.5
         walkScope = scope
@@ -118,6 +125,22 @@ final class FileSearch {
 
     convenience init(_ request: SearchRequest) {
         self.init(predicate: request.predicate, scope: request.scope, nameMatch: request.scope == nil ? nil : request.nameMatches)
+    }
+
+    /// «Недавние», like Finder's Recents: files in the home folder (iCloud Drive included) opened
+    /// in the last 30 days — not folders or apps — newest first.
+    static func recents(now: Date = Date()) -> FileSearch {
+        let since = now.addingTimeInterval(-30 * 24 * 3600)
+        let predicate = NSPredicate(format: "kMDItemLastUsedDate >= %@ AND NOT (kMDItemContentTypeTree == %@) AND NOT (kMDItemContentTypeTree == %@)",
+                                    since as NSDate, UTType.folder.identifier, UTType.application.identifier)
+        return FileSearch(predicate: predicate, scope: FileManager.default.homeDirectoryForCurrentUser, newestFirst: "kMDItemLastUsedDate")
+    }
+
+    /// «Общий доступ», like Finder's Shared: iCloud Drive items shared by you or with you (a shared
+    /// folder once, not each file in it).
+    static func shared() -> FileSearch {
+        FileSearch(predicate: NSPredicate(format: "%K == 1", "_kMDItemIsShared"),
+                   scope: FileManager.default.homeDirectoryForCurrentUser, topLevelOnly: true)
     }
 
     func start() {
@@ -156,11 +179,25 @@ final class FileSearch {
     private func publish() {
         var seen = Set<String>()
         state.results = (spotlight + walked).filter { seen.insert($0.path).inserted }
+        if topLevelOnly { state.results = Self.topLevel(state.results) }
         if state.results.count > Self.resultLimit {
             state.results.removeLast(state.results.count - Self.resultLimit)
             state.truncated = true
         }
         onChange?(state)
+    }
+
+    /// `urls` without those inside another of them.
+    nonisolated static func topLevel(_ urls: [URL]) -> [URL] {
+        let folders = Set(urls.map { $0.standardizedFileURL.path })
+        return urls.filter { url in
+            var parent = url.standardizedFileURL.deletingLastPathComponent()
+            while parent.path != "/" {
+                if folders.contains(parent.path) { return false }
+                parent = parent.deletingLastPathComponent()
+            }
+            return true
+        }
     }
 
     // MARK: Fallback walk

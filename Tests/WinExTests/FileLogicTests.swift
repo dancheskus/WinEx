@@ -577,3 +577,52 @@ struct GroupingTests {
         #expect(ViewMode.sortOrder(for: folder).group == "")
     }
 }
+
+struct RecentsAndSharingTests {
+    @Test func virtualPlacesRoundTrip() {
+        #expect(Location(Places.recentsURL) == .recents)
+        #expect(Location(Places.sharedURL) == .shared)
+        #expect(Location(Places.recentsURL).directory == nil)
+        // A favourite is stored as a path, or as a place's address
+        let folder = URL(fileURLWithPath: "/Users/someone/Projects/")
+        #expect(SidebarConfig.key(folder) == "/Users/someone/Projects")
+        #expect(SidebarConfig.url(forKey: SidebarConfig.key(folder)).path == "/Users/someone/Projects")
+        #expect(SidebarConfig.url(forKey: SidebarConfig.key(Places.recentsURL)) == Places.recentsURL)
+    }
+
+    @Test func sharedListKeepsTopLevel() {
+        let urls = ["/a/Shared", "/a/Shared/inside.txt", "/a/Shared/sub/deep.txt", "/b/file.txt", "/a/SharedOther"].map { URL(fileURLWithPath: $0) }
+        #expect(FileSearch.topLevel(urls).map(\.path) == ["/a/Shared", "/b/file.txt", "/a/SharedOther"])
+    }
+
+    @Test func sharesParsed() {
+        let json = """
+        {"Папка «Общие»": {"path": "/Users/me/Public", "smb_guest_access": 1, "smb_name": "Папка «Общие»", "smb_read_only": 0, "smb_shared": 1},
+         "Work": {"path": "/Users/me/Work", "smb_guest_access": 0, "smb_name": "Work", "smb_read_only": 1, "smb_shared": 1}}
+        """
+        let shares = FolderSharing.parse(Data(json.utf8))
+        #expect(shares == [FolderSharing.Share(name: "Work", path: "/Users/me/Work", guestAccess: false, readOnly: true),
+                           FolderSharing.Share(name: "Папка «Общие»", path: "/Users/me/Public", guestAccess: true, readOnly: false)])
+        #expect(FolderSharing.addArguments(URL(fileURLWithPath: "/Users/me/Work"), name: "Work", guestAccess: false)
+                == ["-a", "/Users/me/Work", "-S", "Work", "-s", "001", "-g", "000"])
+    }
+
+    @Test func commandsQuoted() {
+        #expect(FolderSharing.shellQuoted("it's a \"name\"") == #"'it'\''s a "name"'"#)
+        #expect(FolderSharing.appleScriptQuoted(#"a "b" \c"#) == #""a \"b\" \\c""#)
+    }
+
+    @Test func permissionLevels() {
+        #expect(PermissionLevel(bits: 7, isFolder: true) == .readWrite)
+        #expect(PermissionLevel(bits: 5, isFolder: true) == .readOnly)
+        #expect(PermissionLevel(bits: 4, isFolder: true) == nil)  // readable, can't be opened
+        #expect(PermissionLevel(bits: 6, isFolder: false) == .readWrite)
+        #expect(PermissionLevel(bits: 2, isFolder: false) == nil)  // write only
+        #expect(PermissionLevel(bits: 0, isFolder: false) == PermissionLevel.none)
+        // Folders get «open» with «read»; a file keeps its «run» bit
+        #expect(PermissionLevel.readOnly.bits(replacing: 7, isFolder: true) == 5)
+        #expect(PermissionLevel.readOnly.bits(replacing: 7, isFolder: false) == 5)
+        #expect(PermissionLevel.readWrite.bits(replacing: 4, isFolder: false) == 6)
+        #expect(PermissionLevel.none.bits(replacing: 7, isFolder: true) == 0)
+    }
+}

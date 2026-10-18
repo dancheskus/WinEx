@@ -330,7 +330,15 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// Switches to the view (and the sorting) remembered for the current folder.
     private func showFolderView() {
         guard let directory else { return }
-        let order = ViewMode.sortOrder(for: directory)
+        showSortOrder(ViewMode.sortOrder(for: directory))
+        let mode = ViewMode.forFolder(directory)
+        guard mode != viewMode else { return }
+        isRestoringFolderView = true
+        viewMode = mode
+        isRestoringFolderView = false
+    }
+
+    private func showSortOrder(_ order: FileItem.SortOrder) {
         foldersOnTop = order.foldersOnTop
         groupBy = order.group
         if tableView.sortDescriptors.first?.key != order.key || tableView.sortDescriptors.first?.ascending != order.ascending {
@@ -338,11 +346,6 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             tableView.sortDescriptors = [NSSortDescriptor(key: order.key, ascending: order.ascending)]
             isRestoringFolderView = false
         }
-        let mode = ViewMode.forFolder(directory)
-        guard mode != viewMode else { return }
-        isRestoringFolderView = true
-        viewMode = mode
-        isRestoringFolderView = false
     }
 
     /// «Показывать свойства» for the folder shown (its own choice, else the default).
@@ -405,6 +408,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         case .computer:
             startSearch(nil)
             showDrives(true)
+            return
+        case .recents:
+            // Like Finder's Recents: the last opened first (until another order is picked here)
+            showSortOrder(FileItem.SortOrder(key: "opened", ascending: false))
+            startSearch(FileSearch.recents())
+            return
+        case .shared:
+            startSearch(FileSearch.shared())
             return
         case .search(let request):
             guard !request.isTooShort else {
@@ -796,6 +807,16 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         } else if case .tag = location {
             emptyState.isHidden = !(search.map { !$0.state.gathering } ?? true)
             if !emptyState.isHidden { emptyState.show(L("Нет файлов с этим тегом")) }
+        } else if location == .recents || location == .shared {
+            emptyState.isHidden = !(search.map { !$0.state.gathering } ?? true)
+            if !emptyState.isHidden {
+                if location == .recents {
+                    emptyState.show(L("Нет недавних файлов"), detail: L("Здесь появятся файлы, открытые за последние 30 дней."))
+                } else {
+                    emptyState.show(L("Нет объектов в общем доступе"),
+                                    detail: L("Здесь появятся файлы и папки iCloud Drive, которыми вы поделились или которыми поделились с вами."))
+                }
+            }
         } else if !loader.isWaiting {
             emptyState.show(location == .trash ? L("Корзина пуста") : L("Эта папка пуста"))
         } else {

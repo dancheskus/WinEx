@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// "Свойства" (⌘I / ⌥↩): one file or a group. In WinEx's own look (the translucent material of
 /// its menus, rounded cards, roomy rows) with tabs like Explorer's: «Общие» (type, app, place,
 /// size, dates, attributes), «Подробно» (what matters for the kind of file: picture size and
-/// camera settings, durations and codecs, pages, app version, where it was downloaded from) and «Доступ» (owner and permissions).
+/// camera settings, durations and codecs, pages, app version, where it was downloaded from) and «Доступ» (owner and permissions, sharing a folder on the network).
 final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     private static var open: [PropertiesWindowController] = []
 
@@ -324,19 +324,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             PropertiesUI.row(L("Группа"), PropertiesUI.value(group)),
         ]))
         let isFolder = single.isBrowsableDirectory
-        func describe(_ bits: Int) -> String {
-            let read = bits & 4 != 0, write = bits & 2 != 0, run = bits & 1 != 0
-            var text = read && write ? L("Чтение и запись") : read ? L("Только чтение") : write ? L("Только запись") : L("Нет доступа")
-            if run && !isFolder { text += L(", запуск") }
-            if !run && isFolder && read { text += L(" (содержимое не открыть)") }
-            return text
+        // Each class's level, changed in place (the owner can; anyone else is asked for a password)
+        let classes = [(L("Владелец"), 6), (L("Группа"), 3), (L("Остальные"), 0)]
+        var rows = classes.map { title, shift in
+            PropertiesUI.row(title, permissionPopup(bits: mode >> shift & 7, shift: shift, isFolder: isFolder))
         }
-        page.addArrangedSubview(PropertiesUI.card(L("Права"), [
-            PropertiesUI.row(L("Владелец"), PropertiesUI.value(describe(mode >> 6 & 7))),
-            PropertiesUI.row(L("Группа"), PropertiesUI.value(describe(mode >> 3 & 7))),
-            PropertiesUI.row(L("Остальные"), PropertiesUI.value(describe(mode & 7))),
-            PropertiesUI.row(L("Код"), PropertiesUI.value(String(mode & 0o777, radix: 8))),
-        ]))
+        rows.append(PropertiesUI.row(L("Код"), PropertiesUI.value(String(mode & 0o777, radix: 8))))
+        page.addArrangedSubview(PropertiesUI.card(L("Права"), rows))
+        if isFolder, let sharing = sharingCard() { page.addArrangedSubview(sharing) }
         let access = FileManager.default
         let yours = [access.isReadableFile(atPath: single.path) ? L("читать") : nil,
                      access.isWritableFile(atPath: single.path) ? L("изменять") : nil,
@@ -347,6 +342,107 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             PropertiesUI.row(L("Вы можете"), PropertiesUI.value(yours.isEmpty ? L("Ничего") : yours.joined(separator: ", ").capitalizedFirst)),
         ]))
         return page
+    }
+
+    private func permissionPopup(bits: Int, shift: Int, isFolder: Bool) -> NSPopUpButton {
+        let popup = NSPopUpButton()
+        popup.controlSize = .small
+        popup.font = .systemFont(ofSize: 12)
+        for level in PermissionLevel.allCases {
+            popup.addItem(withTitle: level.title)
+            popup.lastItem?.tag = level.rawValue
+        }
+        if let level = PermissionLevel(bits: bits, isFolder: isFolder) {
+            popup.selectItem(withTag: level.rawValue)
+        } else {
+            // An unusual mix (write only…): shown as it is until another level is picked
+            let read = bits & 4 != 0, write = bits & 2 != 0
+            popup.insertItem(withTitle: read ? L("Чтение (содержимое не открыть)") : write ? L("Только запись") : L("Только запуск"), at: 0)
+            popup.item(at: 0)?.tag = -1
+            popup.selectItem(at: 0)
+        }
+        popup.identifier = .init(String(shift))
+        popup.target = self
+        popup.action = #selector(permissionChanged(_:))
+        return popup
+    }
+
+    @objc private func permissionChanged(_ sender: NSPopUpButton) {
+        guard let level = PermissionLevel(rawValue: sender.selectedTag()), let shift = Int(sender.identifier?.rawValue ?? "") else { return }
+        let path = single.path
+        let mode = ((try? FileManager.default.attributesOfItem(atPath: path))?[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        let bits = level.bits(replacing: mode >> shift & 7, isFolder: single.isBrowsableDirectory)
+        let newMode = mode & ~(7 << shift) | bits << shift
+        guard newMode != mode else { return }
+        do {
+            try FileManager.default.setAttributes([.posixPermissions: newMode], ofItemAtPath: path)
+        } catch {
+            // Not the owner's: as an administrator
+            FolderSharing.admin("/bin/chmod", [String(newMode & 0o7777, radix: 8), path])
+        }
+        refreshAccessPage()
+    }
+
+    // MARK: Sharing on the network
+
+    private func sharingCard() -> NSView? {
+        guard single.isFileURL, (try? single.resourceValues(forKeys: [.volumeIsLocalKey]))?.volumeIsLocal != false else { return nil }
+        let share = FolderSharing.share(of: single)
+        let shared = NSSwitch()
+        shared.controlSize = .small
+        shared.state = share == nil ? .off : .on
+        shared.target = self
+        shared.action = #selector(toggleShared(_:))
+        var rows = [PropertiesUI.row(L("Общая папка"), shared, hint: share.map { L("Видна в сети как «%@»", $0.name) }
+                                       ?? L("Другие компьютеры сети смогут открыть её"))]
+        if let share {
+            let guests = NSSwitch()
+            guests.controlSize = .small
+            guests.state = share.guestAccess ? .on : .off
+            guests.target = self
+            guests.action = #selector(toggleGuests(_:))
+            let readOnly = NSSwitch()
+            readOnly.controlSize = .small
+            readOnly.state = share.readOnly ? .on : .off
+            readOnly.target = self
+            readOnly.action = #selector(toggleShareReadOnly(_:))
+            rows.append(PropertiesUI.row(L("Гостевой доступ"), guests, hint: L("Открывается без имени и пароля")))
+            rows.append(PropertiesUI.row(L("Только чтение"), readOnly, hint: L("По сети файлы можно только смотреть")))
+        }
+        if !FolderSharing.isFileSharingOn {
+            let open = PropertiesUI.linkButton(L("Открыть настройки…"), target: self, action: #selector(openSharingSettings(_:)))
+            rows.append(PropertiesUI.row(L("Общий доступ к файлам выключен"), open,
+                                         hint: L("Пока он выключен в Системных настройках, общие папки по сети не видны")))
+        }
+        return PropertiesUI.card(L("Общий доступ по сети"), rows)
+    }
+
+    @objc private func toggleShared(_ sender: NSSwitch) {
+        if let share = FolderSharing.share(of: single) { FolderSharing.remove(share) } else { FolderSharing.add(single) }
+        refreshAccessPage()
+    }
+
+    @objc private func toggleGuests(_ sender: NSSwitch) {
+        guard var share = FolderSharing.share(of: single) else { return refreshAccessPage() }
+        share.guestAccess = sender.state == .on
+        FolderSharing.edit(share)
+        refreshAccessPage()
+    }
+
+    @objc private func toggleShareReadOnly(_ sender: NSSwitch) {
+        guard var share = FolderSharing.share(of: single) else { return refreshAccessPage() }
+        share.readOnly = sender.state == .on
+        FolderSharing.edit(share)
+        refreshAccessPage()
+    }
+
+    @objc private func openSharingSettings(_ sender: Any?) { FolderSharing.openSystemSettings() }
+
+    /// The tab again, as things are now (a change may have been cancelled or refused).
+    private func refreshAccessPage() {
+        guard let index = pages.indices.last, isSingle else { return }
+        pages[index] = accessPage()
+        showPage(index)
     }
 
     // MARK: - Sizes (background)

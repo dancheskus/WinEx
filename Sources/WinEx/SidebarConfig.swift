@@ -24,6 +24,7 @@ enum SidebarConfig {
             return Standard(title: url.displayName, url: url, symbol: symbol)
         }
         return [
+            Standard(title: L("Недавние"), url: Places.recentsURL, symbol: "clock"),
             Standard(title: home.displayName, url: home, symbol: "house"),
             folder(.desktopDirectory, "menubar.dock.rectangle"),
             folder(.documentDirectory, "doc"),
@@ -35,23 +36,42 @@ enum SidebarConfig {
         ].compactMap { $0 }
     }
 
-    /// Paths of the favourites, in order.
+    /// How a favourite is stored: a folder's path, or a place's address («Недавние»).
+    static func key(_ url: URL) -> String {
+        url.isFileURL ? url.standardizedFileURL.path : url.absoluteString
+    }
+
+    static func url(forKey key: String) -> URL {
+        key.hasPrefix("/") ? URL(fileURLWithPath: key) : URL(string: key) ?? URL(fileURLWithPath: key)
+    }
+
+    /// Keys of the favourites (see `key(_:)`), in order.
     static var favoritePaths: [String] {
-        get { defaults.stringArray(forKey: "sidebarFavorites") ?? standardFavorites.map(\.url.path) }
+        get {
+            guard var paths = defaults.stringArray(forKey: "sidebarFavorites") else { return standardFavorites.map { key($0.url) } }
+            // «Недавние» came later: lists saved before get it once, on top, as in Finder
+            if !defaults.bool(forKey: "sidebarRecentsAdded") {
+                defaults.set(true, forKey: "sidebarRecentsAdded")
+                if !paths.contains(key(Places.recentsURL)) { paths.insert(key(Places.recentsURL), at: 0) }
+                defaults.set(paths, forKey: "sidebarFavorites")
+            }
+            return paths
+        }
         set {
             var seen = Set<String>()
+            defaults.set(true, forKey: "sidebarRecentsAdded")
             defaults.set(newValue.filter { seen.insert($0).inserted }, forKey: "sidebarFavorites")
             NotificationCenter.default.post(name: didChange, object: nil)
         }
     }
 
     static func isFavorite(_ url: URL) -> Bool {
-        favoritePaths.contains(url.standardizedFileURL.path)
+        favoritePaths.contains(key(url))
     }
 
     /// Pins a folder at `index` (the end when nil), or moves it there if it's already a favourite.
     static func pin(_ url: URL, at index: Int? = nil) {
-        let path = url.standardizedFileURL.path
+        let path = key(url)
         var paths = favoritePaths
         var target = index ?? paths.count
         if let current = paths.firstIndex(of: path) {
@@ -63,15 +83,15 @@ enum SidebarConfig {
     }
 
     static func unpin(_ url: URL) {
-        let path = url.standardizedFileURL.path
+        let path = key(url)
         favoritePaths = favoritePaths.filter { $0 != path }
     }
 
     /// Settings: a standard folder switched back on returns to its usual place among the others.
     static func restore(_ standard: Standard) {
-        let order = standardFavorites.map(\.url.path)
+        let order = standardFavorites.map { key($0.url) }
         let paths = favoritePaths
-        guard let rank = order.firstIndex(of: standard.url.path) else { return pin(standard.url) }
+        guard let rank = order.firstIndex(of: key(standard.url)) else { return pin(standard.url) }
         let after = order[..<rank]
         let index = (paths.lastIndex { after.contains($0) }).map { $0 + 1 } ?? 0
         pin(standard.url, at: index)
@@ -92,18 +112,19 @@ enum SidebarConfig {
     }
 
     static func symbol(for url: URL) -> String {
-        standardFavorites.first { $0.url.path == url.standardizedFileURL.path }?.symbol ?? "folder"
+        standardFavorites.first { key($0.url) == key(url) }?.symbol ?? "folder"
     }
 
     // MARK: Places
 
     enum Place: String, CaseIterable {
-        case computer, iCloud, internalDisks, externalDisks, servers, airDrop, network, trash
+        case computer, iCloud, shared, internalDisks, externalDisks, servers, airDrop, network, trash
 
         var title: String {
             switch self {
             case .computer: L("Этот Mac")
             case .iCloud: "iCloud Drive"
+            case .shared: L("Общий доступ")
             case .internalDisks: L("Внутренние диски")
             case .externalDisks: L("Внешние диски")
             case .servers: L("Подключённые серверы")
@@ -117,6 +138,7 @@ enum SidebarConfig {
             switch self {
             case .computer: "desktopcomputer"
             case .iCloud: "icloud"
+            case .shared: "folder.badge.person.crop"
             case .internalDisks: "internaldrive"
             case .externalDisks: "externaldrive"
             case .servers: "externaldrive.connected.to.line.below"

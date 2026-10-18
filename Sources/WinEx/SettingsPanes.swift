@@ -37,13 +37,13 @@ final class SidebarSettingsView: NSView {
         let favorites = SidebarConfig.favoritePaths
         let standard = SidebarConfig.standardFavorites
         for folder in standard {
-            row(folder.title, symbol: folder.symbol, on: favorites.contains(folder.url.path)) { on in
+            row(folder.title, symbol: folder.symbol, on: favorites.contains(SidebarConfig.key(folder.url))) { on in
                 if on { SidebarConfig.restore(folder) } else { SidebarConfig.unpin(folder.url) }
             }
         }
         // Folders the user pinned: switching one off unpins it
-        for path in favorites where !standard.contains(where: { $0.url.path == path }) {
-            let url = URL(fileURLWithPath: path)
+        for path in favorites where !standard.contains(where: { SidebarConfig.key($0.url) == path }) {
+            let url = SidebarConfig.url(forKey: path)
             row(url.displayName, symbol: "folder", on: true) { on in
                 if on { SidebarConfig.pin(url) } else { SidebarConfig.unpin(url) }
             }

@@ -12,6 +12,8 @@ enum Location: Equatable {
     /// A file server (smb://NAS._smb._tcp.local): its shares, mounted when opened.
     case server(URL)
     case computer
+    case recents
+    case shared
     case search(SearchRequest)
 
     /// Tag locations use this URL scheme: `x-winex-tag://tag/<name>`.
@@ -24,6 +26,10 @@ enum Location: Equatable {
             self = .server(server)
         } else if url.scheme == Places.computerURL.scheme {
             self = .computer
+        } else if url.scheme == Places.recentsURL.scheme {
+            self = .recents
+        } else if url.scheme == Places.sharedURL.scheme {
+            self = .shared
         } else if let request = SearchRequest(url: url) {
             self = .search(request)
         } else if url.scheme == Self.tagScheme {
@@ -43,6 +49,8 @@ enum Location: Equatable {
         case .network: Places.networkURL
         case .server(let url): url
         case .computer: Places.computerURL
+        case .recents: Places.recentsURL
+        case .shared: Places.sharedURL
         case .search(let request): request.url
         }
     }
@@ -51,7 +59,8 @@ enum Location: Equatable {
     static func == (a: Location, b: Location) -> Bool {
         switch (a, b) {
         case let (.folder(x), .folder(y)): x.path == y.path
-        case (.trash, .trash), (.network, .network), (.computer, .computer): true
+        case (.trash, .trash), (.network, .network), (.computer, .computer),
+             (.recents, .recents), (.shared, .shared): true
         case let (.search(x), .search(y)): x == y
         case let (.tag(x), .tag(y)): x == y
         case let (.server(x), .server(y)): x.scheme == y.scheme && Places.sameServer(x, y)
@@ -72,7 +81,7 @@ enum Location: Equatable {
         switch self {
         case .folder(let url): url
         case .trash: Places.trashURL
-        case .tag, .network, .server, .computer, .search: nil
+        case .tag, .network, .server, .computer, .recents, .shared, .search: nil
         }
     }
 
@@ -85,6 +94,8 @@ enum Location: Equatable {
         case .network: L("Сеть")
         case .server(let url): Places.serverName(of: url) ?? url.absoluteString
         case .computer: L("Этот Mac")
+        case .recents: L("Недавние")
+        case .shared: L("Общий доступ")
         case .search(let request): L("Поиск «%@»", request.text)
         }
     }
@@ -96,6 +107,8 @@ enum Location: Equatable {
         case .network: L("Сеть")
         case .server(let url): url.scheme.map { "\($0)://" + (Places.serverName(of: url) ?? "") } ?? url.absoluteString
         case .computer: L("Этот Mac")
+        case .recents: L("Недавние")
+        case .shared: L("Общий доступ")
         case .search(let request):
             L("Результаты поиска «%@» ", request.text) + (request.wholeMac ? L("на всём Mac") : L("в «%@»", request.folder?.displayName ?? ""))
         case .folder, .trash: url.path
@@ -106,7 +119,7 @@ enum Location: Equatable {
     var isBrowsable: Bool {
         switch self {
         case .folder(let url): url.isBrowsableDirectory
-        case .trash, .tag, .network, .server, .computer, .search: true
+        case .trash, .tag, .network, .server, .computer, .recents, .shared, .search: true
         }
     }
 
@@ -126,6 +139,8 @@ enum Location: Equatable {
         case .network: NSImage(systemSymbolName: "network", accessibilityDescription: nil)
         case .server: NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
         case .computer: NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
+        case .recents: NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
+        case .shared: NSImage(systemSymbolName: "folder.badge.person.crop", accessibilityDescription: nil)
         case .search: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         }
     }

@@ -10,6 +10,10 @@ enum Places {
     static let networkURL = URL(string: "x-winex-network://network")!
     /// "Этот Mac": every drive with its free space, like "This PC".
     static let computerURL = URL(string: "x-winex-computer://computer")!
+    /// «Недавние»: files opened lately, newest first, like Finder's Recents.
+    static let recentsURL = URL(string: "x-winex-recents://recents")!
+    /// «Общий доступ»: iCloud Drive items shared with others or with you, like Finder's Shared.
+    static let sharedURL = URL(string: "x-winex-shared://shared")!
 
     /// smb:// / afp:// server addresses (items of the "Сеть" location).
     static func isServer(_ url: URL) -> Bool { ["smb", "afp", "nfs", "ftp"].contains(url.scheme ?? "") }

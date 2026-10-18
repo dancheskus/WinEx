@@ -95,9 +95,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         // Favourites: the user's folders in the user's order (gone ones are skipped, not forgotten)
         let standard = SidebarConfig.standardFavorites
         let favorites: [Item] = SidebarConfig.favoritePaths.compactMap { path in
-            guard fm.fileExists(atPath: path) else { return nil }
-            let url = URL(fileURLWithPath: path)
-            let title = standard.first { $0.url.path == path }?.title ?? url.displayName
+            let url = SidebarConfig.url(forKey: path)
+            guard !url.isFileURL || fm.fileExists(atPath: path) else { return nil }
+            let title = standard.first { SidebarConfig.key($0.url) == path }?.title ?? url.displayName
             return Item(title: title, url: url, symbol: SidebarConfig.symbol(for: url))
         }
         // "Места", like Finder: iCloud Drive, disks and shares, AirDrop, the network, the Trash
@@ -111,6 +111,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         let iCloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         if fm.fileExists(atPath: iCloud.path) {
             add(.iCloud, Item(title: "iCloud Drive", url: iCloud, symbol: "icloud"))
+            add(.shared, Item(title: L("Общий доступ"), url: Places.sharedURL, symbol: "folder.badge.person.crop"))
         }
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey,
                                       .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]
@@ -332,7 +333,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
         guard let item = item as? Item, section(of: item)?.kind == .favorites else { return nil }
         let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(item.url.path, forType: Self.favoriteType)
+        pasteboardItem.setString(SidebarConfig.key(item.url), forType: Self.favoriteType)
         return pasteboardItem
     }
 
@@ -370,14 +371,14 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
         guard let favorites = favoritesSection else { return false }
         if let path = info.draggingPasteboard.string(forType: Self.favoriteType) {
-            SidebarConfig.pin(URL(fileURLWithPath: path), at: favoritesIndex(forChild: index, of: favorites))
+            SidebarConfig.pin(SidebarConfig.url(forKey: path), at: favoritesIndex(forChild: index, of: favorites))
             return true
         }
         let urls = FileDrop.urls(info)
         if item as? Section === favorites, index >= 0 {
             var position = favoritesIndex(forChild: index, of: favorites)
             for url in urls {
-                let wasBefore = SidebarConfig.favoritePaths.firstIndex(of: url.standardizedFileURL.path).map { $0 < position } ?? false
+                let wasBefore = SidebarConfig.favoritePaths.firstIndex(of: SidebarConfig.key(url)).map { $0 < position } ?? false
                 SidebarConfig.pin(url, at: position)
                 if !wasBefore { position += 1 }
             }
@@ -401,7 +402,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     private func favoritesIndex(forChild index: Int, of favorites: Section) -> Int {
         let paths = SidebarConfig.favoritePaths
         guard index < favorites.items.count else { return paths.count }
-        return paths.firstIndex(of: favorites.items[index].url.path) ?? paths.count
+        return paths.firstIndex(of: SidebarConfig.key(favorites.items[index].url)) ?? paths.count
     }
 
     // MARK: - Context menu

@@ -45,6 +45,10 @@ final class BreadcrumbBar: NSView {
         case .server(let url):
             return (symbol("network"), Places.networkURL, [Crumb(title: L("Сеть"), url: Places.networkURL, folder: nil),
                                                           Crumb(title: location.title, url: url, folder: nil)])
+        case .recents:
+            return (symbol("clock"), Places.recentsURL, [Crumb(title: L("Недавние"), url: Places.recentsURL, folder: nil)])
+        case .shared:
+            return (symbol("folder.badge.person.crop"), Places.sharedURL, [Crumb(title: L("Общий доступ"), url: Places.sharedURL, folder: nil)])
         case .trash:
             return (symbol("trash"), Places.trashURL, [Crumb(title: L("Корзина"), url: Places.trashURL, folder: nil)])
         case .tag(let name):
