@@ -9,6 +9,7 @@ enum Scenarios {
         "undo": undo,
         "grouping": grouping,
         "commandoverflow": commandOverflow,
+        "commandcustomize": commandCustomize,
         "newfolder": newFolder,
         "slowclick": slowClick,
         "perf": perf,
@@ -183,6 +184,86 @@ enum Scenarios {
         ])
     }
 
+    /// The bar from the settings: other commands, dividers kept only between commands, "…" without
+    /// what's on the bar; «Настроить панель команд…» puts the bar in arranging mode under a panel.
+    static func commandCustomize(_ s: Scenario) {
+        func bar() -> CommandBar? { s.find(CommandBar.self, in: s.window?.window?.contentView) }
+        func report(_ expect: String) {
+            guard let bar = bar() else { return s.note("  (no command bar)") }
+            bar.layoutSubtreeIfNeeded()
+            let stack = bar.subviews.compactMap { $0 as? NSStackView }.first
+            let shown = (stack?.arrangedSubviews ?? []).filter { !$0.isHidden }.map { view in
+                (view as? CommandButton).map { $0.command?.rawValue ?? "…" } ?? "|"
+            }
+            s.note("  bar: \(shown.joined(separator: " "))  \(expect)")
+        }
+        func moreTitles() -> [String] {
+            bar()?.moreMenuWithOverflow()?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
+        }
+        func snapshot(_ view: NSView?, _ name: String) {
+            guard let view, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        func width(_ w: CGFloat) {
+            guard let window = s.window?.window else { return }
+            window.setFrame(NSRect(x: window.frame.minX, y: window.frame.minY, width: w, height: window.frame.height), display: true)
+        }
+        func panel() -> CommandBarCustomizer? { s.window?.window?.childWindows?.compactMap { $0 as? CommandBarCustomizer }.first }
+        s.run([
+            (1.0, "default", { width(1500); report("expect new | cut copy paste rename share airDrop delete | sort group view | …") }),
+            (0.2, "", { s.note("  «…»: \(moreTitles())") }),
+            (0.2, "own set", {
+                CommandBarConfig.items = ["divider", "newFolder", "terminal", "divider", "divider", "compress", "hiddenFiles", "view", "divider"]
+                s.note("  stored: \(CommandBarConfig.items)")
+            }),
+            (0.5, "", { report("expect newFolder terminal | compress hiddenFiles view | …"); snapshot(bar(), "own.png") }),
+            (0.2, "", { s.note("  «…» (no ZIP): \(moreTitles())") }),
+            (0.2, "hidden files on", { AppDelegate.shared.toggleHiddenFiles(nil) }),
+            (0.8, "", {
+                s.note("  hiddenFiles on: \(bar()?.buttons[.hiddenFiles]?.isOn == true)  expect true")
+                snapshot(bar(), "hidden-on.png")
+                AppDelegate.shared.toggleHiddenFiles(nil)
+            }),
+            (0.5, "context menu", {
+                guard let bar = bar(), let button = bar.buttons[.terminal] else { return s.note("  (no terminal button)") }
+                let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+                let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                               windowNumber: bar.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                let titles = event.flatMap { bar.menu(for: $0) }?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
+                s.note("  menu: \(titles)")
+                let remove = event.flatMap { bar.menu(for: $0) }?.items.first
+                if let remove, let action = remove.action { NSApp.sendAction(action, to: remove.target, from: remove) }
+            }),
+            (0.5, "", { report("expect newFolder | compress hiddenFiles view | …") }),
+            (0.2, "customize", { s.window?.customizeCommandBar(nil) }),
+            (0.8, "", {
+                report("expect every item, the dividers too")
+                s.note("  editing: \(bar()?.isEditing == true), panel: \(panel() != nil)  expect true, true")
+                if let panel = panel(), let bar = bar(), let window = bar.window {
+                    let barBottom = window.convertToScreen(bar.convert(bar.bounds, to: nil)).minY
+                    s.note("  panel top \(Int(panel.frame.maxY)) under bar bottom \(Int(barBottom)): \(panel.frame.maxY <= barBottom)")
+                    snapshot(panel.contentView, "panel.png")
+                }
+                if let bar = bar(), let button = bar.buttons[.view] {
+                    let point = bar.superview?.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button) ?? .zero
+                    s.note("  press goes to the bar: \(bar.hitTest(point) === bar)  expect true")
+                }
+                snapshot(bar(), "editing.png")
+            }),
+            (0.3, "done", { panel()?.close() }),
+            (0.5, "", {
+                s.note("  editing: \(bar()?.isEditing == true), panel: \(panel() != nil)  expect false, false")
+                if let bar = bar(), let button = bar.buttons[.view] {
+                    let point = bar.superview?.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button) ?? .zero
+                    s.note("  press goes to the command: \(bar.hitTest(point) !== bar)  expect true")
+                }
+            }),
+            (0.2, "default again", { CommandBarConfig.items = CommandBarConfig.defaultItems }),
+            (0.5, "", { report("expect the default"); s.note("  stored key gone: \(AppDefaults.store.object(forKey: "commandBarItems") == nil)") }),
+        ])
+    }
+
     /// «Группировать по ▸ Тип» from the sort menu: heading rows in the table, sections in the icon
     /// views, selection and arrows still on the right files; remembered for the folder only.
     static func grouping(_ s: Scenario) {
@@ -198,7 +279,7 @@ enum Scenarios {
             }
         }
         func group(_ title: String) {
-            guard let groupMenu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.groupMenu?(),
+            guard let groupMenu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.menuProvider?(.group),
                   let index = groupMenu.items.firstIndex(where: { $0.title == title }) else { return s.note("  (no «\(title)» under «Группировать по»)") }
             groupMenu.performActionForItem(at: index)
         }
@@ -265,7 +346,7 @@ enum Scenarios {
         }
         /// Clicks «Папки сверху» in the sort menu; its state before the click.
         func toggle() {
-            guard let menu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.sortMenu?(),
+            guard let menu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.menuProvider?(.sort),
                   let index = menu.items.firstIndex(where: { $0.title == L("Папки сверху") }) else { return s.note("  (no «Папки сверху» in the sort menu)") }
             s.note("  menu: «Папки сверху» was \(menu.items[index].state == .on ? "on" : "off")")
             menu.performActionForItem(at: index)
@@ -2003,16 +2084,16 @@ enum Scenarios {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             s.select("заметки.txt")
-            s.note("  bar: \(bar() != nil), cut enabled: \(bar()?.cutButton.isEnabled == true), new enabled: \(bar()?.newButton.isEnabled == true)  expect true, true, true")
+            s.note("  bar: \(bar() != nil), cut enabled: \(bar()?.buttons[.cut]?.isEnabled == true), new enabled: \(bar()?.buttons[.new]?.isEnabled == true)  expect true, true, true")
             if let bar = bar(), let content = bar.window?.contentView {
-                let tips = [bar.cutButton, bar.copyButton, bar.pasteButton, bar.renameButton, bar.shareButton, bar.deleteButton, bar.moreButton].map { button in
+                let tips = ([BarCommand.cut, .copy, .paste, .rename, .share, .delete].compactMap { bar.buttons[$0] } + [bar.moreButton]).map { button in
                     content.hitTest(content.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button))?.toolTip ?? "none"
                 }
                 s.note("  tooltips under the mouse: \(tips)")
             }
             shot(0, window: s.window?.window?.windowNumber) {
-                menuShot(1, open: { bar()?.sortButton.onClick?() }) {
-                    menuShot(2, open: { bar()?.viewButton.onClick?() }) {
+                menuShot(1, open: { bar()?.buttons[.sort]?.onClick?() }) {
+                    menuShot(2, open: { bar()?.buttons[.view]?.onClick?() }) {
                         menuShot(3, open: { bar()?.moreButton.onClick?() }) {
                             guard let table = s.table, let header = table.headerView,
                                   let typeColumn = Optional(table.column(withIdentifier: .init("type"))), typeColumn >= 0,
@@ -2054,7 +2135,8 @@ enum Scenarios {
         s.window?.window?.makeKeyAndOrderFront(nil)
         var opened: [String] = []
         func bar() -> CommandBar? { s.find(CommandBar.self, in: s.window?.window?.contentView) }
-        func click(_ button: NSView) {
+        func click(_ button: NSView?) {
+            guard let button else { return s.note("  !! no such command") }
             guard let window = button.window else { return }
             let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -2067,9 +2149,9 @@ enum Scenarios {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
             guard let bar = bar() else { s.note("  (no bar)"); s.run([]); return }
             bar.onMenuOpen = { opened.append($0) }
-            click(bar.viewButton)
+            click(bar.buttons[.view])
             // While "Просмотреть" tracks: click "Сортировать"
-            let second = Timer(timeInterval: 0.8, repeats: false) { _ in click(bar.sortButton) }
+            let second = Timer(timeInterval: 0.8, repeats: false) { _ in click(bar.buttons[.sort]) }
             RunLoop.main.add(second, forMode: .common)
             // Close whatever is open after that
             let closer = Timer(timeInterval: 0.4, repeats: true) { timer in
@@ -2084,7 +2166,7 @@ enum Scenarios {
             RunLoop.main.add(closer, forMode: .common)
             s.run([
                 (3.5, "menus opened", { s.note("  \(opened)  expect [view, sort]") }),
-                (0.2, "click Сортировать once more", { opened = []; click(bar.sortButton) }),
+                (0.2, "click Сортировать once more", { opened = []; click(bar.buttons[.sort]) }),
                 (1.0, "which opened", {
                     s.note("  \(opened)  expect [sort]")
                     if let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,

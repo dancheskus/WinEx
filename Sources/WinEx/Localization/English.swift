@@ -789,5 +789,18 @@ enum English {
         "Добавить тег «%@»": "Add Tag “%@”",
         "Еда и напитки": "Food & Drink",
         "Активность": "Activity",
+        "Готово": "Done",
+        "Набор по умолчанию": "Default set",
+        "Настроить панель команд": "Customize Command Bar",
+        "Настроить панель команд…": "Customize Command Bar…",
+        "Отменить (⌘Z)": "Undo (⌘Z)",
+        "Перетащите нужные команды на панель команд.": "Drag the commands you want onto the command bar.",
+        "Повторить (⇧⌘Z)": "Redo (⇧⌘Z)",
+        "Показывать скрытые файлы (⇧⌘.)": "Show hidden files (⇧⌘.)",
+        "Разделитель": "Divider",
+        "Скрыть панель команд": "Hide Command Bar",
+        "Убрать «%@» с панели": "Remove “%@” from the Bar",
+        "Чтобы убрать команду, перетащите её с панели. Порядок команд меняется и без этого окна — перетаскиванием с нажатой ⌘.": "To remove a command, drag it off the bar. Commands can also be rearranged without this window — drag them with ⌘ held down.",
+        "…или перетащите на панель набор по умолчанию:": "…or drag the default set onto the bar:",
     ]
 }

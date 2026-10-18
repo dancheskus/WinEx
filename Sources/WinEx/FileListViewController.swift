@@ -1198,6 +1198,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         service.perform(withItems: urls)
     }
 
+    /// The command bar's «Открыть в терминале»: the selected folders (scripts run), or the folder shown.
+    @objc func openInTerminal(_ sender: Any?) {
+        let urls = targetURLs
+        if !urls.isEmpty { TerminalLauncher.open(urls) } else if let directory { TerminalLauncher.open(folder: directory) }
+    }
+
     @objc func customizeFolder(_ sender: Any?) {
         guard let index = targetRows.first ?? selectedIndexes.first, items.indices.contains(index) else { return }
         let anchor: NSView, rect: NSRect

@@ -328,24 +328,21 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     // MARK: - Command bar
 
     private func setUpCommandBar() {
-        let buttons: [(CommandButton, Selector)] = [
-            (commandBar.cutButton, #selector(FileListViewController.cut(_:))),
-            (commandBar.copyButton, #selector(FileListViewController.copy(_:))),
-            (commandBar.pasteButton, #selector(FileListViewController.paste(_:))),
-            (commandBar.renameButton, #selector(FileListViewController.renameSelected(_:))),
-            (commandBar.shareButton, #selector(FileListViewController.share(_:))),
-            (commandBar.airDropButton, #selector(FileListViewController.sendViaAirDrop(_:))),
-            (commandBar.deleteButton, #selector(FileListViewController.moveToTrash(_:))),
-        ]
-        for (button, action) in buttons {
-            button.target = fileList
-            button.action = action
+        commandBar.actionProvider = { [weak self] command in self?.barAction(command) }
+        commandBar.enabledProvider = { [weak self] command in self?.canPerform(command) ?? false }
+        commandBar.stateProvider = { command in command == .hiddenFiles && Settings.showHidden }
+        commandBar.menuProvider = { [weak self] command in
+            switch command {
+            case .new: self?.fileList.makeNewItemMenu()
+            case .sort: self?.fileList.makeSortMenu()
+            case .group: self?.fileList.makeGroupMenu()
+            case .view: self?.commandViewMenu()
+            default: nil
+            }
         }
-        commandBar.newItemMenu = { [weak self] in self?.fileList.makeNewItemMenu() }
-        commandBar.sortMenu = { [weak self] in self?.fileList.makeSortMenu() }
-        commandBar.groupMenu = { [weak self] in self?.fileList.makeGroupMenu() }
-        commandBar.viewMenu = { [weak self] in self?.commandViewMenu() }
         commandBar.moreMenu = { [weak self] in self?.commandMoreMenu() }
+        commandBar.onCustomize = { [weak self] in self?.customizeCommandBar(nil) }
+        commandBar.onHide = { [weak self] in self?.toggleCommandBar(nil) }
         windowObservers.add(FileClipboard.didChange) { [weak self] in self?.updateCommandBar() }
         windowObservers.add(.commandBarSettingChanged) { [weak self] in
             guard let self else { return }
@@ -355,14 +352,52 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         }
     }
 
+    /// Where a command of the bar (or of "…") goes.
+    private func barAction(_ command: BarCommand) -> (action: Selector, target: AnyObject?)? {
+        switch command {
+        case .new, .sort, .group, .view: nil
+        case .newFolder: (#selector(FileListViewController.newFolder(_:)), fileList)
+        case .cut: (#selector(FileListViewController.cut(_:)), fileList)
+        case .copy: (#selector(FileListViewController.copy(_:)), fileList)
+        case .paste: (#selector(FileListViewController.paste(_:)), fileList)
+        case .rename: (#selector(FileListViewController.renameSelected(_:)), fileList)
+        case .duplicate: (#selector(FileListViewController.duplicate(_:)), fileList)
+        case .share: (#selector(FileListViewController.share(_:)), fileList)
+        case .airDrop: (#selector(FileListViewController.sendViaAirDrop(_:)), fileList)
+        case .delete: (#selector(FileListViewController.moveToTrash(_:)), fileList)
+        case .compress: (#selector(FileListViewController.compress(_:)), fileList)
+        case .copyPath: (#selector(FileListViewController.copyPath(_:)), fileList)
+        case .addToFavorites: (#selector(FileListViewController.addToFavorites(_:)), fileList)
+        case .terminal: (#selector(FileListViewController.openInTerminal(_:)), fileList)
+        case .quickLook: (#selector(FileListViewController.quickLook(_:)), fileList)
+        case .properties: (#selector(FileListViewController.showProperties(_:)), fileList)
+        case .selectAll: (#selector(FileListViewController.selectAllItems(_:)), fileList)
+        case .selectNone: (#selector(FileListViewController.selectNone(_:)), fileList)
+        case .invertSelection: (#selector(FileListViewController.invertSelection(_:)), fileList)
+        case .undo: (Selector(("undo:")), nil)
+        case .redo: (Selector(("redo:")), nil)
+        case .hiddenFiles: (#selector(AppDelegate.toggleHiddenFiles(_:)), AppDelegate.shared)
+        case .newTab: (#selector(newTab(_:)), self)
+        case .settings: (#selector(AppDelegate.showSettings(_:)), AppDelegate.shared)
+        }
+    }
+
+    /// Whether a command can act on what's shown and selected now.
+    private func canPerform(_ command: BarCommand) -> Bool {
+        let selected = fileList.hasSelection && fileList.location != .trash
+        switch command {
+        case .cut, .copy, .rename, .duplicate, .share, .delete, .compress, .quickLook: return selected
+        case .paste: return FileClipboard.shared.canPaste && fileList.canCreateItems
+        case .new, .newFolder: return fileList.canCreateItems
+        case .copyPath, .addToFavorites, .terminal: return fileList.directory != nil || fileList.hasSelection
+        case .selectNone: return fileList.hasSelection
+        default: return true
+        }
+    }
+
     /// What the commands can act on right now.
     private func updateCommandBar() {
-        let selected = fileList.hasSelection && fileList.location != .trash
-        for button in [commandBar.cutButton, commandBar.copyButton, commandBar.renameButton, commandBar.shareButton, commandBar.deleteButton] {
-            button.isEnabled = selected
-        }
-        commandBar.pasteButton.isEnabled = FileClipboard.shared.canPaste && fileList.canCreateItems
-        commandBar.newButton.isEnabled = fileList.canCreateItems
+        commandBar.updateState()
     }
 
     /// "Просмотреть": every view, the hidden files, "apply to all folders".
@@ -389,29 +424,47 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         return menu
     }
 
-    /// "…": the less frequent commands.
+    /// "…": the less frequent commands (those not on the bar itself).
     private func commandMoreMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        func add(_ title: String, _ action: Selector, _ symbol: String, target: AnyObject? = nil, enabled: Bool = true) {
-            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: "")
-            item.target = target ?? fileList
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            item.isEnabled = enabled
+        let onBar = Set(CommandBarConfig.commands)
+        let sections: [[BarCommand]] = [[.compress, .addToFavorites, .copyPath], [.selectAll, .selectNone, .invertSelection], [.properties, .settings]]
+        for section in sections {
+            let commands = section.filter { !onBar.contains($0) }
+            guard !commands.isEmpty else { continue }
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            for command in commands {
+                guard let (action, target) = barAction(command) else { continue }
+                let item = menu.addItem(withTitle: command.title, action: action, keyEquivalent: "")
+                item.target = target
+                item.image = SidebarConfig.icon(command.symbol, pointSize: 14)
+                item.isEnabled = canPerform(command)
+            }
         }
-        let selected = fileList.hasSelection
-        add(L("Сжать в ZIP-файл"), #selector(FileListViewController.compress(_:)), "archivebox", enabled: selected)
-        add(L("Добавить в избранное"), #selector(FileListViewController.addToFavorites(_:)), "star", enabled: fileList.directory != nil || selected)
-        add(L("Скопировать путь"), #selector(FileListViewController.copyPath(_:)), "link", enabled: fileList.directory != nil || selected)
-        menu.addItem(.separator())
-        add(L("Выделить всё"), #selector(FileListViewController.selectAllItems(_:)), "checkmark.circle")
-        add(L("Снять выделение"), #selector(FileListViewController.selectNone(_:)), "circle", enabled: selected)
-        add(L("Обратить выделение"), #selector(FileListViewController.invertSelection(_:)), "circle.lefthalf.filled")
-        menu.addItem(.separator())
-        add(L("Свойства"), #selector(FileListViewController.showProperties(_:)), "info.circle")
-        add(L("Параметры"), #selector(AppDelegate.showSettings(_:)), "gearshape", target: AppDelegate.shared)
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        let customize = menu.addItem(withTitle: L("Настроить панель команд…"), action: #selector(customizeCommandBar(_:)), keyEquivalent: "")
+        customize.target = self
+        customize.image = NSImage(systemSymbolName: "slider.horizontal.3", accessibilityDescription: nil)
         return menu
     }
+
+    /// Finder's «Настроить панель инструментов…»: the bar is arranged by dragging, a sheet holds
+    /// every command to choose from.
+    @objc func customizeCommandBar(_ sender: Any?) {
+        if let customizer { return customizer.makeKeyAndOrderFront(nil) }
+        if !Settings.showCommandBar { toggleCommandBar(nil) }
+        commandBar.isEditing = true
+        window?.layoutIfNeeded()
+        let panel = CommandBarCustomizer { [weak self] in
+            self?.commandBar.isEditing = false
+            self?.customizer = nil
+        }
+        customizer = panel
+        panel.show(under: commandBar)
+    }
+
+    private var customizer: CommandBarCustomizer?
 
     @objc func toggleCommandBar(_ sender: Any?) {
         Settings.showCommandBar.toggle()
@@ -1197,6 +1250,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     func windowWillClose(_ notification: Notification) {
         if !AppDelegate.shared.isTerminating { rememberPlacement() }
         if !AppDelegate.shared.isTerminating && !mergedAway { AppDelegate.shared.noteClosedWindow(self) }
+        customizer?.close()
         fileList.stopWatching()
         AppDelegate.shared.windowControllerDidClose(self)
     }
