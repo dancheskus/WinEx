@@ -872,6 +872,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         selectedIndexes.compactMap { items.indices.contains($0) ? items[$0].url : nil }
     }
 
+    /// What's selected now (the preview pane shows it).
+    var selection: [URL] { selectedURLs }
+
     /// The item under the right click while its context menu is open (and its action runs) — not
     /// otherwise: the table keeps the row of any last click, and a key (Delete) must act on the
     /// selection, not on a row clicked before in another folder.

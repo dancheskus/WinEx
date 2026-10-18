@@ -31,6 +31,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let splitView = NSSplitView()
     private let sidebar = SidebarViewController()
     private let fileList = FileListViewController()
+    private let previewPane = PreviewPane()
+    private lazy var filesSplit = PreviewSplitView(files: fileList.view, pane: previewPane)
     private let statusLabel = NSTextField(labelWithString: "")
     /// The address bar's capsule (outlined in the accent colour while editing).
     private var addressCapsule = ToolbarCapsule(height: 32, views: [])
@@ -245,7 +247,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let topSeparator = NSBox(); topSeparator.boxType = .separator
         let bottomSeparator = NSBox(); bottomSeparator.boxType = .separator
 
-        let fileView = fileList.view
+        // The files and, beside them, the preview pane
+        let fileView = filesSplit
+        previewPane.onOpen = { [weak self] in self?.fileList.openSelected(nil) }
+        filesSplit.isPaneShown = PreviewPane.isShownByDefault
         for view in [tabBar, navBar, navStack, topSeparator, commandBar, splitView, bottomSeparator, statusBar, statusLabel, viewModeToggle, fileView] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
@@ -330,7 +335,13 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     private func setUpCommandBar() {
         commandBar.actionProvider = { [weak self] command in self?.barAction(command) }
         commandBar.enabledProvider = { [weak self] command in self?.canPerform(command) ?? false }
-        commandBar.stateProvider = { command in command == .hiddenFiles && Settings.showHidden }
+        commandBar.stateProvider = { [weak self] command in
+            switch command {
+            case .hiddenFiles: Settings.showHidden
+            case .preview: self?.filesSplit.isPaneShown == true
+            default: false
+            }
+        }
         commandBar.menuProvider = { [weak self] command in
             switch command {
             case .new: self?.fileList.makeNewItemMenu()
@@ -378,6 +389,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         case .redo: (Selector(("redo:")), nil)
         case .hiddenFiles: (#selector(AppDelegate.toggleHiddenFiles(_:)), AppDelegate.shared)
         case .newTab: (#selector(newTab(_:)), self)
+        case .preview: (#selector(togglePreviewPane(_:)), self)
         case .settings: (#selector(AppDelegate.showSettings(_:)), AppDelegate.shared)
         }
     }
@@ -417,6 +429,10 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         info.target = fileList
         info.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
         info.state = fileList.showsItemInfo ? .on : .off
+        let preview = menu.addItem(withTitle: L("Панель предпросмотра"), action: #selector(togglePreviewPane(_:)), keyEquivalent: "")
+        preview.target = self
+        preview.image = NSImage(systemSymbolName: BarCommand.preview.symbol, accessibilityDescription: nil)
+        preview.state = filesSplit.isPaneShown ? .on : .off
         menu.addItem(.separator())
         let applyAll = menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "")
         applyAll.target = self
@@ -466,6 +482,25 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private var customizer: CommandBarCustomizer?
 
+    /// ⇧⌘P: this window's preview pane; new windows open with it as it was left.
+    @objc func togglePreviewPane(_ sender: Any?) {
+        filesSplit.isPaneShown.toggle()
+        PreviewPane.isShownByDefault = filesSplit.isPaneShown
+        updatePreviewPane()
+        commandBar.updateState()
+    }
+
+    /// The pane follows the selection (or shows the folder); nothing is read while it's hidden, and
+    /// hiding it lets go of what it showed (a video stops, it's read afresh when shown again).
+    private func updatePreviewPane() {
+        guard filesSplit.isPaneShown else { return previewPane.show(selection: [], folder: nil) }
+        previewPane.show(selection: fileList.selection, folder: fileList.directory)
+    }
+
+    #if DEBUG
+    var debugPreviewPane: PreviewPane? { filesSplit.isPaneShown ? previewPane : nil }
+    #endif
+
     @objc func toggleCommandBar(_ sender: Any?) {
         Settings.showCommandBar.toggle()
         NotificationCenter.default.post(name: .commandBarSettingChanged, object: nil)
@@ -492,6 +527,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         let info = menu.addItem(withTitle: L("Показывать свойства"), action: #selector(FileListViewController.toggleItemInfo(_:)), keyEquivalent: "")
         info.target = fileList
         info.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil)
+        let preview = menu.addItem(withTitle: L("Панель предпросмотра"), action: #selector(togglePreviewPane(_:)), keyEquivalent: "")
+        preview.target = self
+        preview.image = NSImage(systemSymbolName: BarCommand.preview.symbol, accessibilityDescription: nil)
         menu.addItem(.separator())
         let applyAll = menu.addItem(withTitle: L("Применить ко всем папкам"), action: #selector(applyViewModeToAllFolders(_:)), keyEquivalent: "")
         applyAll.target = self
@@ -1012,6 +1050,9 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         case #selector(selectViewMode(_:)):
             menuItem.state = menuItem.tag == fileList.viewMode.rawValue ? .on : .off
             return true
+        case #selector(togglePreviewPane(_:)):
+            menuItem.state = filesSplit.isPaneShown ? .on : .off
+            return true
         default: return true
         }
     }
@@ -1182,6 +1223,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
     func fileList(_ list: FileListViewController, didUpdateStatus status: String) {
         statusLabel.stringValue = status
         updateCommandBar()
+        updatePreviewPane()
     }
 
     func fileList(_ list: FileListViewController, didChangeViewMode mode: ViewMode) {

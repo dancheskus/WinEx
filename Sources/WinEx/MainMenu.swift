@@ -115,6 +115,7 @@ enum MainMenu {
         submenu(L("Вид"), viewModes + [
             .separator(),
             item(L("Показывать скрытые файлы"), #selector(AppDelegate.toggleHiddenFiles(_:)), ".", [.command, .shift]),
+            item(L("Панель предпросмотра"), #selector(ExplorerWindowController.togglePreviewPane(_:)), "p", [.command, .shift]),
             item(L("Обновить"), #selector(ExplorerWindowController.refresh(_:)), "r"),
             .separator(),
             item(L("Настроить панель команд…"), #selector(ExplorerWindowController.customizeCommandBar(_:)), ""),

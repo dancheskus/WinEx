@@ -6,7 +6,7 @@ enum BarCommand: String, CaseIterable {
     case new, newFolder, cut, copy, paste, rename, duplicate, share, airDrop, delete
     case compress, copyPath, addToFavorites, terminal, quickLook, properties
     case selectAll, selectNone, invertSelection, undo, redo
-    case sort, group, view, hiddenFiles, newTab, settings
+    case sort, group, view, preview, hiddenFiles, newTab, settings
 
     /// What the command is called in the "…" menu and in the set to choose from.
     var title: String {
@@ -35,6 +35,7 @@ enum BarCommand: String, CaseIterable {
         case .sort: L("Сортировать")
         case .group: L("Группировать")
         case .view: L("Просмотреть")
+        case .preview: L("Панель предпросмотра")
         case .hiddenFiles: L("Скрытые файлы")
         case .newTab: L("Новая вкладка")
         case .settings: L("Параметры")
@@ -54,6 +55,7 @@ enum BarCommand: String, CaseIterable {
         case .view: L("Вид")
         case .undo: L("Отменить (⌘Z)")
         case .redo: L("Повторить (⇧⌘Z)")
+        case .preview: L("Панель предпросмотра (⇧⌘P)")
         case .hiddenFiles: L("Показывать скрытые файлы (⇧⌘.)")
         case .newTab: L("Новая вкладка (⌘T)")
         default: title
@@ -86,6 +88,7 @@ enum BarCommand: String, CaseIterable {
         case .sort: "arrow.up.arrow.down"
         case .group: "square.grid.3x1.below.line.grid.1x2"
         case .view: "square.grid.2x2"
+        case .preview: "sidebar.right"
         case .hiddenFiles: "eye.slash"
         case .newTab: "macwindow.badge.plus"
         case .settings: "gearshape"

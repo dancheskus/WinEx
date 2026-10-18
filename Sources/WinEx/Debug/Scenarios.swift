@@ -8,6 +8,7 @@ enum Scenarios {
     static let all: [String: (Scenario) -> Void] = [
         "undo": undo,
         "grouping": grouping,
+        "preview": previewPane,
         "commandoverflow": commandOverflow,
         "commandcustomize": commandCustomize,
         "newfolder": newFolder,
@@ -288,6 +289,61 @@ enum Scenarios {
 
     /// «Группировать по ▸ Тип» from the sort menu: heading rows in the table, sections in the icon
     /// views, selection and arrows still on the right files; remembered for the folder only.
+    /// ⇧⌘P: the preview pane beside the files — the folder with nothing selected, a picture with
+    /// its live preview and details, a folder's item count, several items; hidden again, the files
+    /// take the whole width.
+    static func previewPane(_ s: Scenario) {
+        let base = s.makeFiles(["notes.txt", "Box/", "Box/one.txt", "Box/two.txt"], in: "preview")
+        let picture = NSImage(size: NSSize(width: 64, height: 48), flipped: false) { rect in
+            NSColor.systemTeal.setFill(); rect.fill(); return true
+        }
+        if let tiff = picture.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            try? png.write(to: base.appendingPathComponent("picture.png"))
+        }
+        s.window?.navigate(to: base)
+        func pane() -> PreviewPane? { s.window?.debugPreviewPane }
+        func report(_ expect: String) {
+            guard let pane = pane() else { return s.note("  pane hidden  \(expect)") }
+            s.note("  «\(pane.debugName)» — \(pane.debugKind); live \(pane.debugShowsLivePreview); buttons \(pane.debugButtons)  \(expect)")
+            s.note("    \(pane.debugLines)")
+            s.note("    \(pane.debugGeometry)")
+        }
+        func widths() -> String {
+            let files = s.table?.enclosingScrollView?.frame.width ?? -1
+            return "files \(Int(files)), pane \(Int(pane()?.frame.width ?? 0))"
+        }
+        func snapshot(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        s.run([
+            (1.0, "details view, pane off at first", { s.setViewMode(.details); report("expect hidden"); s.note("  \(widths())") }),
+            (0.2, "⇧⌘P", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
+            (0.5, "", { report("expect «preview» — Папка, no Открыть"); s.note("  \(widths())  expect pane 280") }),
+            (0.2, "select the picture", { s.select("picture.png") }),
+            (1.0, "", {
+                report("expect picture.png, live true, Изображение: 64 × 48"); snapshot("picture.png")
+                // scripts/capture-window.sh preview: the live preview is drawn by Quick Look's own process
+                if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8) }
+            }),
+            (1.0, "select the folder", { s.select("Box") }),
+            (0.8, "", { report("expect Box, live false, Содержит: 2") }),
+            (0.2, "select two", {
+                guard let table = s.table else { return }
+                table.selectRowIndexes(IndexSet(0..<2), byExtendingSelection: false)
+            }),
+            (0.5, "", { report("expect 2 объекта"); snapshot("two.png") }),
+            (0.2, "narrow window", {
+                guard let window = s.window?.window else { return }
+                window.setFrame(NSRect(x: window.frame.minX, y: window.frame.minY, width: 820, height: window.frame.height), display: true)
+            }),
+            (0.4, "", { s.note("  \(widths())  expect files ≥ 300") }),
+            (0.2, "⇧⌘P again", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
+            (0.5, "", { report("expect hidden"); s.note("  \(widths()); default now \(PreviewPane.isShownByDefault)  expect false") }),
+        ])
+    }
+
     static func grouping(_ s: Scenario) {
         let base = s.makeFiles(["b.txt", "a.txt", "c.pdf", "d.pdf", "e.pdf", "f.txt", "Zeta/", "Alpha/"], in: "one")
         let other = s.makeFiles(["x.txt", "y.pdf"], in: "two")
