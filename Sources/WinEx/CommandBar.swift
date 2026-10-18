@@ -8,9 +8,10 @@ final class CommandBar: NSView {
     /// Menus are built when they open (they show the current state).
     var newItemMenu: (() -> NSMenu?)?
     var sortMenu: (() -> NSMenu?)?
+    var groupMenu: (() -> NSMenu?)?
     var viewMenu: (() -> NSMenu?)?
     var moreMenu: (() -> NSMenu?)?
-    /// Scenario hook: "new", "sort", "view", "more" as each menu opens.
+    /// Scenario hook: "new", "sort", "group", "view", "more" as each menu opens.
     var onMenuOpen: ((String) -> Void)?
 
     let newButton = CommandButton(symbol: "plus.circle", title: L("Создать"), tip: L("Создать папку или документ"), menu: true)
@@ -22,6 +23,7 @@ final class CommandBar: NSView {
     let airDropButton = CommandButton(symbol: "finder:SidebarAirDrop", tip: L("Отправить через AirDrop"))
     let deleteButton = CommandButton(symbol: "trash", tip: L("Удалить (⌘⌫)"))
     let sortButton = CommandButton(symbol: "arrow.up.arrow.down", title: L("Сортировать"), tip: L("Порядок файлов"), menu: true)
+    let groupButton = CommandButton(symbol: "square.grid.3x1.below.line.grid.1x2", title: L("Группировать"), tip: L("Группы файлов"), menu: true)
     let viewButton = CommandButton(symbol: "square.grid.2x2", title: L("Просмотреть"), tip: L("Вид"), menu: true)
     let moreButton = CommandButton(symbol: "ellipsis", tip: L("Другие команды"))
 
@@ -29,13 +31,14 @@ final class CommandBar: NSView {
         super.init(frame: frame)
         newButton.onClick = { [weak self] in self?.pop(self?.newItemMenu, under: self?.newButton) }
         sortButton.onClick = { [weak self] in self?.pop(self?.sortMenu, under: self?.sortButton) }
+        groupButton.onClick = { [weak self] in self?.pop(self?.groupMenu, under: self?.groupButton) }
         viewButton.onClick = { [weak self] in self?.pop(self?.viewMenu, under: self?.viewButton) }
         moreButton.onClick = { [weak self] in self?.pop(self?.moreMenu, under: self?.moreButton) }
 
         let stack = NSStackView(views: [
             newButton, Self.divider(),
             cutButton, copyButton, pasteButton, renameButton, shareButton, airDropButton, deleteButton, Self.divider(),
-            sortButton, viewButton, Self.divider(), moreButton,
+            sortButton, groupButton, viewButton, Self.divider(), moreButton,
         ])
         stack.orientation = .horizontal
         stack.spacing = 2
@@ -83,7 +86,7 @@ final class CommandBar: NSView {
     private func pop(_ provider: (() -> NSMenu?)?, under button: CommandButton?) {
         guard let button, let menu = provider?() else { return }
         MenuStyle.decorate(menu)
-        onMenuOpen?([newButton: "new", sortButton: "sort", viewButton: "view", moreButton: "more"][button] ?? "?")
+        onMenuOpen?([newButton: "new", sortButton: "sort", groupButton: "group", viewButton: "view", moreButton: "more"][button] ?? "?")
         button.isOpen = true
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.isFlipped ? button.bounds.maxY + 4 : -4), in: button)
         button.isOpen = false
@@ -98,7 +101,7 @@ final class CommandBar: NSView {
     }
 
     private var commandButtons: [CommandButton] {
-        [newButton, cutButton, copyButton, pasteButton, renameButton, shareButton, deleteButton, sortButton, viewButton, moreButton]
+        [newButton, cutButton, copyButton, pasteButton, renameButton, shareButton, deleteButton, sortButton, groupButton, viewButton, moreButton]
     }
 }
 

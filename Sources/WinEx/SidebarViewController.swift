@@ -214,6 +214,11 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
 
     // MARK: - NSOutlineViewDelegate
 
+    /// A section opened again: the place shown is highlighted again (collapsing it dropped the selection).
+    func outlineViewItemDidExpand(_ notification: Notification) {
+        if let currentURL { highlight(currentURL) }
+    }
+
     func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
         item is Section
     }

@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// «Группировать по» — files in groups with a heading each, like Finder's «Использовать группы»
 /// and Explorer's «Группировка». Each folder's own (kept with its sorting, see `FileItem.SortOrder`).
@@ -14,7 +15,7 @@ enum FileGrouping {
 
     static func group(of item: FileItem, by key: String, now: Date = Date(), calendar: Calendar = .current) -> Group {
         switch key {
-        case "type": return Group(rank: 0, title: item.typeDescription)
+        case "type": return kindGroup(item)
         case "date": return dateGroup(item.modified, now: now, calendar: calendar)
         case "created": return dateGroup(item.created, now: now, calendar: calendar)
         case "added": return dateGroup(item.added, now: now, calendar: calendar)
@@ -25,6 +26,24 @@ enum FileGrouping {
         case "size": return sizeGroup(item.isFolder ? nil : item.size ?? 0)
         default: return Group(rank: 0, title: "")
         }
+    }
+
+    /// Finder's kinds (as its «Группировать по ▸ Тип»): broad ones — Word's .doc and .docx are both
+    /// documents, a shell script is text; alphabetical, the rest last.
+    static func kindGroup(_ item: FileItem) -> Group {
+        if item.isFolder { return Group(rank: 0, title: L("Папки")) }
+        // Word, Pages and the like (some don't say they're documents, RTF says it's text)
+        let documents = ["doc", "docx", "pages", "odt", "rtf", "rtfd", "epub"]
+        if documents.contains(item.url.pathExtension.lowercased()) { return Group(rank: 0, title: L("Документы")) }
+        guard let type = UTType(filenameExtension: item.url.pathExtension) else { return Group(rank: 1, title: L("Другие")) }
+        let kinds: [(UTType, String)] = [
+            (.application, L("Программы")), (.pdf, L("PDF-документы")), (.image, L("Изображения")),
+            (.movie, L("Фильмы")), (.audio, L("Музыка")), (.presentation, L("Презентации")),
+            (.spreadsheet, L("Таблицы")), (.diskImage, L("Образы дисков")), (.archive, L("Архивы")),
+            (.font, L("Шрифты")), (.text, L("Текст")), (.compositeContent, L("Документы")),
+        ]
+        if let kind = kinds.first(where: { type.conforms(to: $0.0) }) { return Group(rank: 0, title: kind.1) }
+        return Group(rank: 1, title: L("Другие"))
     }
 
     /// Finder's date groups, newest first: today, yesterday, the last 7 and 30 days, the months

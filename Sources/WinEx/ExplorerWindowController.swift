@@ -343,6 +343,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         }
         commandBar.newItemMenu = { [weak self] in self?.fileList.makeNewItemMenu() }
         commandBar.sortMenu = { [weak self] in self?.fileList.makeSortMenu() }
+        commandBar.groupMenu = { [weak self] in self?.fileList.makeGroupMenu() }
         commandBar.viewMenu = { [weak self] in self?.commandViewMenu() }
         commandBar.moreMenu = { [weak self] in self?.commandMoreMenu() }
         windowObservers.add(FileClipboard.didChange) { [weak self] in self?.updateCommandBar() }

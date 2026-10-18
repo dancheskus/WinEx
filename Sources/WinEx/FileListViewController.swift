@@ -1365,6 +1365,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
             let sortMenu = makeSortMenu()
             menu.addItem(withTitle: L("Сортировка"), action: nil, keyEquivalent: "").submenu = sortMenu
+            menu.addItem(withTitle: L("Группировать по"), action: nil, keyEquivalent: "").submenu = makeGroupMenu()
             add(L("Обновить"), #selector(refresh(_:)))
             // The network and a server hold no files: nothing to create, paste or copy the path of
             if showingNetwork { return }
@@ -1407,7 +1408,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let foldersFirst = sortMenu.addItem(withTitle: L("Папки сверху"), action: #selector(toggleFoldersOnTop(_:)), keyEquivalent: "")
         foldersFirst.target = self
         foldersFirst.state = foldersOnTop ? .on : .off
-        // Finder's «Группировать по» (this folder's own)
+        return sortMenu
+    }
+
+    /// Finder's and Explorer's «Группировать по» (this folder's own): a menu of its own.
+    func makeGroupMenu() -> NSMenu {
         let groupMenu = NSMenu()
         for key in [""] + FileGrouping.keys.map(\.rawValue) {
             let item = groupMenu.addItem(withTitle: key.isEmpty ? L("Без групп") : FileColumn(rawValue: key)?.title ?? key,
@@ -1417,8 +1422,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             item.state = groupBy == key ? .on : .off
             if key.isEmpty { groupMenu.addItem(.separator()) }
         }
-        sortMenu.addItem(withTitle: L("Группировать по"), action: nil, keyEquivalent: "").submenu = groupMenu
-        return sortMenu
+        return groupMenu
     }
 
     /// "Создать ▸": a folder and the document templates.

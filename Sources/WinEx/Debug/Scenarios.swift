@@ -165,8 +165,7 @@ enum Scenarios {
             }
         }
         func group(_ title: String) {
-            guard let menu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.sortMenu?(),
-                  let groupMenu = menu.items.first(where: { $0.title == L("Группировать по") })?.submenu,
+            guard let groupMenu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.groupMenu?(),
                   let index = groupMenu.items.firstIndex(where: { $0.title == title }) else { return s.note("  (no «\(title)» under «Группировать по»)") }
             groupMenu.performActionForItem(at: index)
         }
@@ -194,7 +193,7 @@ enum Scenarios {
                 s.window?.window?.makeFirstResponder(grid)
                 for _ in 0..<2 { s.key("\u{F703}", code: 124) }
             }),
-            (0.3, "", { s.note("  selected \(selected())  expect the next item twice over") }),
+            (0.3, "", { s.note("  selected \(selected())  expect e.pdf (the last)") }),
             (0.2, "other folder", { s.window?.navigate(to: other) }),
             (1.0, "", { s.setViewMode(.details) }),
             (0.5, "", { s.note("  \(rows())  expect no groups there") }),
@@ -206,6 +205,18 @@ enum Scenarios {
             (0.5, "", { s.note("  \(rows())  expect groups") }),
             (0.2, "no groups", { group(L("Без групп")) }),
             (0.8, "", { s.note("  \(rows())") }),
+            // The sidebar: a section collapsed and opened again keeps the place shown highlighted
+            (0.2, "sidebar: Desktop, collapse, expand", {
+                s.window?.navigate(to: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop"))
+            }),
+            (1.0, "", {
+                guard let outline = s.find(NSOutlineView.self, in: s.window?.window?.contentView), let section = outline.item(atRow: 0) else { return s.note("  (no sidebar)") }
+                s.note("  before: row \(outline.selectedRow)")
+                outline.collapseItem(section)
+                s.note("  collapsed: row \(outline.selectedRow)")
+                outline.expandItem(section)
+                s.note("  expanded: row \(outline.selectedRow)  expect the row before")
+            }),
         ])
     }
 

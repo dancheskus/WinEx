@@ -483,6 +483,26 @@ struct ReleaseNotesTests {
 }
 
 struct GroupingTests {
+    // (A key twice in the literal crashes the app in English)
+    @Test func englishTextsLoad() {
+        #expect(English.strings["Группировать по"] == "Group By")
+    }
+
+    @Test func kindsLikeFinder() {
+        let dir = tempFolder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func kind(_ name: String) -> String {
+            let url = dir.appendingPathComponent(name)
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+            return FileGrouping.kindGroup(FileItem(url: url)).title
+        }
+        #expect(kind("a.doc") == "Документы" && kind("b.docx") == "Документы")
+        #expect(kind("run.sh") == "Текст")
+        #expect(kind("logo.svg") == "Изображения")
+        #expect(kind("x.dmg") == "Образы дисков")
+        #expect(kind("y.zip") == "Архивы")
+        #expect(kind("z.unknownext") == "Другие")
+    }
     @Test func dateGroupsLikeFinder() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "Europe/Riga"))
