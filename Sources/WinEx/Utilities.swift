@@ -261,6 +261,9 @@ final class FileItem {
         /// Folders before files, like Explorer; off (the default), they're sorted in among the
         /// files, like Finder (a film, then its folder of the same name). Each folder's own.
         var foldersOnTop = false
+        /// «Группировать по» (a `FileGrouping.keys` raw value; empty: no groups). Groups come
+        /// first, then this order within each. Each folder's own.
+        var group = ""
     }
 
     /// Folders first, like in Explorer, if the order says so; ties are broken by name.
@@ -269,7 +272,14 @@ final class FileItem {
             a < b ? .orderedAscending : (a > b ? .orderedDescending : .orderedSame)
         }
         let foldersOnTop = order.foldersOnTop
+        // Each item's group worked out once (dates read the clock, tags the disk)
+        var groups: [ObjectIdentifier: FileGrouping.Group] = [:]
+        if !order.group.isEmpty {
+            let now = Date()
+            for item in items { groups[ObjectIdentifier(item)] = FileGrouping.group(of: item, by: order.group, now: now) }
+        }
         items.sort { a, b in
+            if let x = groups[ObjectIdentifier(a)], let y = groups[ObjectIdentifier(b)], let first = FileGrouping.precedes(x, y) { return first }
             if foldersOnTop, a.isFolder != b.isFolder { return a.isFolder }
             let result: ComparisonResult
             switch order.key {

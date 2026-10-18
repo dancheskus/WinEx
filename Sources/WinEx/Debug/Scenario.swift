@@ -152,7 +152,7 @@ final class Scenario {
             window?.window?.makeFirstResponder(table)
             if let row { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) } else { note("  (\(name) not in table)") }
         } else if let grid {
-            let index = (0..<grid.count).first { (grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem)?.textField?.stringValue.hasSuffix(name) == true }
+            let index = (0..<grid.count).first { (grid.item(at: grid.groups.indexPath(for: $0)) as? FileGridItem)?.textField?.stringValue.hasSuffix(name) == true }
             window?.window?.makeFirstResponder(grid)
             if let index { grid.setSelection([index], anchor: index) } else { note("  (\(name) not in grid)") }
         }
@@ -170,7 +170,7 @@ final class Scenario {
             return table.selectedRowIndexes.compactMap { (table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue }
         }
         guard let grid else { return [] }
-        return grid.selectedIndexes.compactMap { (grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem)?.textField?.stringValue }
+        return grid.selectedIndexes.compactMap { (grid.item(at: grid.groups.indexPath(for: $0)) as? FileGridItem)?.textField?.stringValue }
     }
 
     /// Resident memory of this process (phys_footprint), in MB.

@@ -481,3 +481,79 @@ struct ReleaseNotesTests {
         #expect(notes.string == "Windows\n•\t⇧⌘T reopens the tab.")
     }
 }
+
+struct GroupingTests {
+    @Test func dateGroupsLikeFinder() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Europe/Riga"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: 12)))
+        func title(daysAgo: Int) -> String {
+            FileGrouping.dateGroup(calendar.date(byAdding: .day, value: -daysAgo, to: now), now: now, calendar: calendar).title
+        }
+        #expect(title(daysAgo: 0) == "Сегодня")
+        #expect(title(daysAgo: 1) == "Вчера")
+        #expect(title(daysAgo: 5) == "Предыдущие 7 дней")
+        #expect(title(daysAgo: 20) == "Предыдущие 30 дней")
+        #expect(title(daysAgo: 100) == "Июль")
+        #expect(title(daysAgo: 400) == "2025")
+        #expect(FileGrouping.dateGroup(nil, now: now, calendar: calendar).title == "Неизвестно")
+        // Newest first
+        let ranks = [0, 1, 5, 20, 100, 200, 400].map {
+            FileGrouping.dateGroup(calendar.date(byAdding: .day, value: -$0, to: now), now: now, calendar: calendar).rank
+        }
+        #expect(ranks == ranks.sorted())
+    }
+
+    @Test func sizeGroupsSmallToBigFoldersLast() {
+        #expect(FileGrouping.sizeGroup(0).title == "Пустые")
+        #expect(FileGrouping.sizeGroup(10_000).title == "Крошечные (до 16 КБ)")
+        #expect(FileGrouping.sizeGroup(5 << 30).title == "Гигантские (больше 4 ГБ)")
+        #expect(FileGrouping.sizeGroup(nil).rank > FileGrouping.sizeGroup(5 << 30).rank)
+    }
+
+    @Test func groupedFolderSortsByGroupThenOrder() throws {
+        let dir = tempFolder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for (name, size) in [("b.txt", 100), ("a.txt", 0), ("c.txt", 50), ("d.txt", 0)] {
+            FileManager.default.createFile(atPath: dir.appendingPathComponent(name).path, contents: Data(count: size))
+        }
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("z"), withIntermediateDirectories: false)
+        let urls = try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: FileItem.keys)
+        let order = FileItem.SortOrder(key: "name", ascending: false, group: "size")
+        let items = FileItem.sorted(urls.map(FileItem.init), by: order)
+        #expect(items.map(\.name) == ["d.txt", "a.txt", "c.txt", "b.txt", "z"])
+        let groups = FileGroups(items, by: "size")
+        #expect(groups.starts == [0, 2, 4])
+        #expect(groups.titles == ["Пустые", "Крошечные (до 16 КБ)", "Папки"])
+    }
+
+    @Test func rowsAndSectionsMapToItems() {
+        let dir = tempFolder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for (name, size) in [("a", 0), ("b", 0), ("c", 1), ("d", 1), ("e", 1)] {
+            FileManager.default.createFile(atPath: dir.appendingPathComponent(name).path, contents: Data(count: size))
+        }
+        let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: FileItem.keys)) ?? []
+        let items = FileItem.sorted(urls.map(FileItem.init), by: FileItem.SortOrder(key: "name", ascending: true, group: "size"))
+        let groups = FileGroups(items, by: "size")
+        // Rows: [Пустые] a b [Крошечные] c d e
+        #expect(groups.rowCount == 7)
+        #expect((0..<7).map(groups.index(forRow:)) == [nil, 0, 1, nil, 2, 3, 4])
+        #expect((0..<5).map(groups.row(for:)) == [1, 2, 4, 5, 6])
+        #expect(groups.title(forRow: 3) == "Крошечные (до 16 КБ)")
+        #expect(groups.sectionCount == 2 && groups.itemCount(inSection: 1) == 3)
+        #expect(groups.indexPath(for: 3) == IndexPath(item: 1, section: 1))
+        #expect(groups.index(of: IndexPath(item: 1, section: 1)) == 3)
+        // Not grouped: rows are items
+        let flat = FileGroups(items, by: "")
+        #expect(flat.rowCount == 5 && flat.index(forRow: 2) == 2 && flat.row(for: 2) == 2 && flat.sectionCount == 1)
+    }
+
+    @Test func groupIsRememberedPerFolder() {
+        let folder = URL(fileURLWithPath: "/tmp/winex-group-test-\(UUID().uuidString)")
+        ViewMode.rememberSortOrder(FileItem.SortOrder(key: "date", ascending: false, group: "type"), for: folder)
+        #expect(ViewMode.sortOrder(for: folder) == FileItem.SortOrder(key: "date", ascending: false, group: "type"))
+        ViewMode.rememberSortOrder(FileItem.SortOrder(key: "name", ascending: true), for: folder)
+        #expect(ViewMode.sortOrder(for: folder).group == "")
+    }
+}

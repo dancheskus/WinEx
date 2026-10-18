@@ -7,6 +7,7 @@ import AVFoundation
 enum Scenarios {
     static let all: [String: (Scenario) -> Void] = [
         "undo": undo,
+        "grouping": grouping,
         "newfolder": newFolder,
         "slowclick": slowClick,
         "perf": perf,
@@ -146,6 +147,65 @@ enum Scenarios {
             // «Этот Mac»: a server's mounted shares as one tile
             (0.2, "this Mac", { s.window?.navigate(to: Places.computerURL) }),
             (2.5, "", { picture("thismac") }),
+        ])
+    }
+
+    /// «Группировать по ▸ Тип» from the sort menu: heading rows in the table, sections in the icon
+    /// views, selection and arrows still on the right files; remembered for the folder only.
+    static func grouping(_ s: Scenario) {
+        let base = s.makeFiles(["b.txt", "a.txt", "c.pdf", "d.pdf", "e.pdf", "f.txt", "Zeta/", "Alpha/"], in: "one")
+        let other = s.makeFiles(["x.txt", "y.pdf"], in: "two")
+        s.window?.navigate(to: base)
+        func rows() -> [String] {
+            guard let table = s.table else { return [] }
+            return (0..<table.numberOfRows).map { row in
+                let view = table.view(atColumn: 0, row: row, makeIfNecessary: true)
+                if let header = view as? GroupHeaderView { return "[\(header.title)]" }
+                return (view as? NSTableCellView)?.textField?.stringValue ?? "?"
+            }
+        }
+        func group(_ title: String) {
+            guard let menu = s.find(CommandBar.self, in: s.window?.window?.contentView)?.sortMenu?(),
+                  let groupMenu = menu.items.first(where: { $0.title == L("Группировать по") })?.submenu,
+                  let index = groupMenu.items.firstIndex(where: { $0.title == title }) else { return s.note("  (no «\(title)» under «Группировать по»)") }
+            groupMenu.performActionForItem(at: index)
+        }
+        func selected() -> [String] { s.selectedNames }
+        func snapshot(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        s.run([
+            (1.0, "group by type", { s.setViewMode(.details); group(L("Тип")) }),
+            (0.8, "", { s.note("  \(rows())"); snapshot("details.png") }),
+            (0.2, "select the second row of the pdfs", {
+                guard let table = s.table, let row = rows().firstIndex(of: "d.pdf") else { return }
+                table.selectRowIndexes([row], byExtendingSelection: false)
+            }),
+            (0.3, "", { s.note("  selected \(selected())  expect d.pdf") }),
+            (0.2, "icons", { s.setViewMode(.mediumIcons) }),
+            (0.8, "", {
+                s.note("  sections \(s.grid?.numberOfSections ?? -1), selected \(selected())  expect d.pdf kept")
+                snapshot("icons.png")
+            }),
+            (0.2, "arrow right twice", {
+                guard let grid = s.grid else { return }
+                s.window?.window?.makeFirstResponder(grid)
+                for _ in 0..<2 { s.key("\u{F703}", code: 124) }
+            }),
+            (0.3, "", { s.note("  selected \(selected())  expect the next item twice over") }),
+            (0.2, "other folder", { s.window?.navigate(to: other) }),
+            (1.0, "", { s.setViewMode(.details) }),
+            (0.5, "", { s.note("  \(rows())  expect no groups there") }),
+            (0.2, "back", { s.window?.navigate(to: base) }),
+            (1.0, "", {
+                s.note("  view \(s.window.map { _ in s.grid?.enclosingScrollView?.isHidden == false ? "icons" : "table" } ?? ""), sections \(s.grid?.numberOfSections ?? -1)  expect icons, 3 (remembered)")
+                s.setViewMode(.details)
+            }),
+            (0.5, "", { s.note("  \(rows())  expect groups") }),
+            (0.2, "no groups", { group(L("Без групп")) }),
+            (0.8, "", { s.note("  \(rows())") }),
         ])
     }
 

@@ -90,16 +90,16 @@ enum ViewMode: Int, CaseIterable {
     static func sortOrder(for folder: URL) -> FileItem.SortOrder {
         let orders = AppDefaults.store.dictionary(forKey: sortKey) as? [String: String] ?? [:]
         guard let saved = orders[folder.standardizedFileURL.path] else { return FileItem.SortOrder(key: "name", ascending: true) }
-        // "key|ascending" or "key|ascending|foldersOnTop"
-        let parts = saved.split(separator: "|").map(String.init)
+        // "key|ascending", "key|ascending|foldersOnTop" or "key|ascending|foldersOnTop|group"
+        let parts = saved.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         return FileItem.SortOrder(key: parts.first ?? "name", ascending: parts.count < 2 || parts[1] != "0",
-                                  foldersOnTop: parts.count > 2 && parts[2] == "1")
+                                  foldersOnTop: parts.count > 2 && parts[2] == "1", group: parts.count > 3 ? parts[3] : "")
     }
 
     static func rememberSortOrder(_ order: FileItem.SortOrder, for folder: URL) {
         var orders = AppDefaults.store.dictionary(forKey: sortKey) as? [String: String] ?? [:]
         orders[folder.standardizedFileURL.path] = order == FileItem.SortOrder(key: "name", ascending: true) ? nil
-            : "\(order.key)|\(order.ascending ? 1 : 0)|\(order.foldersOnTop ? 1 : 0)"
+            : "\(order.key)|\(order.ascending ? 1 : 0)|\(order.foldersOnTop ? 1 : 0)|\(order.group)"
         if orders.count > maxRememberedFolders {
             orders = orders.filter { FileManager.default.fileExists(atPath: $0.key) }
             while orders.count > maxRememberedFolders, let other = orders.keys.first(where: { $0 != folder.standardizedFileURL.path }) {
@@ -674,13 +674,15 @@ final class FileCollectionView: NSCollectionView {
     var onSelectionChange: (() -> Void)?
     var itemName: ((Int) -> String)?
     var draggingItems: ((IndexSet) -> [NSDraggingItem])?
+    /// «Группировать по»: a section per group (indexes here are those of the flat list).
+    var groups = FileGroups()
     /// Where files dropped at a point go: a folder item (with its index, to highlight) or the current folder.
     var dropTarget: ((NSPoint) -> (url: URL, index: Int?)?)?
     private var highlightedDropIndex: Int? {
         didSet {
             guard highlightedDropIndex != oldValue else { return }
             for index in [oldValue, highlightedDropIndex].compactMap({ $0 }) {
-                (item(at: IndexPath(item: index, section: 0))?.view as? GridItemView)?.isDropTarget = index == highlightedDropIndex
+                (item(at: groups.indexPath(for: index))?.view as? GridItemView)?.isDropTarget = index == highlightedDropIndex
             }
         }
     }
@@ -712,7 +714,7 @@ final class FileCollectionView: NSCollectionView {
             guard let frame = layoutAttributesForItem(at: path)?.frame, frame.contains(point) else { return false }
             guard let view = item(at: path)?.view as? GridItemView else { return true }
             return view.catches(view.convert(point, from: self))
-        }?.item
+        }.map(groups.index(of:))
     }
 
     /// A selection rectangle from `point` until the button goes up: the items it touches (their icon
@@ -747,21 +749,21 @@ final class FileCollectionView: NSCollectionView {
 
     /// Whether a selection rectangle reaches an item: its icon or its name's text (not the whole cell).
     private func reaches(_ index: Int, _ rect: NSRect) -> Bool {
-        let path = IndexPath(item: index, section: 0)
+        let path = groups.indexPath(for: index)
         guard let frame = layoutAttributesForItem(at: path)?.frame, frame.intersects(rect) else { return false }
         guard let view = item(at: path)?.view as? GridItemView else { return true }
         return view.catchRects.contains { convert($0, from: view).intersects(rect) }
     }
 
-    var count: Int { numberOfSections > 0 ? numberOfItems(inSection: 0) : 0 }
+    var count: Int { (0..<numberOfSections).reduce(0) { $0 + numberOfItems(inSection: $1) } }
 
-    var selectedIndexes: IndexSet { IndexSet(selectionIndexPaths.map(\.item)) }
+    var selectedIndexes: IndexSet { IndexSet(selectionIndexPaths.map(groups.index(of:))) }
 
     /// Sets the selection programmatically; the anchor becomes `anchor` (or is cleared).
     func setSelection(_ indexes: IndexSet, anchor newAnchor: Int?) {
         anchor = newAnchor
         lead = newAnchor
-        selectionIndexPaths = Set(indexes.map { IndexPath(item: $0, section: 0) })
+        selectionIndexPaths = Set(indexes.map(groups.indexPath(for:)))
         onSelectionChange?()
     }
 
@@ -771,7 +773,7 @@ final class FileCollectionView: NSCollectionView {
 
     func scrollToItem(_ index: Int) {
         guard index >= 0 && index < count else { return }
-        scrollToItems(at: [IndexPath(item: index, section: 0)],
+        scrollToItems(at: [groups.indexPath(for: index)],
                       scrollPosition: isHorizontalFlow ? .nearestVerticalEdge : .nearestHorizontalEdge)
     }
 
@@ -781,7 +783,7 @@ final class FileCollectionView: NSCollectionView {
 
     private func apply(_ selection: IndexSet, lead newLead: Int) {
         lead = newLead
-        selectionIndexPaths = Set(selection.map { IndexPath(item: $0, section: 0) })
+        selectionIndexPaths = Set(selection.map(groups.indexPath(for:)))
         onSelectionChange?()
     }
 
@@ -796,7 +798,7 @@ final class FileCollectionView: NSCollectionView {
         let modifiers = event.modifierFlags.intersection([.shift, .command])
 
         // The play button over a video's preview: plays / pauses it, nothing else
-        if let index = itemIndex(at: point), let item = item(at: IndexPath(item: index, section: 0)) as? FileGridItem,
+        if let index = itemIndex(at: point), let item = item(at: groups.indexPath(for: index)) as? FileGridItem,
            item.handlePlayClick(at: item.view.convert(point, from: self)) {
             return
         }
@@ -811,7 +813,7 @@ final class FileCollectionView: NSCollectionView {
 
         // Slow click on the label of the item that was already the only selected one → rename
         if SlowClickRename.isPlainClick(event), selectedIndexes == IndexSet(integer: index),
-           let label = (item(at: IndexPath(item: index, section: 0)) as? FileGridItem)?.textField,
+           let label = (item(at: groups.indexPath(for: index)) as? FileGridItem)?.textField,
            label.convert(label.bounds, to: self).contains(point) {
             slowClickCandidate = true
         }
@@ -985,6 +987,8 @@ final class FileCollectionView: NSCollectionView {
         let arrows: Set<UInt16> = [123, 124, 125, 126, 115, 119]
         guard arrows.contains(keyCode) else { return nil }
         guard let current = lead ?? selectedIndexes.first else { return 0 }
+        // In groups the lines don't follow from the index: the nearest item on the next line
+        if groups.isGrouped, keyCode != 115, keyCode != 119 { return groupedTarget(from: current, keyCode: keyCode, total: total) ?? current }
 
         let perLine = itemsPerLine()
         let delta: Int
@@ -1003,6 +1007,35 @@ final class FileCollectionView: NSCollectionView {
             return abs(delta) > 1 && current / perLine < (total - 1) / perLine ? total - 1 : current
         }
         return target
+    }
+
+    /// The item an arrow goes to in groups: the next or previous one along a line, or the one
+    /// closest across on the nearest line before or after.
+    private func groupedTarget(from current: Int, keyCode: UInt16, total: Int) -> Int? {
+        let horizontal = isHorizontalFlow
+        let alongLine: Bool, forward: Bool
+        switch keyCode {
+        case 123: (alongLine, forward) = (!horizontal, false)
+        case 124: (alongLine, forward) = (!horizontal, true)
+        case 126: (alongLine, forward) = (horizontal, false)
+        default: (alongLine, forward) = (horizontal, true)
+        }
+        if alongLine {
+            let target = current + (forward ? 1 : -1)
+            return (0..<total).contains(target) ? target : nil
+        }
+        guard let from = layoutAttributesForItem(at: groups.indexPath(for: current))?.frame else { return nil }
+        // Lines across: rows (vertical flow) or columns (horizontal flow)
+        func line(_ frame: NSRect) -> CGFloat { horizontal ? frame.midX : frame.midY }
+        func across(_ frame: NSRect) -> CGFloat { horizontal ? frame.midY : frame.midX }
+        let candidates = (0..<total).compactMap { index -> (index: Int, frame: NSRect)? in
+            guard let frame = layoutAttributesForItem(at: groups.indexPath(for: index))?.frame,
+                  forward ? line(frame) > line(from) + 1 : line(frame) < line(from) - 1 else { return nil }
+            return (index, frame)
+        }
+        guard let nearest = candidates.map({ line($0.frame) }).min(by: { abs($0 - line(from)) < abs($1 - line(from)) }) else { return nil }
+        return candidates.filter { abs(line($0.frame) - nearest) < 1 }
+            .min { abs(across($0.frame) - across(from)) < abs(across($1.frame) - across(from)) }?.index
     }
 
     private func moveFocus(to target: Int, extend: Bool) {

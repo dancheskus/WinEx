@@ -218,6 +218,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         collectionView.allowsMultipleSelection = true
         collectionView.backgroundColors = [.controlBackgroundColor]
         collectionView.register(FileGridItem.self, forItemWithIdentifier: FileGridItem.identifier)
+        collectionView.register(GroupHeaderView.self, forSupplementaryViewOfKind: NSCollectionView.elementKindSectionHeader,
+                                withIdentifier: GroupHeaderView.identifier)
         collectionView.menu = menu
         collectionView.onOpen = { [weak self] in self?.openSelected(nil) }
         collectionView.onGoUp = { [weak self] in
@@ -237,7 +239,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 // The picture the window shows (a preview, not the file type's icon), over the icon
                 // as it's drawn — same size, same proportions
                 let image = self.image(for: file)
-                let path = IndexPath(item: index, section: 0)
+                let path = self.groups.indexPath(for: index)
                 let frame = self.collectionView.layoutAttributesForItem(at: path)?.frame ?? .zero
                 var box: NSRect
                 if let shown = self.collectionView.item(at: path)?.imageView, shown.superview != nil {
@@ -290,6 +292,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             flowLayout.minimumInteritemSpacing = viewMode.isHorizontalItem ? 2 : 0
             flowLayout.minimumLineSpacing = viewMode.isHorizontalItem ? 2 : 0
             flowLayout.sectionInset = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+            updateGroupHeaders()
             gridScrollView.hasHorizontalScroller = viewMode.scrollsHorizontally
             gridScrollView.hasVerticalScroller = !viewMode.scrollsHorizontally
             flowLayout.invalidateLayout()
@@ -318,11 +321,18 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// «Папки сверху» for the folder shown (each folder's own, off by default).
     private var foldersOnTop = false
 
+    /// «Группировать по» for the folder shown (each folder's own; empty: no groups).
+    private var groupBy = ""
+
+    /// Where the groups of `items` start: the table's heading rows, the grid's sections.
+    private var groups = FileGroups()
+
     /// Switches to the view (and the sorting) remembered for the current folder.
     private func showFolderView() {
         guard let directory else { return }
         let order = ViewMode.sortOrder(for: directory)
         foldersOnTop = order.foldersOnTop
+        groupBy = order.group
         if tableView.sortDescriptors.first?.key != order.key || tableView.sortDescriptors.first?.ascending != order.ascending {
             isRestoringFolderView = true
             tableView.sortDescriptors = [NSSortDescriptor(key: order.key, ascending: order.ascending)]
@@ -660,7 +670,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private let lookBackground = FinderLookBackground()
 
     private func updateFinderLook() {
-        finderLook = search == nil ? directory.flatMap(FinderLook.read) : nil
+        // (Groups: Finder's own arrangement doesn't apply, as in Finder)
+        finderLook = search == nil && !groups.isGrouped ? directory.flatMap(FinderLook.read) : nil
         guard let look = finderLook, viewMode != .details, !viewMode.isHorizontalItem else {
             if collectionView.collectionViewLayout !== flowLayout { collectionView.collectionViewLayout = flowLayout }
             collectionView.backgroundView = nil
@@ -685,6 +696,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             allItemsOrder = order
         }
         items = allItems
+        groups = FileGroups(items, by: groupBy)
+        collectionView.groups = groups
+        updateGroupHeaders()
         updateFinderLook()
         if viewMode == .details { tableView.reloadData() } else { collectionView.reloadData() }
         setSelection(IndexSet(items.indices.filter { selectedPaths.contains(items[$0].url.path) }))
@@ -692,7 +706,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     private var sortOrder: FileItem.SortOrder {
         let descriptor = tableView.sortDescriptors.first
-        return FileItem.SortOrder(key: descriptor?.key ?? "name", ascending: descriptor?.ascending ?? true, foldersOnTop: foldersOnTop)
+        return FileItem.SortOrder(key: descriptor?.key ?? "name", ascending: descriptor?.ascending ?? true,
+                                  foldersOnTop: foldersOnTop, group: groupBy)
     }
 
     private func showDrives(_ show: Bool) {
@@ -813,13 +828,13 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private var selectedIndexes: IndexSet { selection(in: viewMode) }
 
     private func selection(in mode: ViewMode) -> IndexSet {
-        mode == .details ? tableView.selectedRowIndexes : collectionView.selectedIndexes
+        mode == .details ? groups.indexes(forRows: tableView.selectedRowIndexes) : collectionView.selectedIndexes
     }
 
     private func setSelection(_ indexes: IndexSet, scrollTo index: Int? = nil) {
         if viewMode == .details {
-            tableView.selectRowIndexes(indexes, byExtendingSelection: false)
-            if let index, index < items.count { tableView.scrollRowToVisible(index) }
+            tableView.selectRowIndexes(groups.rows(for: indexes), byExtendingSelection: false)
+            if let index, index < items.count { tableView.scrollRowToVisible(groups.row(for: index)) }
         } else {
             collectionView.setSelection(indexes, anchor: indexes.first)
             if let index { collectionView.scrollToItem(index) }
@@ -837,7 +852,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private var clickedIndex: Int {
         if let keyboardMenuIndex { return keyboardMenuIndex }
         guard contextMenuOpen else { return -1 }
-        return viewMode == .details ? tableView.clickedRow : collectionView.clickedIndex
+        return viewMode == .details ? groups.index(forRow: tableView.clickedRow) ?? -1 : collectionView.clickedIndex
     }
     private var contextMenuOpen = false
 
@@ -852,8 +867,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         keyboardMenuIndex = index ?? -1
         var rect = view.visibleRect
         if let index {
-            rect = viewMode == .details ? tableView.rect(ofRow: index)
-                : collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame ?? rect
+            rect = viewMode == .details ? tableView.rect(ofRow: groups.row(for: index))
+                : collectionView.layoutAttributesForItem(at: groups.indexPath(for: index))?.frame ?? rect
         }
         let point = view.convert(NSPoint(x: rect.minX + 24, y: rect.midY), to: nil)
         guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
@@ -881,7 +896,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     // MARK: - Actions
 
     @objc private func doubleClicked(_ sender: Any?) {
-        guard tableView.clickedRow >= 0 else { return }
+        guard groups.index(forRow: tableView.clickedRow) != nil else { return }
         openSelected(sender)
     }
 
@@ -991,8 +1006,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func beginRename(at index: Int) {
         let file = items[index]
         if viewMode == .details {
-            tableView.editColumn(0, row: index, with: nil, select: true)
-            if let field = (tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? NSTableCellView)?.textField {
+            tableView.editColumn(0, row: groups.row(for: index), with: nil, select: true)
+            if let field = (tableView.view(atColumn: 0, row: groups.row(for: index), makeIfNecessary: false) as? NSTableCellView)?.textField {
                 InlineRename.began(field)
             }
             // The table selects the whole name once editing starts; narrow it to the name without extension
@@ -1004,7 +1019,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         } else {
             collectionView.scrollToItem(index)
             collectionView.layoutSubtreeIfNeeded()
-            let item = collectionView.item(at: IndexPath(item: index, section: 0)) as? FileGridItem
+            let item = collectionView.item(at: groups.indexPath(for: index)) as? FileGridItem
             item?.beginRename { [weak self] newName in self?.rename(file.url, to: newName) }
         }
     }
@@ -1012,9 +1027,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// Table cells commit renames through their text field's action.
     @objc private func renameEdited(_ sender: NSTextField) {
         InlineRename.resetCursor(in: view.window)
-        let row = tableView.row(for: sender)
-        guard items.indices.contains(row) else { return }
-        rename(items[row].url, to: sender.stringValue)
+        guard let index = groups.index(forRow: tableView.row(for: sender)), items.indices.contains(index) else { return }
+        rename(items[index].url, to: sender.stringValue)
     }
 
     private func rename(_ url: URL, to rawName: String) {
@@ -1056,13 +1070,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let clipboard = FileClipboard.shared
         if viewMode == .details {
             let visible = tableView.rows(in: tableView.visibleRect)
-            for row in visible.lowerBound..<visible.upperBound where items.indices.contains(row) {
+            for row in visible.lowerBound..<visible.upperBound {
+                guard let index = groups.index(forRow: row), items.indices.contains(index) else { continue }
                 let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? NSTableCellView
-                cell?.imageView?.alphaValue = clipboard.isCut(items[row].url) ? Self.cutAlpha : 1
+                cell?.imageView?.alphaValue = clipboard.isCut(items[index].url) ? Self.cutAlpha : 1
             }
         } else {
-            for indexPath in collectionView.indexPathsForVisibleItems() where items.indices.contains(indexPath.item) {
-                (collectionView.item(at: indexPath) as? FileGridItem)?.setCut(clipboard.isCut(items[indexPath.item].url))
+            for indexPath in collectionView.indexPathsForVisibleItems() where items.indices.contains(groups.index(of: indexPath)) {
+                (collectionView.item(at: indexPath) as? FileGridItem)?.setCut(clipboard.isCut(items[groups.index(of: indexPath)].url))
             }
         }
     }
@@ -1127,9 +1142,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func iconView(for item: QLPreviewItem?) -> NSImageView? {
         guard let url = item?.previewItemURL, let index = items.firstIndex(where: { $0.url.path == url.path }) else { return nil }
         if viewMode == .details {
-            return (tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? NSTableCellView)?.imageView
+            return (tableView.view(atColumn: 0, row: groups.row(for: index), makeIfNecessary: false) as? NSTableCellView)?.imageView
         }
-        return collectionView.item(at: IndexPath(item: index, section: 0))?.imageView
+        return collectionView.item(at: groups.indexPath(for: index))?.imageView
     }
 
     /// ⌘I / ⌥↩ / context menu: the selection, or the folder itself when nothing is selected.
@@ -1167,8 +1182,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         guard let index = targetRows.first else { return }
         let picker = NSSharingServicePicker(items: targetURLs)
         if viewMode == .details {
-            picker.show(relativeTo: tableView.rect(ofRow: index), of: tableView, preferredEdge: .maxY)
-        } else if let frame = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame {
+            picker.show(relativeTo: tableView.rect(ofRow: groups.row(for: index)), of: tableView, preferredEdge: .maxY)
+        } else if let frame = collectionView.layoutAttributesForItem(at: groups.indexPath(for: index))?.frame {
             picker.show(relativeTo: frame, of: collectionView, preferredEdge: .maxY)
         }
     }
@@ -1188,10 +1203,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let anchor: NSView, rect: NSRect
         if viewMode == .details {
             anchor = tableView
-            rect = tableView.rect(ofRow: index)
+            rect = tableView.rect(ofRow: groups.row(for: index))
         } else {
             anchor = collectionView
-            rect = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame ?? .zero
+            rect = collectionView.layoutAttributesForItem(at: groups.indexPath(for: index))?.frame ?? .zero
         }
         FolderCustomizationController.show(for: items[index].url, relativeTo: rect, of: anchor)
     }
@@ -1208,6 +1223,20 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         if let directory { ViewMode.rememberSortOrder(sortOrder, for: directory) }
         refilter(keepSelection: true)
         NotificationCenter.default.post(name: .foldersOnTopChanged, object: nil)
+    }
+
+    @objc private func groupByKey(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String, key != groupBy else { return }
+        groupBy = key
+        if let directory { ViewMode.rememberSortOrder(sortOrder, for: directory) }
+        refilter(keepSelection: true)
+    }
+
+    /// Group headings in the icon views: a band above each group (in a list going sideways, none —
+    /// its columns begin a group each).
+    private func updateGroupHeaders() {
+        let height: CGFloat = groups.isGrouped && !viewMode.scrollsHorizontally ? GroupHeaderView.height + 4 : 0
+        flowLayout.headerReferenceSize = NSSize(width: 0, height: height)
     }
 
     @objc private func sortOrder(_ sender: NSMenuItem) {
@@ -1378,6 +1407,17 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let foldersFirst = sortMenu.addItem(withTitle: L("Папки сверху"), action: #selector(toggleFoldersOnTop(_:)), keyEquivalent: "")
         foldersFirst.target = self
         foldersFirst.state = foldersOnTop ? .on : .off
+        // Finder's «Группировать по» (this folder's own)
+        let groupMenu = NSMenu()
+        for key in [""] + FileGrouping.keys.map(\.rawValue) {
+            let item = groupMenu.addItem(withTitle: key.isEmpty ? L("Без групп") : FileColumn(rawValue: key)?.title ?? key,
+                                         action: #selector(groupByKey(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = key
+            item.state = groupBy == key ? .on : .off
+            if key.isEmpty { groupMenu.addItem(.separator()) }
+        }
+        sortMenu.addItem(withTitle: L("Группировать по"), action: nil, keyEquivalent: "").submenu = groupMenu
         return sortMenu
     }
 
@@ -1424,7 +1464,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     // MARK: - NSTableViewDataSource
 
-    func numberOfRows(in tableView: NSTableView) -> Int { items.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { groups.rowCount }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         // Picked by the user (menu or a column's header): this folder's own sorting
@@ -1436,14 +1476,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        items.indices.contains(row) ? items[row].url as NSURL : nil
+        groups.index(forRow: row).flatMap { items.indices.contains($0) ? items[$0].url as NSURL : nil }
     }
 
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
                    proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
         // Onto a folder row: into that folder; anywhere else: into the current folder
-        if dropOperation == .on, items.indices.contains(row), items[row].isFolder {
-            let operation = FileDrop.operation(for: info, into: items[row].url)
+        if dropOperation == .on, let index = groups.index(forRow: row), items.indices.contains(index), items[index].isFolder {
+            let operation = FileDrop.operation(for: info, into: items[index].url)
             if operation != [] { return operation }
         }
         guard let directory else { return [] }
@@ -1453,8 +1493,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
                    dropOperation: NSTableView.DropOperation) -> Bool {
-        if row >= 0, dropOperation == .on, items.indices.contains(row), items[row].isFolder {
-            return FileDrop.perform(info, into: items[row].url)
+        if dropOperation == .on, let index = groups.index(forRow: row), items.indices.contains(index), items[index].isFolder {
+            return FileDrop.perform(info, into: items[index].url)
         }
         guard let directory else { return false }
         return FileDrop.perform(info, into: directory)
@@ -1471,9 +1511,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     // MARK: - NSTableViewDelegate
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        if let title = groups.title(forRow: row) { return GroupHeaderView.make(in: tableView, title: title) }
         // (The table may still count the rows of what it showed last: hidden in icon views, it isn't reloaded)
-        guard let column = tableColumn?.identifier.rawValue, items.indices.contains(row) else { return nil }
-        let item = items[row]
+        guard let column = tableColumn?.identifier.rawValue, let index = groups.index(forRow: row), items.indices.contains(index) else { return nil }
+        let item = items[index]
         let cell = tableView.makeView(withIdentifier: .init(column), owner: self) as? NSTableCellView
             ?? makeCell(identifier: column)
         switch column {
@@ -1659,19 +1700,38 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
-        tableColumn?.identifier.rawValue == "name" && items.indices.contains(row) ? items[row].name : nil
+        guard tableColumn?.identifier.rawValue == "name", let index = groups.index(forRow: row), items.indices.contains(index) else { return nil }
+        return items[index].name
+    }
+
+    // A group's heading: across the table, not selectable
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool { groups.title(forRow: row) != nil }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { groups.title(forRow: row) == nil }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        groups.title(forRow: row) != nil ? GroupHeaderView.height : tableView.rowHeight
     }
 
     // MARK: - NSCollectionViewDataSource
 
+    func numberOfSections(in collectionView: NSCollectionView) -> Int { groups.sectionCount }
+
     func collectionView(_ collectionView: NSCollectionView, numberOfItemsInSection section: Int) -> Int {
-        items.count
+        groups.itemCount(inSection: section)
+    }
+
+    func collectionView(_ collectionView: NSCollectionView, viewForSupplementaryElementOfKind kind: NSCollectionView.SupplementaryElementKind,
+                        at indexPath: IndexPath) -> NSView {
+        let header = collectionView.makeSupplementaryView(ofKind: kind, withIdentifier: GroupHeaderView.identifier, for: indexPath)
+        (header as? GroupHeaderView)?.title = groups.titles.indices.contains(indexPath.section) ? groups.titles[indexPath.section] : ""
+        return header
     }
 
     func collectionView(_ collectionView: NSCollectionView,
                         itemForRepresentedObjectAt indexPath: IndexPath) -> NSCollectionViewItem {
         let item = collectionView.makeItem(withIdentifier: FileGridItem.identifier, for: indexPath) as! FileGridItem
-        let file = items[indexPath.item]
+        let file = items[groups.index(of: indexPath)]
         let look = collectionView.collectionViewLayout === lookLayout ? finderLook : nil
         item.customIconSide = look?.iconSize
         item.labelTextColor = look?.textColor
@@ -1734,10 +1794,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 let key = "\(Int(self.viewMode.iconSize))|\(path)" as NSString
                 guard self.thumbnails.object(forKey: key) == nil else { return }
                 if self.viewMode == .details {
-                    if index < self.tableView.numberOfRows, let column = self.tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "name" }) {
-                        self.tableView.reloadData(forRowIndexes: [index], columnIndexes: [column])
+                    let row = self.groups.row(for: index)
+                    if row < self.tableView.numberOfRows, let column = self.tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "name" }) {
+                        self.tableView.reloadData(forRowIndexes: [row], columnIndexes: [column])
                     }
-                } else if let cell = self.collectionView.item(at: IndexPath(item: index, section: 0)) as? FileGridItem {
+                } else if let cell = self.collectionView.item(at: self.groups.indexPath(for: index)) as? FileGridItem {
                     cell.setImage(icon)
                 }
             }
@@ -1769,12 +1830,13 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 self.thumbnails.setObject(image, forKey: key)
                 guard self.viewMode.iconSize == side, let index = self.items.firstIndex(where: { $0.url.path == path }) else { return }
                 if self.viewMode == .details {
-                    if index < self.tableView.numberOfRows, let column = self.tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "name" }) {
-                        self.tableView.reloadData(forRowIndexes: [index], columnIndexes: [column])
+                    let row = self.groups.row(for: index)
+                    if row < self.tableView.numberOfRows, let column = self.tableView.tableColumns.firstIndex(where: { $0.identifier.rawValue == "name" }) {
+                        self.tableView.reloadData(forRowIndexes: [row], columnIndexes: [column])
                     }
                     return
                 }
-                guard let item = self.collectionView.item(at: IndexPath(item: index, section: 0)) as? FileGridItem else { return }
+                guard let item = self.collectionView.item(at: self.groups.indexPath(for: index)) as? FileGridItem else { return }
                 item.setImage(image)
             }
         }
@@ -1832,7 +1894,9 @@ final class FileTableView: NSTableView {
         selectRowIndexes(base, byExtendingSelection: false)
         RubberBand.track(in: self, from: point) { rect in
             let rows = self.rows(in: rect)
-            selectRowIndexes(base.union(IndexSet(integersIn: rows.lowerBound..<rows.upperBound)), byExtendingSelection: false)
+            // (Not a group's heading: it isn't selectable)
+            let touched = IndexSet(integersIn: rows.lowerBound..<rows.upperBound).filter { self.delegate?.tableView?(self, shouldSelectRow: $0) ?? true }
+            selectRowIndexes(base.union(IndexSet(touched)), byExtendingSelection: false)
         }
     }
 
