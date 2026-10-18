@@ -24,7 +24,6 @@ enum SidebarConfig {
             return Standard(title: url.displayName, url: url, symbol: symbol)
         }
         return [
-            Standard(title: L("Недавние"), url: Places.recentsURL, symbol: "clock"),
             Standard(title: home.displayName, url: home, symbol: "house"),
             folder(.desktopDirectory, "menubar.dock.rectangle"),
             folder(.documentDirectory, "doc"),
@@ -48,18 +47,11 @@ enum SidebarConfig {
     /// Keys of the favourites (see `key(_:)`), in order.
     static var favoritePaths: [String] {
         get {
-            guard var paths = defaults.stringArray(forKey: "sidebarFavorites") else { return standardFavorites.map { key($0.url) } }
-            // «Недавние» came later: lists saved before get it once, on top, as in Finder
-            if !defaults.bool(forKey: "sidebarRecentsAdded") {
-                defaults.set(true, forKey: "sidebarRecentsAdded")
-                if !paths.contains(key(Places.recentsURL)) { paths.insert(key(Places.recentsURL), at: 0) }
-                defaults.set(paths, forKey: "sidebarFavorites")
-            }
-            return paths
+            // (Only folders: «Недавние» was a favourite for a while; it's on top of the sidebar now)
+            defaults.stringArray(forKey: "sidebarFavorites")?.filter { $0.hasPrefix("/") } ?? standardFavorites.map { key($0.url) }
         }
         set {
             var seen = Set<String>()
-            defaults.set(true, forKey: "sidebarRecentsAdded")
             defaults.set(newValue.filter { seen.insert($0).inserted }, forKey: "sidebarFavorites")
             NotificationCenter.default.post(name: didChange, object: nil)
         }
@@ -118,10 +110,11 @@ enum SidebarConfig {
     // MARK: Places
 
     enum Place: String, CaseIterable {
-        case computer, iCloud, shared, internalDisks, externalDisks, servers, airDrop, network, trash
+        case recents, shared, computer, iCloud, internalDisks, externalDisks, servers, airDrop, network, trash
 
         var title: String {
             switch self {
+            case .recents: L("Недавние")
             case .computer: L("Этот Mac")
             case .iCloud: "iCloud Drive"
             case .shared: L("Общий доступ")
@@ -136,9 +129,10 @@ enum SidebarConfig {
 
         var symbol: String {
             switch self {
+            case .recents: "clock"
             case .computer: "desktopcomputer"
             case .iCloud: "icloud"
-            case .shared: "folder.badge.person.crop"
+            case .shared: "person.2"
             case .internalDisks: "internaldrive"
             case .externalDisks: "externaldrive"
             case .servers: "externaldrive.connected.to.line.below"

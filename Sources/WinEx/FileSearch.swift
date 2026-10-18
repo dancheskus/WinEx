@@ -107,16 +107,19 @@ final class FileSearch {
 
     /// Items inside another result are dropped (a shared folder stands for what's in it).
     private let topLevelOnly: Bool
+    /// Shown along with what Spotlight finds.
+    private let extra: [URL]
 
     /// `nameMatch` enables the fallback walk of `scope` (name searches only). `newestFirst`: the
     /// attribute (a date) to keep the latest matches by when there are too many.
     init(predicate: NSPredicate, scope: URL?, nameMatch: ((String) -> Bool)? = nil,
-         newestFirst: String? = nil, topLevelOnly: Bool = false) {
+         newestFirst: String? = nil, topLevelOnly: Bool = false, extra: [URL] = []) {
         query.predicate = predicate
         query.searchScopes = [scope ?? NSMetadataQueryLocalComputerScope]
         // Keep the most relevant (or the latest) matches when there are too many
         query.sortDescriptors = [NSSortDescriptor(key: newestFirst ?? NSMetadataQueryResultContentRelevanceAttribute, ascending: false)]
         self.topLevelOnly = topLevelOnly
+        self.extra = extra
         // Live updates at most twice a second (a download or a build can change thousands of files)
         query.notificationBatchingInterval = 0.5
         walkScope = scope
@@ -137,10 +140,11 @@ final class FileSearch {
     }
 
     /// «Общий доступ», like Finder's Shared: iCloud Drive items shared by you or with you (a shared
-    /// folder once, not each file in it).
+    /// folder once, not each file in it) — and, as in Explorer, the folders shared on the network.
     static func shared() -> FileSearch {
         FileSearch(predicate: NSPredicate(format: "%K == 1", "_kMDItemIsShared"),
-                   scope: FileManager.default.homeDirectoryForCurrentUser, topLevelOnly: true)
+                   scope: FileManager.default.homeDirectoryForCurrentUser, topLevelOnly: true,
+                   extra: FolderSharing.ownShares(FolderSharing.shares()).map { URL(fileURLWithPath: $0.path) })
     }
 
     func start() {
@@ -178,7 +182,7 @@ final class FileSearch {
 
     private func publish() {
         var seen = Set<String>()
-        state.results = (spotlight + walked).filter { seen.insert($0.path).inserted }
+        state.results = (extra + spotlight + walked).filter { seen.insert($0.path).inserted }
         if topLevelOnly { state.results = Self.topLevel(state.results) }
         if state.results.count > Self.resultLimit {
             state.results.removeLast(state.results.count - Self.resultLimit)

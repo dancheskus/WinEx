@@ -4,6 +4,8 @@ import AppKit
 /// macOS keeps the shares itself (`sharing`, the same list as Settings ▸ Общий доступ ▸ Общий
 /// доступ к файлам); changing them takes an administrator's password, asked by the system.
 enum FolderSharing {
+    static let didChange = Notification.Name("WinExFolderSharingChanged")
+
     struct Share: Equatable {
         var name: String
         var path: String
@@ -27,6 +29,16 @@ enum FolderSharing {
         }.sorted { $0.name < $1.name }
     }
 
+    /// The shares that are the user's: existing folders, not other users' home folders (macOS shares
+    /// everyone's «Общие» folder by itself).
+    static func ownShares(_ shares: [Share], home: String = NSHomeDirectory()) -> [Share] {
+        shares.filter { share in
+            let path = share.path
+            let otherHome = path.hasPrefix("/Users/") && path != home && !path.hasPrefix(home + "/")
+            return !otherHome && FileManager.default.fileExists(atPath: path)
+        }
+    }
+
     static func share(of folder: URL) -> Share? {
         let path = folder.resolvingSymlinksInPath().path
         return shares().first { URL(fileURLWithPath: $0.path).resolvingSymlinksInPath().path == path }
@@ -36,6 +48,8 @@ enum FolderSharing {
     static var isFileSharingOn: Bool {
         run("/bin/launchctl", ["print", "system/com.apple.smbd"]) != nil
     }
+
+    static let enableArguments = ["/bin/launchctl", "load", "-w", "/System/Library/LaunchDaemons/com.apple.smbd.plist"]
 
     static func openSystemSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.Sharing-Settings.extension") { NSWorkspace.shared.open(url) }
@@ -52,22 +66,30 @@ enum FolderSharing {
         ["-e", share.name, "-g", share.guestAccess ? "001" : "000", "-R", share.readOnly ? "1" : "0"]
     }
 
+    /// Shares `folder`; `enablingFileSharing` first turns «Общий доступ к файлам» on, as Finder's
+    /// «Включить» does (one password prompt for both).
     @MainActor @discardableResult
-    static func add(_ folder: URL, guestAccess: Bool = false) -> Bool {
-        admin("/usr/sbin/sharing", addArguments(folder, name: folder.displayName, guestAccess: guestAccess))
+    static func add(_ folder: URL, guestAccess: Bool = false, enablingFileSharing: Bool = false) -> Bool {
+        let share = ["/usr/sbin/sharing"] + addArguments(folder, name: folder.displayName, guestAccess: guestAccess)
+        return changed(admin(enablingFileSharing ? [enableArguments, share] : [share]))
     }
 
     @MainActor @discardableResult
-    static func edit(_ share: Share) -> Bool { admin("/usr/sbin/sharing", editArguments(share)) }
+    static func edit(_ share: Share) -> Bool { changed(admin([["/usr/sbin/sharing"] + editArguments(share)])) }
 
     @MainActor @discardableResult
-    static func remove(_ share: Share) -> Bool { admin("/usr/sbin/sharing", ["-r", share.name]) }
+    static func remove(_ share: Share) -> Bool { changed(admin([["/usr/sbin/sharing", "-r", share.name]])) }
 
-    /// Runs a command as root after the system's password prompt; false if it was cancelled or failed
-    /// (a failure is shown).
+    private static func changed(_ done: Bool) -> Bool {
+        if done { NotificationCenter.default.post(name: didChange, object: nil) }
+        return done
+    }
+
+    /// Runs commands (tool and arguments each) as root after the system's password prompt, one
+    /// after another while they succeed; false if it was cancelled or failed (a failure is shown).
     @MainActor @discardableResult
-    static func admin(_ tool: String, _ arguments: [String]) -> Bool {
-        let command = ([tool] + arguments).map(shellQuoted).joined(separator: " ")
+    static func admin(_ commands: [[String]]) -> Bool {
+        let command = adminCommand(commands)
         let source = "do shell script \(appleScriptQuoted(command)) with administrator privileges"
         var error: NSDictionary?
         NSAppleScript(source: source)?.executeAndReturnError(&error)
@@ -80,6 +102,10 @@ enum FolderSharing {
             alert.runModal()
         }
         return false
+    }
+
+    static func adminCommand(_ commands: [[String]]) -> String {
+        commands.map { $0.map(shellQuoted).joined(separator: " ") }.joined(separator: " && ")
     }
 
     static func shellQuoted(_ text: String) -> String {

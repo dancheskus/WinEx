@@ -607,6 +607,17 @@ struct RecentsAndSharingTests {
                 == ["-a", "/Users/me/Work", "-S", "Work", "-s", "001", "-g", "000"])
     }
 
+    @Test func ownSharesOnly() {
+        let dir = tempFolder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let shares = [FolderSharing.Share(name: "Mine", path: dir.path, guestAccess: false, readOnly: false),
+                      FolderSharing.Share(name: "Other's", path: "/Users/someone-else/Public", guestAccess: true, readOnly: false),
+                      FolderSharing.Share(name: "Gone", path: dir.appendingPathComponent("nope").path, guestAccess: false, readOnly: false)]
+        #expect(FolderSharing.ownShares(shares, home: "/Users/me").map(\.name) == ["Mine"])
+        #expect(FolderSharing.adminCommand([["/bin/launchctl", "load"], ["/usr/sbin/sharing", "-a", "/a b"]])
+                == "'/bin/launchctl' 'load' && '/usr/sbin/sharing' '-a' '/a b'")
+    }
+
     @Test func commandsQuoted() {
         #expect(FolderSharing.shellQuoted("it's a \"name\"") == #"'it'\''s a "name"'"#)
         #expect(FolderSharing.appleScriptQuoted(#"a "b" \c"#) == #""a \"b\" \\c""#)

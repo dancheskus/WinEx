@@ -125,6 +125,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         applyViewMode(previous: nil)
 
         observers.add(.showHiddenChanged) { [weak self] in self?.reload() }
+        // A folder shared or no longer shared: «Общий доступ» lists it at once
+        observers.add(FolderSharing.didChange) { [weak self] in
+            guard let self, location == .shared else { return }
+            load(Places.sharedURL, select: selectedURLs)
+        }
         observers.add(.extensionsShownChanged) { [weak self] in self?.reload() }
         // Sorted again what's shown (not read again: instant, also on a server)
         // «Папки сверху» changed in another window or tab showing the same folder
@@ -814,7 +819,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                     emptyState.show(L("Нет недавних файлов"), detail: L("Здесь появятся файлы, открытые за последние 30 дней."))
                 } else {
                     emptyState.show(L("Нет объектов в общем доступе"),
-                                    detail: L("Здесь появятся файлы и папки iCloud Drive, которыми вы поделились или которыми поделились с вами."))
+                                    detail: L("Здесь появятся папки, открытые для общего доступа по сети, и файлы iCloud Drive, которыми вы поделились или которыми поделились с вами."))
                 }
             }
         } else if !loader.isWaiting {

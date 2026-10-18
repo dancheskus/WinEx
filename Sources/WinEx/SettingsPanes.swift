@@ -33,6 +33,10 @@ final class SidebarSettingsView: NSView {
         intro.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         stack.addArrangedSubview(intro)
 
+        for place in [SidebarConfig.Place.recents, .shared] {
+            row(place.title, symbol: place.symbol, on: SidebarConfig.shows(place)) { SidebarConfig.setShows(place, $0) }
+        }
+
         heading(L("Избранное"))
         let favorites = SidebarConfig.favoritePaths
         let standard = SidebarConfig.standardFavorites
@@ -51,7 +55,7 @@ final class SidebarSettingsView: NSView {
         stack.addArrangedSubview(SettingsForm.hint(L("Чтобы закрепить папку, перетащите её в «Избранное» в боковой панели. Порядок тоже меняется перетаскиванием.")))
 
         heading(L("Места"))
-        for place in SidebarConfig.Place.allCases {
+        for place in SidebarConfig.Place.allCases where place != .recents && place != .shared {
             row(place.title, symbol: place.symbol, on: SidebarConfig.shows(place)) { SidebarConfig.setShows(place, $0) }
         }
 

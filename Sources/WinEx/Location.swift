@@ -140,7 +140,7 @@ enum Location: Equatable {
         case .server: NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
         case .computer: NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
         case .recents: NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
-        case .shared: NSImage(systemSymbolName: "folder.badge.person.crop", accessibilityDescription: nil)
+        case .shared: NSImage(systemSymbolName: "person.2", accessibilityDescription: nil)
         case .search: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         }
     }

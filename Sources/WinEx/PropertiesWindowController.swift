@@ -378,7 +378,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             try FileManager.default.setAttributes([.posixPermissions: newMode], ofItemAtPath: path)
         } catch {
             // Not the owner's: as an administrator
-            FolderSharing.admin("/bin/chmod", [String(newMode & 0o7777, radix: 8), path])
+            FolderSharing.admin([["/bin/chmod", String(newMode & 0o7777, radix: 8), path]])
         }
         refreshAccessPage()
     }
@@ -409,7 +409,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             rows.append(PropertiesUI.row(L("Гостевой доступ"), guests, hint: L("Открывается без имени и пароля")))
             rows.append(PropertiesUI.row(L("Только чтение"), readOnly, hint: L("По сети файлы можно только смотреть")))
         }
-        if !FolderSharing.isFileSharingOn {
+        // Shared while File Sharing is off (turned off in Settings since)
+        if share != nil, !FolderSharing.isFileSharingOn {
             let open = PropertiesUI.linkButton(L("Открыть настройки…"), target: self, action: #selector(openSharingSettings(_:)))
             rows.append(PropertiesUI.row(L("Общий доступ к файлам выключен"), open,
                                          hint: L("Пока он выключен в Системных настройках, общие папки по сети не видны")))
@@ -418,8 +419,34 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func toggleShared(_ sender: NSSwitch) {
-        if let share = FolderSharing.share(of: single) { FolderSharing.remove(share) } else { FolderSharing.add(single) }
+        if let share = FolderSharing.share(of: single) {
+            FolderSharing.remove(share)
+        } else if FolderSharing.isFileSharingOn {
+            FolderSharing.add(single)
+        } else if askToEnableFileSharing(), FolderSharing.add(single, enablingFileSharing: true), !FolderSharing.isFileSharingOn {
+            // The system didn't turn it on from here: its switch, as Finder's second button does
+            FolderSharing.openSystemSettings()
+        }
         refreshAccessPage()
+    }
+
+    /// Finder's question when File Sharing is off: turn it on, open its settings, or don't share.
+    private func askToEnableFileSharing() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = L("Чтобы открыть общий доступ к этой папке, включите общий доступ к файлам")
+        alert.informativeText = L("Его можно включить и в Системных настройках ▸ Основные ▸ Общий доступ ▸ «Общий доступ к файлам».")
+        alert.addButton(withTitle: L("Включить"))
+        alert.addButton(withTitle: L("Открыть настройки общего доступа"))
+        alert.addButton(withTitle: L("Отменить"))
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return true
+        case .alertSecondButtonReturn:
+            FolderSharing.openSystemSettings()
+            return false
+        default:
+            return false
+        }
     }
 
     @objc private func toggleGuests(_ sender: NSSwitch) {

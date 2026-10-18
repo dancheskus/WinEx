@@ -2223,7 +2223,7 @@ enum Scenarios {
         s.window?.window?.makeKeyAndOrderFront(nil)
         s.run([
             (1.0, "sidebar", {
-                s.note("  first favourite: \(titles().first ?? "-")  expect Недавние; has Общий доступ: \(titles().contains(L("Общий доступ")))")
+                s.note("  on top: \(titles().prefix(3))  expect [Недавние, Общий доступ, <home>]")
                 s.window?.navigate(to: Places.recentsURL)
             }),
             (3.0, "Recents", {
@@ -2232,10 +2232,10 @@ enum Scenarios {
             }),
             (2.0, "Shared", { s.window?.navigate(to: Places.sharedURL) }),
             (3.0, "Shared shown", { shot(1, s.window?.window) }),
-            (2.0, "unpin Recents, restore it", {
-                SidebarConfig.unpin(Places.recentsURL)
+            (2.0, "hide Recents, show it again", {
+                SidebarConfig.setShows(.recents, false)
                 let gone = !titles().contains(L("Недавние"))
-                if let recents = SidebarConfig.standardFavorites.first(where: { $0.url == Places.recentsURL }) { SidebarConfig.restore(recents) }
+                SidebarConfig.setShows(.recents, true)
                 s.note("  removed: \(gone), back first: \(titles().first == L("Недавние"))  expect true, true")
                 s.note("  shares: \(FolderSharing.shares().map(\.name)); file sharing on: \(FolderSharing.isFileSharingOn)")
                 PropertiesWindowController.show(for: [folder])

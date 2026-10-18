@@ -804,7 +804,7 @@ enum English {
         "Видна в сети как «%@»": "Visible on the network as “%@”",
         "Гостевой доступ": "Guest access",
         "Другие компьютеры сети смогут открыть её": "Other computers on the network can open it",
-        "Здесь появятся файлы и папки iCloud Drive, которыми вы поделились или которыми поделились с вами.": "iCloud Drive files and folders you share or that are shared with you appear here.",
+        "Здесь появятся папки, открытые для общего доступа по сети, и файлы iCloud Drive, которыми вы поделились или которыми поделились с вами.": "Folders shared on the network and iCloud Drive items you share or that are shared with you appear here.",
         "Здесь появятся файлы, открытые за последние 30 дней.": "Files opened in the last 30 days appear here.",
         "Не удалось изменить общий доступ": "Couldn’t change sharing",
         "Недавние": "Recents",
@@ -819,5 +819,9 @@ enum English {
         "Пока он выключен в Системных настройках, общие папки по сети не видны": "While it’s off in System Settings, shared folders aren’t visible on the network",
         "Только запуск": "Execute only",
         "Чтение (содержимое не открыть)": "Read (contents can’t be opened)",
+        "Включить": "Turn On",
+        "Его можно включить и в Системных настройках ▸ Основные ▸ Общий доступ ▸ «Общий доступ к файлам».": "It can also be turned on in System Settings ▸ General ▸ Sharing ▸ File Sharing.",
+        "Открыть настройки общего доступа": "Open Sharing Settings",
+        "Чтобы открыть общий доступ к этой папке, включите общий доступ к файлам": "To share this folder, turn on File Sharing",
     ]
 }

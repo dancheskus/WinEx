@@ -1,6 +1,6 @@
 import AppKit
 
-/// Navigation pane: favourites, places and tags, as in Finder. Files dropped on an entry go
+/// Navigation pane: «Недавние» and «Общий доступ» on top, then favourites, places and tags, as in Finder. Files dropped on an entry go
 /// there (into a folder or disk, to the Trash, get the tag); folders dropped between the
 /// favourites are pinned; favourites are reordered by dragging.
 final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
@@ -35,6 +35,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
 
     private let outlineView = NSOutlineView()
     private var sections: [Section] = []
+    /// Above the sections, without a heading (Finder's Recents and Shared).
+    private var topItems: [Item] = []
     private var currentURL: URL?
     private var suppressSelection = false
 
@@ -107,11 +109,16 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             item.place = place
             places.append(item)
         }
+        topItems = [(SidebarConfig.Place.recents, Places.recentsURL), (.shared, Places.sharedURL)].compactMap { place, url in
+            guard SidebarConfig.shows(place) else { return nil }
+            let item = Item(title: place.title, url: url, symbol: place.symbol)
+            item.place = place
+            return item
+        }
         add(.computer, Item(title: L("Этот Mac"), url: Places.computerURL, symbol: "desktopcomputer"))
         let iCloud = home.appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs")
         if fm.fileExists(atPath: iCloud.path) {
             add(.iCloud, Item(title: "iCloud Drive", url: iCloud, symbol: "icloud"))
-            add(.shared, Item(title: L("Общий доступ"), url: Places.sharedURL, symbol: "folder.badge.person.crop"))
         }
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey,
                                       .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]
@@ -185,8 +192,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         currentURL = url
         suppressSelection = true
         defer { suppressSelection = false }
-        for section in sections {
-            if let item = section.items.first(where: {
+        for items in [topItems] + sections.map(\.items) {
+            if let item = items.first(where: {
                 $0.url.isFileURL == url.isFileURL && ($0.url.isFileURL ? $0.url.standardizedFileURL.path == url.path : Location($0.url) == Location(url))
             }) {
                 let row = outlineView.row(forItem: item)
@@ -200,12 +207,12 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     // MARK: - NSOutlineViewDataSource
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        if item == nil { return sections.count }
+        if item == nil { return topItems.count + sections.count }
         return (item as? Section)?.items.count ?? 0
     }
 
     func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        if item == nil { return sections[index] }
+        if item == nil { return index < topItems.count ? topItems[index] : sections[index - topItems.count] }
         return (item as! Section).items[index]
     }
 
@@ -296,7 +303,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
     /// window isn't the active one.
     private func tint(for item: Item) -> NSColor {
         let active = view.window?.isKeyWindow ?? true
-        let favourite = sections.first { $0.kind == .favorites }?.items.contains { $0 === item } == true
+        let favourite = topItems.contains { $0 === item } || sections.first { $0.kind == .favorites }?.items.contains { $0 === item } == true
         return active && favourite ? .controlAccentColor : .secondaryLabelColor
     }
 
@@ -426,13 +433,12 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             add(L("Убрать из боковой панели"), #selector(removeClicked(_:)))
         case .tags:
             add(L("Убрать из боковой панели"), #selector(removeClicked(_:)))
-        case .places:
+        case .places, nil:
             if item.place == .trash { add(L("Очистить Корзину…"), #selector(emptyTrash(_:))) }
             if let place = item.place {
                 add(place == .internalDisks || place == .externalDisks || place == .servers
                     ? L("Скрыть «%@»", menuName(place.title)) : L("Убрать из боковой панели"), #selector(removeClicked(_:)))
             }
-        case nil: break
         }
         menu.addItem(.separator())
         add(L("Настроить боковую панель…"), #selector(customize(_:)))
@@ -451,8 +457,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
                 if entry.name == item.title { entry.inSidebar = false }
                 return entry
             }
-        case .places: if let place = item.place { SidebarConfig.setShows(place, false) }
-        case nil: break
+        case .places, nil: if let place = item.place { SidebarConfig.setShows(place, false) }
         }
     }
 
