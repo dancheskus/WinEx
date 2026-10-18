@@ -294,6 +294,10 @@ enum Scenarios {
     /// take the whole width.
     static func previewPane(_ s: Scenario) {
         let base = s.makeFiles(["notes.txt", "Box/", "Box/one.txt", "Box/two.txt"], in: "preview")
+        // A document of a few pages: Finder shows its first page whole
+        let page = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
+        page.string = (1...80).map { "Строка \($0): план действий, маршрут и всё остальное." }.joined(separator: "\n")
+        try? page.dataWithPDF(inside: page.bounds).write(to: base.appendingPathComponent("document.pdf"))
         let picture = NSImage(size: NSSize(width: 64, height: 48), flipped: false) { rect in
             NSColor.systemTeal.setFill(); rect.fill(); return true
         }
@@ -304,7 +308,7 @@ enum Scenarios {
         func pane() -> PreviewPane? { s.window?.debugPreviewPane }
         func report(_ expect: String) {
             guard let pane = pane() else { return s.note("  pane hidden  \(expect)") }
-            s.note("  «\(pane.debugName)» — \(pane.debugKind); live \(pane.debugShowsLivePreview); buttons \(pane.debugButtons)  \(expect)")
+            s.note("  «\(pane.debugName)» — \(pane.debugKind); live \(pane.debugShowsLivePreview), picture \(pane.debugShowsThumbnail); buttons \(pane.debugButtons)  \(expect)")
             s.note("    \(pane.debugLines)")
             s.note("    \(pane.debugGeometry)")
         }
@@ -326,6 +330,11 @@ enum Scenarios {
                 report("expect picture.png, live true, Изображение: 64 × 48"); snapshot("picture.png")
                 // scripts/capture-window.sh preview: the live preview is drawn by Quick Look's own process
                 if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8) }
+            }),
+            (1.0, "select the document", { s.select("document.pdf") }),
+            (1.2, "", {
+                report("expect picture true, live false")
+                if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8) }
             }),
             (1.0, "select the folder", { s.select("Box") }),
             (0.8, "", { report("expect Box, live false, Содержит: 2") }),

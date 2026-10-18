@@ -1,9 +1,11 @@
 import AppKit
 import Quartz
+import QuickLookThumbnailing
 
 /// Finder's preview pane (⇧⌘P, «Панель предпросмотра» in the view menus): the selected file as a
-/// live Quick Look preview (pictures, PDFs, videos play), its name, kind and size, dates, tags and
-/// what `FileDetails` knows about it; the folder shown when nothing is selected; a count for several.
+/// whole-page Quick Look picture in a rounded frame (videos and sounds play there), its name and
+/// size, kind, dates, tags and what `FileDetails` knows about it; the folder shown when nothing is
+/// selected; a count for several.
 final class PreviewPane: NSView {
     static let minimumWidth: CGFloat = 220
     static let maximumWidth: CGFloat = 560
@@ -32,6 +34,11 @@ final class PreviewPane: NSView {
         return view
     }()
     private let iconView = NSImageView()
+    /// Finder's frame around the preview: the page or picture fitted into it whole.
+    private let previewBox = PreviewBox()
+    private let thumbnailView = NSImageView()
+    /// The thumbnail being made (a newer selection replaces it).
+    private var thumbnailRequest: QLThumbnailGenerator.Request?
     private let nameLabel = NSTextField(wrappingLabelWithString: "")
     private let kindLabel = NSTextField(wrappingLabelWithString: "")
     private let placeholder = NSTextField(labelWithString: L("Нет предпросмотра"))
@@ -64,19 +71,19 @@ final class PreviewPane: NSView {
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         iconView.imageScaling = .scaleProportionallyUpOrDown
-        nameLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        nameLabel.alignment = .center
+        thumbnailView.imageScaling = .scaleProportionallyUpOrDown
+        previewBox.addSubview(thumbnailView)
+        nameLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         nameLabel.isSelectable = true
-        kindLabel.font = .systemFont(ofSize: 12)
+        kindLabel.font = .systemFont(ofSize: 13)
         kindLabel.textColor = .secondaryLabelColor
-        kindLabel.alignment = .center
         placeholder.font = .systemFont(ofSize: 13)
         placeholder.textColor = .tertiaryLabelColor
         placeholder.alignment = .center
         openButton.target = self; openButton.action = #selector(openItems(_:))
         shareButton.target = self; shareButton.action = #selector(shareItems(_:))
         infoButton.target = self; infoButton.action = #selector(showProperties(_:))
-        [iconView, nameLabel, kindLabel, placeholder, openButton, shareButton, infoButton].forEach(document.addSubview)
+        [previewBox, iconView, nameLabel, kindLabel, placeholder, openButton, shareButton, infoButton].forEach(document.addSubview)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -127,14 +134,15 @@ final class PreviewPane: NSView {
         let isFolder = values?.isDirectory == true
         if urls.count == 1 {
             nameLabel.stringValue = first.displayName
-            var kind = values?.localizedTypeDescription ?? ""
-            if !isFolder, let size = values?.fileSize { kind += " · " + ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file) }
-            kindLabel.stringValue = kind
-            // A live preview of files (not of folders, apps and other packages, nor of iCloud files
-            // not on this Mac: previewing would download them)
+            // Under the name, like Finder: the size (the kind for a folder, it has no size of its own)
+            let kind = values?.localizedTypeDescription ?? ""
+            kindLabel.stringValue = !isFolder ? values?.fileSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? kind : kind
+            // A preview of files (not of folders, apps and other packages, nor of iCloud files not
+            // on this Mac: previewing would download them)
             let previewable = !isFolder && values?.ubiquitousItemDownloadingStatus != .notDownloaded
             showPreview(of: previewable ? first : nil)
             var rows: [(String, String?)] = [(L("Сведения"), nil)]
+            if !isFolder, !kind.isEmpty { rows.append((L("Тип"), kind)) }
             if let created = values?.creationDate { rows.append((L("Создан"), Self.date(created))) }
             if let modified = values?.contentModificationDate { rows.append((L("Изменён"), Self.date(modified))) }
             if let tags = values?.tagNames, !tags.isEmpty { rows.append((L("Теги"), tags.joined(separator: ", "))) }
@@ -157,18 +165,44 @@ final class PreviewPane: NSView {
         needsLayout = true
     }
 
-    /// The live preview for `url`, the icon otherwise.
+    /// `url` in the frame — the whole first page or picture, a player for videos and sounds —
+    /// the icon otherwise (and until the picture is made).
     private func showPreview(of url: URL?) {
-        guard let url, let preview else {
-            preview?.previewItem = nil
-            preview?.removeFromSuperview()
-            iconView.isHidden = urls.isEmpty
-            return
+        if let request = thumbnailRequest { QLThumbnailGenerator.shared.cancel(request) }
+        thumbnailRequest = nil
+        thumbnailView.image = nil
+        preview?.previewItem = nil
+        preview?.removeFromSuperview()
+        previewBox.isHidden = true
+        iconView.isHidden = urls.isEmpty
+        guard let url else { return }
+        let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+        if type?.conforms(to: .audiovisualContent) == true, let preview {
+            previewBox.addSubview(preview)
+            preview.previewItem = url as NSURL
+            previewBox.isHidden = false
+            iconView.isHidden = true
+            return needsLayout = true
         }
-        if preview.superview == nil { document.addSubview(preview) }
-        preview.previewItem = url as NSURL
-        iconView.isHidden = true
+        // Made as large as the frame can get, so a wider pane doesn't need a new one
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.maximumWidth, height: Self.previewHeight),
+                                                   scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
+        thumbnailRequest = request
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
+            guard let image = representation?.nsImage else { return }
+            DispatchQueue.main.async {
+                guard let self, self.thumbnailRequest === request else { return }
+                self.thumbnailRequest = nil
+                self.thumbnailView.image = image
+                self.previewBox.isHidden = false
+                self.iconView.isHidden = true
+                self.needsLayout = true
+            }
+        }
     }
+
+    /// The frame's height at most (it's as wide as the pane).
+    private static let previewHeight: CGFloat = 340
 
     /// One icon, or a few fanned out behind each other for several items.
     private static func icon(for urls: [URL]) -> NSImage? {
@@ -279,9 +313,12 @@ final class PreviewPane: NSView {
             document.frame = NSRect(x: 0, y: 0, width: width, height: scrollView.contentSize.height)
             return
         }
-        let previewHeight = min(max(inner * 0.9, 120), 340)
+        let previewHeight = min(max(inner * 0.9, 120), Self.previewHeight)
         let area = NSRect(x: margin, y: y, width: inner, height: previewHeight)
-        preview?.frame = area
+        previewBox.frame = area
+        let fitted = previewBox.bounds.insetBy(dx: 1, dy: 1)
+        preview?.frame = fitted
+        thumbnailView.frame = fitted
         let iconSide = min(area.width, area.height, 160)
         iconView.frame = NSRect(x: area.midX - iconSide / 2, y: area.midY - iconSide / 2, width: iconSide, height: iconSide)
         y += previewHeight + 12
@@ -323,6 +360,7 @@ final class PreviewPane: NSView {
     var debugKind: String { kindLabel.stringValue }
     var debugLines: [String] { lines.map { $0.label.stringValue + ($0.value.map { ": " + $0.stringValue } ?? "") } }
     var debugShowsLivePreview: Bool { preview?.superview != nil }
+    var debugShowsThumbnail: Bool { !previewBox.isHidden && thumbnailView.image != nil }
     var debugButtons: [String] { buttons.map(\.title) }
     var debugGeometry: String {
         "pane \(Int(frame.width)), clip \(Int(scrollView.contentView.frame.width)), scroller \(scrollView.verticalScroller.map { "\(Int($0.frame.width)) \($0.isHidden ? "hidden" : "shown") style \($0.scrollerStyle.rawValue)" } ?? "-"), name right \(Int(nameLabel.frame.maxX)), doc \(Int(document.frame.width))"
@@ -400,5 +438,27 @@ final class PreviewSplitView: NSSplitView, NSSplitViewDelegate {
               subviews.count == 2 else { return }
         paneWidth = subviews[1].frame.width
         PreviewPane.width = paneWidth
+    }
+}
+
+/// The rounded frame the preview sits in, as in Finder's preview pane.
+private final class PreviewBox: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.masksToBounds = true
+        layer?.borderWidth = 1
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.borderColor = NSColor.separatorColor.cgColor
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.03).cgColor
+        }
     }
 }
