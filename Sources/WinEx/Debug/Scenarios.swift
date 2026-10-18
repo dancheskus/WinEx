@@ -355,12 +355,23 @@ enum Scenarios {
             }),
             (0.4, "", { s.note("  \(widths())  expect files ≥ 300") }),
             (0.2, "", { s.note("  status bar button lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect true") }),
-            (0.2, "status bar button", {
+            (0.2, "icons", { s.setViewMode(.largeIcons) }),
+            (0.5, "status bar button", {
                 guard let toggle = s.window?.debugPreviewToggle else { return }
                 s.click(toggle, at: NSPoint(x: toggle.bounds.midX, y: toggle.bounds.midY))
             }),
-            (0.5, "", { report("expect hidden"); s.note("  lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect false") }),
-            (0.2, "⇧⌘P", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
+            (0.5, "", {
+                report("expect hidden"); s.note("  lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect false")
+                if let split = s.find(PreviewSplitView.self, in: s.window?.window?.contentView) {
+                    s.note("  split \(split.frame), layer \(split.layer != nil), subviews: \(split.subviews.map { "\(type(of: $0)) \($0.frame) hidden \($0.isHidden)" })")
+                    s.note("  (expect the 1-pt divider layer hidden) sublayers: \(split.layer?.sublayers?.map { "\(type(of: $0)) \($0.frame) hidden \($0.isHidden)" } ?? [])")
+                }
+                // No trace of the divider left over the files
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8) }
+                }
+            }),
+            (1.2, "⇧⌘P", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
             (0.5, "", { s.note("  lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect true") }),
             (0.2, "⇧⌘P again", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
             (0.5, "", { report("expect hidden"); s.note("  \(widths()); default now \(PreviewPane.isShownByDefault)  expect false") }),

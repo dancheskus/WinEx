@@ -460,7 +460,9 @@ final class PreviewSplitView: NSSplitView, NSSplitViewDelegate {
         get { !pane.isHidden }
         set {
             pane.isHidden = !newValue
+            adjustSubviews()
             layoutPanes()
+            needsLayout = true
             needsDisplay = true
         }
     }
@@ -472,6 +474,7 @@ final class PreviewSplitView: NSSplitView, NSSplitViewDelegate {
     private func layoutPanes() {
         guard subviews.count == 2 else { return }
         let (files, side) = (subviews[0], subviews[1])
+        hideDividerWithPane()
         guard !side.isHidden else {
             files.frame = bounds
             return
@@ -479,6 +482,18 @@ final class PreviewSplitView: NSSplitView, NSSplitViewDelegate {
         let width = max(min(paneWidth, widestPane), PreviewPane.minimumWidth)
         side.frame = NSRect(x: bounds.width - width, y: 0, width: width, height: bounds.height)
         files.frame = NSRect(x: 0, y: 0, width: max(bounds.width - width - dividerThickness, 0), height: bounds.height)
+    }
+
+    override func layout() {
+        super.layout()
+        hideDividerWithPane()
+    }
+
+    /// The split view draws its divider in a layer of its own and leaves it where it was when the
+    /// pane goes away: its line stayed over the files.
+    private func hideDividerWithPane() {
+        let backing = Set(subviews.compactMap(\.layer).map(ObjectIdentifier.init))
+        for divider in layer?.sublayers ?? [] where !backing.contains(ObjectIdentifier(divider)) { divider.isHidden = pane.isHidden }
     }
 
     func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) { layoutPanes() }
