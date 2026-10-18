@@ -153,8 +153,12 @@ private final class PaletteItem: NSView, NSDraggingSource {
         super.init(frame: .zero)
         look.translatesAutoresizingMaskIntoConstraints = false
         addSubview(look)
+        // An icon at the top, its name under it; a pull-down (its name on it) in the middle of
+        // the row, level with the icons and their names together
         NSLayoutConstraint.activate([
-            look.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            command?.isMenu == true
+                ? look.centerYAnchor.constraint(equalTo: centerYAnchor)
+                : look.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             look.centerXAnchor.constraint(equalTo: centerXAnchor),
         ])
         // Under an icon its name; a pull-down shows its own
