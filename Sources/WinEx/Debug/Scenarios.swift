@@ -243,7 +243,6 @@ enum Scenarios {
                 if let panel = panel(), let bar = bar(), let window = bar.window {
                     let barBottom = window.convertToScreen(bar.convert(bar.bounds, to: nil)).minY
                     s.note("  panel top \(Int(panel.frame.maxY)) under bar bottom \(Int(barBottom)): \(panel.frame.maxY <= barBottom)")
-                    snapshot(panel.contentView, "panel.png")
                 }
                 if let bar = bar(), let button = bar.buttons[.view] {
                     let point = bar.superview?.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), from: button) ?? .zero
@@ -251,6 +250,19 @@ enum Scenarios {
                 }
                 snapshot(bar(), "editing.png")
             }),
+            (0.2, "offered", {
+                s.note("  offered: \(panel()?.offered ?? [])  expect no newFolder/compress/hiddenFiles/view, a divider")
+                CommandBarConfig.items = CommandBarConfig.dropping("terminal", from: nil, at: 0, into: CommandBarConfig.items)
+            }),
+            (0.4, "", {
+                report("expect terminal first")
+                s.note("  terminal offered: \(panel()?.offered.contains("terminal") == true)  expect false")
+                snapshot(panel()?.contentView, "panel.png")
+            }),
+            (0.2, "cancel", { panel()?.cancelOperation(nil) }),
+            (0.5, "", { report("expect newFolder | compress hiddenFiles view | … (as before)") }),
+            (0.2, "customize again", { s.window?.customizeCommandBar(nil) }),
+            (0.6, "", { s.note("  first mouse on the bar: \(bar()?.acceptsFirstMouse(for: nil) == true)  expect true") }),
             (0.3, "done", { panel()?.close() }),
             (0.5, "", {
                 s.note("  editing: \(bar()?.isEditing == true), panel: \(panel() != nil)  expect false, false")

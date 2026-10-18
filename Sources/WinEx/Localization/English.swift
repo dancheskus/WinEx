@@ -802,5 +802,6 @@ enum English {
         "Убрать «%@» с панели": "Remove “%@” from the Bar",
         "Чтобы убрать команду, перетащите её с панели. Порядок команд меняется и без этого окна — перетаскиванием с нажатой ⌘.": "To remove a command, drag it off the bar. Commands can also be rearranged without this window — drag them with ⌘ held down.",
         "…или перетащите на панель набор по умолчанию:": "…or drag the default set onto the bar:",
+        "Отменить действие": "Undo",
     ]
 }

@@ -30,7 +30,7 @@ enum BarCommand: String, CaseIterable {
         case .selectAll: L("Выделить всё")
         case .selectNone: L("Снять выделение")
         case .invertSelection: L("Обратить выделение")
-        case .undo: L("Отменить")
+        case .undo: L("Отменить действие")
         case .redo: L("Повторить")
         case .sort: L("Сортировать")
         case .group: L("Группировать")

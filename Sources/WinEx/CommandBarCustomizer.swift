@@ -1,13 +1,20 @@
 import AppKit
 
-/// «Настроить панель команд…», as Finder's «Настроить панель инструментов…»: every command (and a
-/// divider) to drag onto the bar, the default set to drag as a whole. Not a sheet — a sheet would
-/// cover the bar being arranged; a panel of the window, under the bar.
+/// «Настроить панель команд…», as Finder's «Настроить панель инструментов…»: the commands not on
+/// the bar yet (and a divider), each as it looks there, to drag onto it; the default set to drag
+/// as a whole. Not a sheet — a sheet would cover the bar being arranged; a panel of the window,
+/// under the bar. «Отменить» (or Esc) puts the bar back as it was.
 final class CommandBarCustomizer: NSPanel, NSWindowDelegate {
     private var onClose: (() -> Void)?
+    /// The bar as it was when the panel opened («Отменить»).
+    private let original = CommandBarConfig.items
+    private let palette: PaletteFlow
+    private let observers = Observers()
 
     init(onClose: @escaping () -> Void) {
         self.onClose = onClose
+        let defaultSet = DefaultSetView()
+        palette = PaletteFlow(width: max(defaultSet.fittingSize.width, 640))
         super.init(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         title = L("Настроить панель команд")
         isReleasedWhenClosed = false
@@ -16,37 +23,24 @@ final class CommandBarCustomizer: NSPanel, NSWindowDelegate {
 
         let intro = NSTextField(labelWithString: L("Перетащите нужные команды на панель команд."))
         intro.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-
-        let grid = NSGridView()
-        grid.rowSpacing = 4
-        grid.columnSpacing = 4
-        let palette = BarCommand.allCases.map { PaletteItem(item: $0.rawValue) } + [PaletteItem(item: CommandBarConfig.divider)]
-        let columns = 7
-        for row in stride(from: 0, to: palette.count, by: columns) {
-            let views: [NSView] = Array(palette[row..<min(row + columns, palette.count)])
-            grid.addRow(with: views + Array(repeating: NSGridCell.emptyContentView, count: columns - views.count))
-        }
-
         let defaultsLabel = NSTextField(labelWithString: L("…или перетащите на панель набор по умолчанию:"))
-        let defaultSet = DefaultSetView()
         let hint = SettingsForm.hint(L("Чтобы убрать команду, перетащите её с панели. Порядок команд меняется и без этого окна — перетаскиванием с нажатой ⌘."))
 
+        let cancel = NSButton(title: L("Отменить"), target: self, action: #selector(cancel(_:)))
         let done = NSButton(title: L("Готово"), target: self, action: #selector(finish(_:)))
         done.keyEquivalent = "\r"
         let buttons = NSStackView()
-        buttons.setViews([done], in: .trailing)
+        buttons.setViews([cancel, done], in: .trailing)
 
-        let stack = NSStackView(views: [intro, grid, defaultsLabel, defaultSet, hint, buttons])
+        let stack = NSStackView(views: [intro, palette, defaultsLabel, defaultSet, hint, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 12
-        stack.setCustomSpacing(18, after: grid)
+        stack.setCustomSpacing(18, after: palette)
         stack.setCustomSpacing(6, after: defaultsLabel)
         stack.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 16, right: 20)
         stack.translatesAutoresizingMaskIntoConstraints = false
         buttons.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -40).isActive = true
-        // The grid keeps its own width (the default set is wider): no gap between its columns
-        grid.setContentHuggingPriority(.required, for: .horizontal)
         hint.preferredMaxLayoutWidth = 640
         let content = NSView()
         content.addSubview(stack)
@@ -58,6 +52,8 @@ final class CommandBarCustomizer: NSPanel, NSWindowDelegate {
         ])
         contentView = content
         setContentSize(content.fittingSize)
+        // A command put on the bar leaves the set, one taken off comes back
+        observers.add(CommandBarConfig.didChange) { [weak self] in self?.palette.update() }
     }
 
     /// Shown under `bar`, in the middle of its window, which it stays with.
@@ -69,9 +65,17 @@ final class CommandBarCustomizer: NSPanel, NSWindowDelegate {
         makeKeyAndOrderFront(nil)
     }
 
+    /// What the set offers now (scenarios).
+    var offered: [String] { palette.subviews.compactMap { ($0 as? PaletteItem)?.item } }
+
     @objc private func finish(_ sender: Any?) { close() }
 
-    override func cancelOperation(_ sender: Any?) { close() }
+    @objc private func cancel(_ sender: Any?) {
+        if CommandBarConfig.items != original { CommandBarConfig.items = original }
+        close()
+    }
+
+    override func cancelOperation(_ sender: Any?) { cancel(sender) }
 
     func windowWillClose(_ notification: Notification) {
         parent?.removeChildWindow(self)
@@ -80,33 +84,95 @@ final class CommandBarCustomizer: NSPanel, NSWindowDelegate {
     }
 }
 
-/// A command in the set to choose from: its icon and name; dragged, it looks as on the bar.
+/// The set to choose from: the commands not on the bar and a divider, in rows as wide as the
+/// default set. Its height is the one for every command, so it doesn't jump as commands go.
+private final class PaletteFlow: NSView {
+    private let width: CGFloat
+    private let items = BarCommand.allCases.map { PaletteItem(item: $0.rawValue) } + [PaletteItem(item: CommandBarConfig.divider)]
+    private static let spacing: CGFloat = 4
+
+    init(width: CGFloat) {
+        self.width = width
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        let height = Self.place(items, width: width)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: width),
+            heightAnchor.constraint(equalToConstant: height),
+        ])
+        update()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+
+    func update() {
+        let onBar = Set(CommandBarConfig.items).subtracting([CommandBarConfig.divider])
+        let shown = items.filter { !onBar.contains($0.item) }
+        subviews = shown
+        _ = Self.place(shown, width: width)
+    }
+
+    /// Lays the items out left to right, wrapping; returns the height they take.
+    @discardableResult
+    private static func place(_ items: [PaletteItem], width: CGFloat) -> CGFloat {
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for item in items {
+            let size = item.size
+            if x > 0, x + size.width > width {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            item.frame = NSRect(origin: NSPoint(x: x, y: y), size: size)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return y + rowHeight
+    }
+}
+
+/// A command in the set to choose from, as it looks on the bar (a pull-down at its full width),
+/// an icon's name under it. Dragged at the first click, even while the panel isn't active.
 private final class PaletteItem: NSView, NSDraggingSource {
     let item: String
+    /// What goes on the bar: the command's button, or a divider.
+    private let look: NSView
 
     init(item: String) {
         self.item = item
-        super.init(frame: .zero)
         let command = BarCommand(rawValue: item)
-        let icon = NSImageView(image: command.flatMap { SidebarConfig.icon($0.symbol, pointSize: 18) } ?? PaletteItem.dividerImage)
-        icon.contentTintColor = .labelColor
-        let label = NSTextField(wrappingLabelWithString: command?.title ?? L("Разделитель"))
-        label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        label.alignment = .center
-        label.maximumNumberOfLines = 2
-        label.preferredMaxLayoutWidth = 104
-        let stack = NSStackView(views: [icon, label])
-        stack.orientation = .vertical
-        stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
+        if let command {
+            let button = CommandButton(symbol: command.symbol, title: command.isMenu ? command.title : nil, tip: command.tip, menu: command.isMenu)
+            button.isEditing = true
+            look = button
+        } else {
+            look = PaletteItem.divider()
+        }
+        super.init(frame: .zero)
+        look.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(look)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 108),
-            heightAnchor.constraint(equalToConstant: 66),
-            stack.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor),
+            look.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            look.centerXAnchor.constraint(equalTo: centerXAnchor),
         ])
+        // Under an icon its name; a pull-down shows its own
+        if command?.isMenu != true {
+            let label = NSTextField(wrappingLabelWithString: command?.title ?? L("Разделитель"))
+            label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            label.textColor = .secondaryLabelColor
+            label.alignment = .center
+            label.maximumNumberOfLines = 2
+            label.preferredMaxLayoutWidth = 104
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label)
+            NSLayoutConstraint.activate([
+                label.topAnchor.constraint(equalTo: topAnchor, constant: 38),
+                label.centerXAnchor.constraint(equalTo: centerXAnchor),
+                label.widthAnchor.constraint(lessThanOrEqualToConstant: 104),
+            ])
+        }
         toolTip = command?.tip
         setAccessibilityRole(.button)
         setAccessibilityLabel(command?.title ?? L("Разделитель"))
@@ -114,35 +180,42 @@ private final class PaletteItem: NSView, NSDraggingSource {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    private static var dividerImage: NSImage {
-        NSImage(size: NSSize(width: 18, height: 22), flipped: false) { rect in
-            NSColor.separatorColor.setFill()
-            NSRect(x: rect.midX - 0.5, y: rect.minY, width: 1, height: rect.height).fill()
-            return true
-        }
+    /// Icons get room for their names; a pull-down is as wide as on the bar.
+    var size: NSSize {
+        NSSize(width: max(108, look.fittingSize.width + 8), height: 70)
     }
 
-    /// The whole item takes the press (not the icon or the label).
+    private static func divider() -> NSView {
+        let line = NSBox()
+        line.boxType = .separator
+        line.translatesAutoresizingMaskIntoConstraints = false
+        let holder = NSView()
+        holder.addSubview(line)
+        NSLayoutConstraint.activate([
+            holder.widthAnchor.constraint(equalToConstant: 13),
+            holder.heightAnchor.constraint(equalToConstant: 32),
+            line.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+            line.centerYAnchor.constraint(equalTo: holder.centerYAnchor),
+            line.widthAnchor.constraint(equalToConstant: 1),
+            line.heightAnchor.constraint(equalToConstant: 22),
+        ])
+        return holder
+    }
+
+    /// The whole item takes the press (not the button or the label).
     override func hitTest(_ point: NSPoint) -> NSView? {
         frame.contains(point) ? self : nil
     }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {}
 
     override func mouseDragged(with event: NSEvent) {
         let pasteboardItem = NSPasteboardItem()
         pasteboardItem.setString(item, forType: .barCommand)
         let dragged = NSDraggingItem(pasteboardWriter: pasteboardItem)
-        // How it will look on the bar
-        let look: NSView
-        if let command = BarCommand(rawValue: item) {
-            look = CommandButton(symbol: command.symbol, title: command.isMenu ? command.title : nil, tip: command.tip, menu: command.isMenu)
-        } else {
-            look = NSImageView(image: PaletteItem.dividerImage)
-        }
-        look.setFrameSize(look.fittingSize.width > 0 ? look.fittingSize : NSSize(width: 18, height: 22))
-        let point = convert(event.locationInWindow, from: nil)
-        dragged.setDraggingFrame(NSRect(x: point.x - look.frame.width / 2, y: point.y - look.frame.height / 2,
-                                        width: look.frame.width, height: look.frame.height),
-                                 contents: CommandBar.snapshot(look))
+        dragged.setDraggingFrame(convert(look.bounds, from: look), contents: CommandBar.snapshot(look))
         beginDraggingSession(with: [dragged], event: event, source: self)
     }
 
@@ -189,6 +262,10 @@ private final class DefaultSetView: NSView, NSDraggingSource {
     override func hitTest(_ point: NSPoint) -> NSView? {
         frame.contains(point) ? self : nil
     }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {}
 
     override func mouseDragged(with event: NSEvent) {
         let pasteboardItem = NSPasteboardItem()

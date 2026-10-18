@@ -282,6 +282,9 @@ final class CommandBar: NSView, NSDraggingSource {
         return self
     }
 
+    /// While arranging, the panel of commands is the active window: the first click picks up.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { isEditing }
+
     override func mouseDown(with event: NSEvent) {
         guard let window, let index = itemIndex(at: convert(event.locationInWindow, from: nil)) else { return }
         // A drag, not a click: picked up once the mouse moves a little
