@@ -96,6 +96,11 @@ final class CommandBar: NSView, NSDraggingSource {
         itemViews = items.map { item in
             guard let command = BarCommand(rawValue: item) else { return CommandBar.divider() }
             let button = old[command] ?? makeButton(command)
+            // (Kept buttons too: the actions may have come after them)
+            if !command.isMenu, let (action, target) = actionProvider?(command) {
+                button.action = action
+                button.target = target
+            }
             buttons[command] = button
             return button
         }
@@ -113,9 +118,6 @@ final class CommandBar: NSView, NSDraggingSource {
             button.onClick = { [weak self, weak button] in
                 self?.pop({ self?.menuProvider?(command) }, under: button, name: command.rawValue)
             }
-        } else if let (action, target) = actionProvider?(command) {
-            button.action = action
-            button.target = target
         }
         return button
     }

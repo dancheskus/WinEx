@@ -212,12 +212,20 @@ enum Scenarios {
         func panel() -> CommandBarCustomizer? { s.window?.window?.childWindows?.compactMap { $0 as? CommandBarCustomizer }.first }
         s.run([
             (1.0, "default", { width(1500); report("expect new | cut copy paste rename share airDrop delete | sort group view | …") }),
-            (0.2, "", { s.note("  «…»: \(moreTitles())") }),
+            (0.2, "", {
+                s.note("  «…»: \(moreTitles())")
+                let dead = (bar()?.buttons ?? [:]).filter { !$0.key.isMenu && $0.value.action == nil }.map(\.key.rawValue)
+                s.note("  commands without an action: \(dead)  expect []")
+            }),
             (0.2, "own set", {
                 CommandBarConfig.items = ["divider", "newFolder", "terminal", "divider", "divider", "compress", "hiddenFiles", "view", "divider"]
                 s.note("  stored: \(CommandBarConfig.items)")
             }),
-            (0.5, "", { report("expect newFolder terminal | compress hiddenFiles view | …"); snapshot(bar(), "own.png") }),
+            (0.5, "", {
+                report("expect newFolder terminal | compress hiddenFiles view | …"); snapshot(bar(), "own.png")
+                let dead = (bar()?.buttons ?? [:]).filter { !$0.key.isMenu && $0.value.action == nil }.map(\.key.rawValue)
+                s.note("  commands without an action: \(dead)  expect []")
+            }),
             (0.2, "", { s.note("  «…» (no ZIP): \(moreTitles())") }),
             (0.2, "hidden files on", { AppDelegate.shared.toggleHiddenFiles(nil) }),
             (0.8, "", {
