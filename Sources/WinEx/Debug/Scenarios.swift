@@ -46,6 +46,7 @@ enum Scenarios {
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
         "contextmenu": contextMenu,
+        "importmenu": importMenu,
         "unzip": unzip,
         "paste": pasteKeys,
         "keys": keyboardShortcuts,
@@ -2964,6 +2965,38 @@ enum Scenarios {
                                     using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void) {}
         var springLoadingHighlight: NSSpringLoadingHighlight { .none }
         func resetSpringLoading() {}
+    }
+
+    /// A folder's menu, a file's twice, the folder's again: is «Импортировать с iPhone» in the
+    /// folder's both times (a device must be near).
+    static func importMenu(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt"])
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        @MainActor func open(_ round: Int, onFile: Bool) {
+            guard let table = s.table, let menu = table.menu, let window = table.window else { s.note("  (no table)"); return s.run([]) }
+            if !onFile { table.deselectAll(nil) }
+            let y = onFile ? table.rect(ofRow: 0).midY : table.bounds.maxY - 20
+            let point = table.convert(NSPoint(x: onFile ? 80 : 300, y: y), to: nil)
+            guard let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { return }
+            let look = Timer(timeInterval: 0.8, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    let row = menu.items.first { $0.identifier == DeviceImport.rowIdentifier }
+                    s.note("  round \(round) \(onFile ? "file" : "folder"): import row \(row.map { $0.isHidden ? "hidden" : "shown, \($0.submenu?.items.count ?? 0) entries" } ?? "absent"); last items: \(menu.items.suffix(4).map(\.title))")
+                    menu.cancelTracking()
+                }
+            }
+            RunLoop.main.add(look, forMode: .common)
+            // (As a real right-click: the table notes the clicked row)
+            NSMenu.popUpContextMenu(table.menu(for: event) ?? menu, with: event, for: table)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if round < 4 { open(round + 1, onFile: round == 1 || round == 2) } else { s.run([]) }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { open(1, onFile: false) }
     }
 
     /// Opens a file's context menu and hands its window to scripts/capture-window.sh contextmenu.

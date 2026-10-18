@@ -351,6 +351,8 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
             if !selection.contains(i) { selection = [i] }
             FileContextMenu.addItems(to: menu, for: selectedURLs, target: self, folderTabs: false,
                                      customizableFolder: selection.count == 1 && items[i].isFolder)
+            // (For the folder's menu that may follow: see DeviceImport.seed)
+            DeviceImport.seed(menu)
         } else {
             selection = []
             let open = menu.addItem(withTitle: L("Открыть «%@» в WinEx", menuName(folder.displayName)), action: #selector(openFolder(_:)), keyEquivalent: "")

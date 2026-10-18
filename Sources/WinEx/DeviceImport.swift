@@ -72,12 +72,14 @@ final class DeviceImport: NSObject, @preconcurrency NSServicesMenuRequestor {
     }
 
     /// AppKit's item, hidden, in a menu built by its delegate as it opens: it's there to be filled
-    /// the first time (call when the menu is made).
+    /// the next time it opens (call when the menu is made, and with every build — a file's menu
+    /// too: a folder's menu that follows is filled from what the file's menu left).
     static func seed(_ menu: NSMenu) {
         // AppKit lists the devices at a context menu's end (a plug-in section, «iPhone (…)» with its
         // actions) whenever something could take a picture: in a file's menu too. Only WinEx's row.
         menu.allowsContextMenuPlugIns = false
-        guard let managed = NSApp.mainMenu?.items.compactMap(\.submenu).flatMap(\.items)
+        guard !menu.items.contains(where: { $0.identifier == NSMenuItem.importFromDeviceIdentifier }),
+              let managed = NSApp.mainMenu?.items.compactMap(\.submenu).flatMap(\.items)
             .first(where: { $0.identifier == NSMenuItem.importFromDeviceIdentifier })?.copy() as? NSMenuItem else { return }
         managed.isHidden = true
         menu.addItem(managed)

@@ -1329,7 +1329,11 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         // Like Explorer: right-clicking an item selects it (the menu acts on the selection)
         let clicked = clickedIndex
         if clicked >= 0 && !selectedIndexes.contains(clicked) { setSelection(IndexSet(integer: clicked)) }
-        defer { MenuStyle.decorate(menu) }
+        defer {
+            MenuStyle.decorate(menu)
+            // Whatever this menu is, the next one may be a folder's with «Импортировать с iPhone»
+            DeviceImport.seed(menu)
+        }
         func add(_ title: String, _ action: Selector) {
             menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
         }
