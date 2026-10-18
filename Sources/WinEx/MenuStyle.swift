@@ -47,7 +47,7 @@ enum MenuStyle {
 
     /// Submenus by title.
     private static let submenuSymbols: [String: String] = [
-        L("Вид"): "square.grid.2x2", L("Сортировка"): "arrow.up.arrow.down", L("Создать"): "plus.circle",
+        L("Вид"): "square.grid.2x2", L("Сортировка"): "arrow.up.arrow.down", L("Группировать по"): "square.grid.3x1.below.line.grid.1x2", L("Создать"): "plus.circle",
         L("Открыть с помощью"): "arrow.up.forward.app", L("Теги"): "tag", L("Показать"): "eye",
     ]
 

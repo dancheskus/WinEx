@@ -1,7 +1,8 @@
 import AppKit
 
 /// Explorer's command bar under the address row: "Создать", the clipboard and file commands,
-/// "Сортировать", "Просмотреть" and "…" with the rest.
+/// "Сортировать", "Группировать", "Просмотреть" and "…" with the rest. Commands that don't fit a
+/// narrow window go into "…" (from the right), as in Explorer.
 final class CommandBar: NSView {
     static let height: CGFloat = 44
 
@@ -33,18 +34,18 @@ final class CommandBar: NSView {
         sortButton.onClick = { [weak self] in self?.pop(self?.sortMenu, under: self?.sortButton) }
         groupButton.onClick = { [weak self] in self?.pop(self?.groupMenu, under: self?.groupButton) }
         viewButton.onClick = { [weak self] in self?.pop(self?.viewMenu, under: self?.viewButton) }
-        moreButton.onClick = { [weak self] in self?.pop(self?.moreMenu, under: self?.moreButton) }
+        moreButton.onClick = { [weak self] in self?.pop(self?.moreMenuWithOverflow, under: self?.moreButton) }
 
-        let stack = NSStackView(views: [
-            newButton, Self.divider(),
-            cutButton, copyButton, pasteButton, renameButton, shareButton, airDropButton, deleteButton, Self.divider(),
-            sortButton, groupButton, viewButton, Self.divider(), moreButton,
-        ])
+        stack.setViews([
+            newButton, newDivider,
+            cutButton, copyButton, pasteButton, renameButton, shareButton, airDropButton, deleteButton, filesDivider,
+            sortButton, groupButton, viewButton, moreDivider, moreButton,
+        ], in: .leading)
         stack.orientation = .horizontal
         stack.spacing = 2
         stack.alignment = .centerY
         stack.detachesHiddenViews = true
-        // Too narrow a window: the bar is cut on the right rather than squeezing the buttons
+        // (Too narrow a window: commands go into "…", see `layout`; never squeezed)
         stack.setClippingResistancePriority(.defaultLow, for: .horizontal)
         stack.translatesAutoresizingMaskIntoConstraints = false
         let line = NSBox()
@@ -64,6 +65,75 @@ final class CommandBar: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    private let stack = NSStackView()
+    private let newDivider = CommandBar.divider()
+    private let filesDivider = CommandBar.divider()
+    private let moreDivider = CommandBar.divider()
+
+    /// Commands that don't fit, in the bar's order: they head the "…" menu.
+    private(set) var overflow: [CommandButton] = []
+
+    /// Which go first when the bar is too narrow: from the right ("…" always stays).
+    private var dropOrder: [CommandButton] {
+        [viewButton, groupButton, sortButton, deleteButton, airDropButton, shareButton, renameButton, pasteButton, copyButton, cutButton, newButton]
+    }
+
+    override func layout() {
+        super.layout()
+        updateOverflow()
+    }
+
+    /// Hides what doesn't fit (widths from each command's own size, so hiding doesn't change the
+    /// answer and the layout settles at once).
+    private func updateOverflow() {
+        let available = bounds.width - 20
+        guard available > 0 else { return }
+        var dropped = Set<ObjectIdentifier>()
+        func shown(_ view: NSView) -> Bool {
+            if let button = view as? CommandButton { return !dropped.contains(ObjectIdentifier(button)) }
+            if view === newDivider { return shown(newButton) }
+            if view === filesDivider {
+                return [cutButton, copyButton, pasteButton, renameButton, shareButton, airDropButton, deleteButton].contains(where: shown)
+                    && [sortButton, groupButton, viewButton].contains(where: shown)
+            }
+            return true
+        }
+        func width() -> CGFloat {
+            let views = stack.arrangedSubviews.filter(shown)
+            return views.reduce(0) { $0 + $1.fittingSize.width } + stack.spacing * CGFloat(max(views.count - 1, 0))
+        }
+        for button in dropOrder where width() > available { dropped.insert(ObjectIdentifier(button)) }
+        for view in stack.arrangedSubviews where view.isHidden == shown(view) { view.isHidden = !shown(view) }
+        overflow = commandButtons.filter { dropped.contains(ObjectIdentifier($0)) }
+    }
+
+    /// "…": the commands that didn't fit (their menus as submenus), then its own.
+    func moreMenuWithOverflow() -> NSMenu? {
+        let menu = moreMenu?() ?? NSMenu()
+        guard !overflow.isEmpty else { return menu }
+        let menus: [CommandButton: (() -> NSMenu?)?] = [newButton: newItemMenu, sortButton: sortMenu, groupButton: groupMenu, viewButton: viewMenu]
+        menu.autoenablesItems = false
+        for (index, button) in overflow.enumerated() {
+            let item = NSMenuItem(title: button.menuTitle, action: nil, keyEquivalent: "")
+            item.image = SidebarConfig.icon(button.symbol, pointSize: 14)
+            item.isEnabled = button.isEnabled
+            if let provider = menus[button] {
+                item.submenu = provider?()
+            } else {
+                item.action = #selector(performOverflow(_:))
+                item.target = self
+                item.representedObject = button
+            }
+            menu.insertItem(item, at: index)
+        }
+        menu.insertItem(.separator(), at: overflow.count)
+        return menu
+    }
+
+    @objc private func performOverflow(_ sender: NSMenuItem) {
+        (sender.representedObject as? CommandButton)?.perform()
+    }
 
     private static func divider() -> NSView {
         let line = NSBox()
@@ -94,14 +164,14 @@ final class CommandBar: NSView {
         // opens). The click itself only ended the menu; pass it on. (Its press or, by the time the
         // menu has let go, its release; a release on a menu item belongs to the menu's window.)
         if let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp, event.window === window,
-           let other = commandButtons.first(where: { $0 !== button && $0.isEnabled
+           let other = commandButtons.first(where: { $0 !== button && $0.isEnabled && !$0.isHidden
                 && $0.bounds.contains($0.convert(event.locationInWindow, from: nil)) }) {
             DispatchQueue.main.async { other.perform() }
         }
     }
 
     private var commandButtons: [CommandButton] {
-        [newButton, cutButton, copyButton, pasteButton, renameButton, shareButton, deleteButton, sortButton, groupButton, viewButton, moreButton]
+        [newButton, cutButton, copyButton, pasteButton, renameButton, shareButton, airDropButton, deleteButton, sortButton, groupButton, viewButton, moreButton]
     }
 }
 
@@ -117,7 +187,14 @@ final class CommandButton: NSView {
     private var hovering = false { didSet { needsDisplay = true } }
     private var pressed = false { didSet { needsDisplay = true } }
 
+    /// The icon, and what the command is called in the "…" menu (the title, or the explanation
+    /// without its shortcut).
+    let symbol: String
+    let menuTitle: String
+
     init(symbol: String, title: String? = nil, tip: String, menu: Bool = false) {
+        self.symbol = symbol
+        menuTitle = title ?? tip.replacingOccurrences(of: #" \(.*\)$"#, with: "", options: .regularExpression)
         super.init(frame: .zero)
         toolTip = tip
         setAccessibilityRole(.button)

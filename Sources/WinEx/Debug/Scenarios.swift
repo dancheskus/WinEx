@@ -8,6 +8,7 @@ enum Scenarios {
     static let all: [String: (Scenario) -> Void] = [
         "undo": undo,
         "grouping": grouping,
+        "commandoverflow": commandOverflow,
         "newfolder": newFolder,
         "slowclick": slowClick,
         "perf": perf,
@@ -147,6 +148,38 @@ enum Scenarios {
             // «Этот Mac»: a server's mounted shares as one tile
             (0.2, "this Mac", { s.window?.navigate(to: Places.computerURL) }),
             (2.5, "", { picture("thismac") }),
+        ])
+    }
+
+    /// A narrow window: the commands that don't fit go into "…" (from the right), back as it widens.
+    static func commandOverflow(_ s: Scenario) {
+        func bar() -> CommandBar? { s.find(CommandBar.self, in: s.window?.window?.contentView) }
+        func report(_ expect: String) {
+            guard let bar = bar() else { return s.note("  (no command bar)") }
+            bar.layoutSubtreeIfNeeded()
+            let more = bar.moreMenuWithOverflow()?.items.prefix(bar.overflow.count + 1).map { $0.isSeparatorItem ? "—" : $0.title + ($0.submenu != nil ? " ▸" : "") } ?? []
+            s.note("  width \(Int(bar.bounds.width)), in «…»: \(more)  \(expect)")
+            let hidden = bar.overflow.filter { !$0.isHidden }
+            if !hidden.isEmpty { s.note("  !! still shown: \(hidden.map(\.menuTitle))") }
+        }
+        func width(_ w: CGFloat) {
+            guard let window = s.window?.window else { return }
+            window.setFrame(NSRect(x: window.frame.minX, y: window.frame.minY, width: w, height: window.frame.height), display: true)
+        }
+        func snapshot(_ name: String) {
+            guard let view = bar(), let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        s.run([
+            (1.0, "wide", { width(1500) }),
+            (0.5, "", { report("expect nothing"); snapshot("wide.png") }),
+            (0.2, "narrower", { width(1000) }),
+            (0.5, "", { report("expect Просмотреть, maybe Группировать"); snapshot("1000.png") }),
+            (0.2, "narrow", { width(700) }),
+            (0.5, "", { report("expect more, the file commands too"); snapshot("700.png") }),
+            (0.2, "wide again", { width(1500) }),
+            (0.5, "", { report("expect nothing") }),
         ])
     }
 
