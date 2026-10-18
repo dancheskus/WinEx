@@ -6,7 +6,7 @@ import QuickLookThumbnailing
 /// whole-page Quick Look picture in a rounded frame (videos and sounds play there), its name and
 /// size, kind, dates, tags and what `FileDetails` knows about it; the folder shown when nothing is
 /// selected; a count for several.
-final class PreviewPane: NSView {
+final class PreviewPane: NSView, NSTokenFieldDelegate {
     static let minimumWidth: CGFloat = 220
     static let maximumWidth: CGFloat = 560
 
@@ -51,8 +51,23 @@ final class PreviewPane: NSView {
     private let shareButton = PreviewPane.actionButton(L("Поделиться"), "square.and.arrow.up")
     private let infoButton = PreviewPane.actionButton(L("Свойства"), "info.circle")
     private var buttons: [NSButton] { [openButton, shareButton, infoButton].filter { !$0.isHidden } }
-    /// The rows under the buttons: a heading (no value) or a label and its value.
-    private var lines: [(label: NSTextField, value: NSTextField?)] = []
+    /// «Информация»: a label and its value per row, a hairline between rows. The kind's details
+    /// (`extra`: pages, camera, codecs…) only after «Показать ещё», as in Finder.
+    private var lines: [(label: NSTextField, value: NSTextField, extra: Bool)] = []
+    private var separators: [NSBox] = []
+    private let infoHeading = PreviewPane.heading(L("Информация"))
+    private let moreButton = NSButton(title: "", target: nil, action: nil)
+    /// «Теги»: the file's tags, typed or picked like in Finder.
+    private let tagsHeading = PreviewPane.heading(L("Теги"))
+    private let tagsField = NSTokenField()
+    /// The whole name, before it's shortened to two lines.
+    private var fullName = ""
+
+    /// «Показать ещё» is remembered for every pane, as in Finder.
+    private static var showsMore: Bool {
+        get { AppDefaults.store.bool(forKey: "previewPaneShowsMore") }
+        set { AppDefaults.store.set(newValue, forKey: "previewPaneShowsMore") }
+    }
 
     /// What's shown: the selection, or the folder (`isFolderShown`).
     private(set) var urls: [URL] = []
@@ -93,20 +108,42 @@ final class PreviewPane: NSView {
         textScroll.drawsBackground = false
         textScroll.isHidden = true
         previewBox.addSubview(textScroll)
-        nameLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        nameLabel.font = .systemFont(ofSize: 17, weight: .medium)
         nameLabel.isSelectable = true
         kindLabel.font = .systemFont(ofSize: 13)
         kindLabel.textColor = .secondaryLabelColor
+        moreButton.isBordered = false
+        moreButton.font = .systemFont(ofSize: 12)
+        moreButton.contentTintColor = .linkColor
+        moreButton.alignment = .right
+        moreButton.target = self
+        moreButton.action = #selector(toggleMore(_:))
+        tagsField.placeholderString = L("Добавить теги…")
+        tagsField.tokenStyle = .rounded
+        tagsField.font = .systemFont(ofSize: 12)
+        tagsField.delegate = self
+        tagsField.target = self
+        tagsField.action = #selector(tagsEdited(_:))
+        tagsField.cell?.wraps = true
+        tagsField.cell?.isScrollable = false
+        tagsField.bezelStyle = .roundedBezel
         placeholder.font = .systemFont(ofSize: 13)
         placeholder.textColor = .tertiaryLabelColor
         placeholder.alignment = .center
         openButton.target = self; openButton.action = #selector(openItems(_:))
         shareButton.target = self; shareButton.action = #selector(shareItems(_:))
         infoButton.target = self; infoButton.action = #selector(showProperties(_:))
-        [previewBox, iconView, nameLabel, kindLabel, placeholder, openButton, shareButton, infoButton].forEach(document.addSubview)
+        [previewBox, iconView, nameLabel, kindLabel, placeholder, openButton, shareButton, infoButton,
+         infoHeading, moreButton, tagsHeading, tagsField].forEach(document.addSubview)
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    private static func heading(_ title: String) -> NSTextField {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        return label
+    }
 
     private static func actionButton(_ title: String, _ symbol: String) -> NSButton {
         let button = NSButton(title: title, image: NSImage(systemSymbolName: symbol, accessibilityDescription: title)?
@@ -140,7 +177,11 @@ final class PreviewPane: NSView {
         setLines([])
         let urls = urls
         placeholder.isHidden = !urls.isEmpty
-        for view in [iconView, nameLabel, kindLabel] as [NSView] { view.isHidden = urls.isEmpty }
+        for view in [iconView, nameLabel, kindLabel, infoHeading] as [NSView] { view.isHidden = urls.isEmpty }
+        // Tags of one item (as in Finder; several would mean merging different sets)
+        tagsHeading.isHidden = urls.count != 1
+        tagsField.isHidden = urls.count != 1
+        tagsField.objectValue = urls.count == 1 ? FileTags.tags(of: urls[0]).map(\.name) : []
         openButton.isHidden = urls.isEmpty || isFolderShown
         shareButton.isHidden = urls.isEmpty
         infoButton.isHidden = urls.isEmpty
@@ -153,32 +194,31 @@ final class PreviewPane: NSView {
         let values = try? first.resourceValues(forKeys: keys)
         let isFolder = values?.isDirectory == true
         if urls.count == 1 {
-            nameLabel.stringValue = first.displayName
-            // Under the name, like Finder: the size (the kind for a folder, it has no size of its own)
+            fullName = first.displayName
+            // Under the name, like Finder: «PDF-документ — 31 КБ» (a folder has no size of its own)
             let kind = values?.localizedTypeDescription ?? ""
-            kindLabel.stringValue = !isFolder ? values?.fileSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) } ?? kind : kind
+            let size = isFolder ? nil : values?.fileSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+            kindLabel.stringValue = [kind, size].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " — ")
             // A preview of files (not of folders, apps and other packages, nor of iCloud files not
             // on this Mac: previewing would download them)
             let previewable = !isFolder && values?.ubiquitousItemDownloadingStatus != .notDownloaded
             showPreview(of: previewable ? first : nil)
-            var rows: [(String, String?)] = [(L("Сведения"), nil)]
-            if !isFolder, !kind.isEmpty { rows.append((L("Тип"), kind)) }
-            if let created = values?.creationDate { rows.append((L("Создан"), Self.date(created))) }
-            if let modified = values?.contentModificationDate { rows.append((L("Изменён"), Self.date(modified))) }
-            if let tags = values?.tagNames, !tags.isEmpty { rows.append((L("Теги"), tags.joined(separator: ", "))) }
+            var rows: [Row] = []
+            if let created = values?.creationDate { rows.append((L("Создан"), Self.date(created), false)) }
+            if let modified = values?.contentModificationDate { rows.append((L("Изменён"), Self.date(modified), false)) }
             setLines(rows)
             loadDetails(of: first, isFolder: isFolder && values?.isPackage != true)
         } else {
-            nameLabel.stringValue = "\(urls.count) \(plural(urls.count, L("объект"), L("объекта"), L("объектов")))"
+            fullName = "\(urls.count) \(plural(urls.count, L("объект"), L("объекта"), L("объектов")))"
             let sizes = urls.map { try? $0.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .localizedTypeDescriptionKey]) }
             let kinds = Set(sizes.compactMap { $0?.localizedTypeDescription })
             kindLabel.stringValue = kinds.count == 1 ? kinds.first ?? "" : L("Разные типы")
             showPreview(of: nil)
             let folders = sizes.filter { $0?.isDirectory == true }.count
             let bytes = sizes.compactMap { $0?.isDirectory == true ? nil : $0?.fileSize }.reduce(Int64(0)) { $0 + Int64($1) }
-            var rows: [(String, String?)] = [(L("Сведения"), nil)]
-            if folders < urls.count { rows.append((L("Размер файлов"), ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))) }
-            if folders > 0 { rows.append((L("Папок"), "\(folders)")) }
+            var rows: [Row] = []
+            if folders < urls.count { rows.append((L("Размер файлов"), ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file), false)) }
+            if folders > 0 { rows.append((L("Папок"), "\(folders)", false)) }
             setLines(rows)
         }
         iconView.image = Self.icon(for: urls)
@@ -290,48 +330,111 @@ final class PreviewPane: NSView {
                 return (opened, count, await FileDetails.sections(for: url))
             }.value
             guard let self, !Task.isCancelled, self.urls == [url] else { return }
-            var rows = self.lines.map { ($0.label.stringValue, $0.value?.stringValue) }
-            if let opened = extra.opened { rows.append((L("Открыт"), Self.date(opened))) }
-            if let count = extra.count { rows.append((L("Содержит"), "\(count) \(plural(count, L("объект"), L("объекта"), L("объектов")))")) }
-            for section in extra.sections {
-                rows.append((section.title, nil))
-                rows += section.rows.map { ($0.label, $0.value) }
-            }
+            var rows: [Row] = self.lines.map { ($0.label.stringValue, $0.value.stringValue, $0.extra) }
+            if let opened = extra.opened { rows.append((L("Использован"), Self.date(opened), false)) }
+            if let count = extra.count { rows.append((L("Содержит"), "\(count) \(plural(count, L("объект"), L("объекта"), L("объектов")))", false)) }
+            rows += extra.sections.flatMap(\.rows).map { ($0.label, $0.value, true) }
             self.setLines(rows)
             self.needsLayout = true
         }
     }
 
-    private func setLines(_ rows: [(String, String?)]) {
+    private typealias Row = (label: String, value: String, extra: Bool)
+
+    private func setLines(_ rows: [Row]) {
         for line in lines {
             line.label.removeFromSuperview()
-            line.value?.removeFromSuperview()
+            line.value.removeFromSuperview()
         }
-        lines = rows.map { title, value in
+        separators.forEach { $0.removeFromSuperview() }
+        lines = rows.map { title, value, extra in
             let label = NSTextField(wrappingLabelWithString: title)
-            guard let value else {
-                label.font = .systemFont(ofSize: 12, weight: .semibold)
-                document.addSubview(label)
-                return (label, nil)
-            }
-            label.font = .systemFont(ofSize: 11)
+            label.font = .systemFont(ofSize: 12)
             label.textColor = .secondaryLabelColor
             let field = NSTextField(wrappingLabelWithString: value)
-            field.font = .systemFont(ofSize: 11)
+            field.font = .systemFont(ofSize: 12, weight: .medium)
             field.alignment = .right
             field.isSelectable = true
             document.addSubview(label)
             document.addSubview(field)
-            return (label, field)
+            return (label, field, extra)
         }
+        separators = rows.dropFirst().map { _ in
+            let line = NSBox()
+            line.boxType = .separator
+            document.addSubview(line)
+            return line
+        }
+        let hasExtra = rows.contains { $0.extra }
+        moreButton.isHidden = !hasExtra
+        moreButton.title = Self.showsMore ? L("Показать меньше") : L("Показать ещё")
     }
 
+    /// Finder's way: «Четверг, 10 сентября 2026 г. в 21:15».
     private static func date(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Localization.locale
-        formatter.dateStyle = .medium
+        formatter.dateStyle = .full
         formatter.timeStyle = .short
-        return formatter.string(from: date)
+        let text = formatter.string(from: date)
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    /// `name` in at most two lines of `width`: the middle left out when it's longer (the start and
+    /// the extension stay readable), as in Finder.
+    private func twoLines(_ name: String, width: CGFloat) -> String {
+        let font = nameLabel.font ?? .systemFont(ofSize: 17)
+        func height(_ text: String) -> CGFloat {
+            (text as NSString).boundingRect(with: NSSize(width: width, height: .greatestFiniteMagnitude),
+                                            options: [.usesLineFragmentOrigin], attributes: [.font: font]).height
+        }
+        let limit = ceil(font.boundingRectForFont.height * 2) + 1
+        guard height(name) > limit else { return name }
+        let characters = Array(name)
+        var (low, high) = (1, characters.count - 1)
+        var best = String(characters.prefix(1)) + "…"
+        while low <= high {
+            let kept = (low + high) / 2
+            let head = kept / 2 + kept % 2, tail = kept / 2
+            let candidate = String(characters.prefix(head)) + "…" + String(characters.suffix(tail))
+            if height(candidate) <= limit { best = candidate; low = kept + 1 } else { high = kept - 1 }
+        }
+        return best
+    }
+
+    @objc private func toggleMore(_ sender: Any?) {
+        Self.showsMore.toggle()
+        moreButton.title = Self.showsMore ? L("Показать меньше") : L("Показать ещё")
+        needsLayout = true
+    }
+
+    // MARK: - Tags
+
+    /// Typed or changed tags go onto the file (with undo, the tag colours it already had kept).
+    @objc private func tagsEdited(_ sender: Any?) { saveTags() }
+
+    func controlTextDidEndEditing(_ obj: Notification) { saveTags() }
+
+    private func saveTags() {
+        guard urls.count == 1, let url = urls.first else { return }
+        let names = (tagsField.objectValue as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let current = FileTags.tags(of: url)
+        guard names != current.map(\.name) else { return }
+        var seen = Set<String>()
+        let tags = names.filter { seen.insert($0).inserted }.map { FileTags.tag(named: $0, knownTags: current) }
+        let before = [url: current]
+        do { try FileTags.setTags(tags, on: url) } catch { NSAlert(error: error).runModal(); return }
+        FileUndo.recordTags(before: before)
+        TagLibrary.merge(tags)
+        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
+    }
+
+    /// Completes typed tag names from the known ones (favourites first).
+    func tokenField(_ tokenField: NSTokenField, completionsForSubstring substring: String, indexOfToken tokenIndex: Int,
+                    indexOfSelectedItem selectedIndex: UnsafeMutablePointer<Int>?) -> [Any]? {
+        let known = FileTags.favorites.map(\.name) + TagLibrary.entries.map(\.name)
+        var seen = Set<String>()
+        return known.filter { seen.insert($0).inserted && $0.localizedCaseInsensitiveContains(substring) }
     }
 
     // MARK: - Actions
@@ -389,6 +492,8 @@ final class PreviewPane: NSView {
         let iconSide = min(area.width, area.height, 160)
         iconView.frame = NSRect(x: area.midX - iconSide / 2, y: area.midY - iconSide / 2, width: iconSide, height: iconSide)
         y += previewHeight + 12
+        nameLabel.stringValue = twoLines(fullName, width: inner - 4)
+        nameLabel.toolTip = nameLabel.stringValue == fullName ? nil : fullName
         let nameHeight = height(of: nameLabel, width: inner)
         nameLabel.frame = NSRect(x: margin, y: y, width: inner, height: nameHeight)
         y += nameHeight + 2
@@ -402,22 +507,43 @@ final class PreviewPane: NSView {
             button.frame = NSRect(x: x, y: y, width: buttonWidth, height: buttonHeight)
             x += buttonWidth
         }
-        y += buttonHeight + 8
-        let labelWidth = (inner * 0.42).rounded()
+        y += buttonHeight + 14
+        // «Информация» with «Показать ещё» on the right
+        let headingHeight = height(of: infoHeading, width: inner)
+        infoHeading.frame = NSRect(x: margin, y: y, width: inner / 2, height: headingHeight)
+        let moreWidth = ceil(moreButton.fittingSize.width)
+        moreButton.frame = NSRect(x: margin + inner - moreWidth, y: y, width: moreWidth, height: headingHeight)
+        y += headingHeight + 6
+        let shownLines = lines.filter { !$0.extra || Self.showsMore }
         for line in lines {
-            guard let value = line.value else {
-                y += 10
-                let h = height(of: line.label, width: inner)
-                line.label.frame = NSRect(x: margin, y: y, width: inner, height: h)
-                y += h + 6
-                continue
+            let shown = !line.extra || Self.showsMore
+            line.label.isHidden = !shown
+            line.value.isHidden = !shown
+        }
+        for separator in separators { separator.isHidden = true }
+        for (n, line) in shownLines.enumerated() {
+            if n > 0, separators.indices.contains(n - 1) {
+                separators[n - 1].isHidden = false
+                separators[n - 1].frame = NSRect(x: margin, y: y, width: inner, height: 1)
+                y += 1
             }
+            y += 5
+            // The label as wide as it needs (up to half), the value takes the rest
+            let labelWidth = min(ceil(line.label.cell?.cellSize.width ?? 60), (inner * 0.5).rounded())
             let labelHeight = height(of: line.label, width: labelWidth)
-            let valueWidth = inner - labelWidth - 8
-            let valueHeight = height(of: value, width: valueWidth)
+            let valueWidth = inner - labelWidth - 10
+            let valueHeight = height(of: line.value, width: valueWidth)
             line.label.frame = NSRect(x: margin, y: y, width: labelWidth, height: labelHeight)
-            value.frame = NSRect(x: margin + labelWidth + 8, y: y, width: valueWidth, height: valueHeight)
-            y += max(labelHeight, valueHeight) + 4
+            line.value.frame = NSRect(x: margin + labelWidth + 10, y: y, width: valueWidth, height: valueHeight)
+            y += max(labelHeight, valueHeight) + 5
+        }
+        if !tagsField.isHidden {
+            y += 14
+            tagsHeading.frame = NSRect(x: margin, y: y, width: inner, height: height(of: tagsHeading, width: inner))
+            y += tagsHeading.frame.height + 6
+            let fieldHeight = max(ceil(tagsField.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 1000)).height ?? 24), 24)
+            tagsField.frame = NSRect(x: margin, y: y, width: inner, height: fieldHeight)
+            y += fieldHeight
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: max(y + margin, scrollView.contentSize.height))
     }
@@ -425,7 +551,12 @@ final class PreviewPane: NSView {
     #if DEBUG
     var debugName: String { nameLabel.stringValue }
     var debugKind: String { kindLabel.stringValue }
-    var debugLines: [String] { lines.map { $0.label.stringValue + ($0.value.map { ": " + $0.stringValue } ?? "") } }
+    var debugLines: [String] { lines.map { ($0.extra ? "+" : "") + $0.label.stringValue + ": " + $0.value.stringValue } }
+    var debugShownLines: Int { lines.filter { !$0.label.isHidden }.count }
+    var debugMore: String { moreButton.isHidden ? "-" : moreButton.title }
+    func debugToggleMore() { toggleMore(nil) }
+    var debugTags: [String] { tagsField.isHidden ? ["(hidden)"] : tagsField.objectValue as? [String] ?? [] }
+    func debugSetTags(_ names: [String]) { tagsField.objectValue = names; saveTags() }
     var debugShowsLivePreview: Bool { preview?.superview != nil }
     var debugShowsThumbnail: Bool { !previewBox.isHidden && thumbnailView.image != nil }
     var debugText: String { textScroll.isHidden ? "" : String(textView.string.prefix(30)) }

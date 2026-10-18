@@ -294,6 +294,8 @@ enum Scenarios {
     /// take the whole width.
     static func previewPane(_ s: Scenario) {
         let base = s.makeFiles(["notes.txt", "Box/", "Box/one.txt", "Box/two.txt"], in: "preview")
+        let longName = "transaction-statement_6aa1f557-8129-afd0-9620-65d664bed632_ru_d8f322.txt"
+        try? "long".write(to: base.appendingPathComponent(longName), atomically: true, encoding: .utf8)
         try? "#!/usr/bin/env bash\n\nset -euo pipefail\n# Установка\nDEFAULT_PORT=\"8090\"\n".write(to: base.appendingPathComponent("install.sh"), atomically: true, encoding: .utf8)
         // A document of a few pages: Finder shows its first page whole
         let page = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 700))
@@ -334,13 +336,32 @@ enum Scenarios {
             }),
             (1.0, "select the document", { s.select("document.pdf") }),
             (1.2, "", {
-                report("expect picture true, live false")
+                report("expect picture true, live false; «Показать ещё», the page rows marked + and hidden")
+                s.note("  more: \(s.window?.debugPreviewPane?.debugMore ?? "?"), rows shown \(s.window?.debugPreviewPane?.debugShownLines ?? -1)")
+                s.window?.debugPreviewPane?.debugToggleMore()
                 if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8) }
             }),
             (0.2, "select the script", { s.select("install.sh") }),
             (0.8, "", {
                 report("expect text «#!/usr/bin/env bash…», picture false")
                 if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-2"), atomically: true, encoding: .utf8) }
+            }),
+            (0.2, "", { s.note("  after «Показать ещё»: \(s.window?.debugPreviewPane?.debugMore ?? "?"), rows shown \(s.window?.debugPreviewPane?.debugShownLines ?? -1)  expect Показать меньше, all") }),
+            (0.2, "the long name", { s.select("transaction-statement_6aa1f557-8129-afd0-9620-65d664bed632_ru_d8f322.txt") }),
+            (0.5, "", { report("expect the middle left out (two lines), …d8f322.txt kept") }),
+            (0.2, "tags typed into the pane", {
+                s.select("notes.txt")
+                s.window?.debugPreviewPane?.debugSetTags(["Красный", "Проект"])
+            }),
+            (0.6, "", {
+                let tags = FileTags.tags(of: base.appendingPathComponent("notes.txt")).map { "\($0.name)/\($0.color)" }
+                s.note("  on the file: \(tags)  expect Красный/6, Проект; pane \(s.window?.debugPreviewPane?.debugTags ?? [])")
+                // The whole pane, down to the tags (scrolled out of the window)
+                if let page = s.find(NSScrollView.self, in: s.window?.debugPreviewPane)?.documentView,
+                   let rep = page.bitmapImageRepForCachingDisplay(in: page.bounds) {
+                    page.cacheDisplay(in: page.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("pane-tags.png"))
+                }
             }),
             (1.0, "select the folder", { s.select("Box") }),
             (0.8, "", { report("expect Box, live false, Содержит: 2") }),

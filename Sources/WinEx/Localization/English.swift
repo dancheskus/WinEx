@@ -830,6 +830,10 @@ enum English {
         "Панель предпросмотра (⇧⌘P)": "Preview Pane (⇧⌘P)",
         "Папок": "Folders",
         "Размер файлов": "Size of files",
-        "Сведения": "Information",
+        "Добавить теги…": "Add Tags…",
+        "Информация": "Information",
+        "Использован": "Last opened",
+        "Показать ещё": "Show More",
+        "Показать меньше": "Show Less",
     ]
 }
