@@ -85,22 +85,98 @@ enum FolderSharing {
         return done
     }
 
-    /// Runs commands (tool and arguments each) as root after the system's password prompt, one
-    /// after another while they succeed; false if it was cancelled or failed (a failure is shown).
+    /// Runs commands (tool and arguments each) as root, one after another while they succeed;
+    /// false if it was cancelled or failed (a failure is shown).
+    ///
+    /// The system's own authorization dialog asks first — Touch ID or the password, as in System
+    /// Settings (AppleScript's «with administrator privileges» only takes a password) — and the
+    /// permission is kept for a few minutes, so the next change doesn't ask again.
     @MainActor @discardableResult
-    static func admin(_ commands: [[String]]) -> Bool {
-        let command = adminCommand(commands)
-        let source = "do shell script \(appleScriptQuoted(command)) with administrator privileges"
-        var error: NSDictionary?
-        NSAppleScript(source: source)?.executeAndReturnError(&error)
-        guard let error else { return true }
-        // -128: the password prompt was cancelled
-        if (error[NSAppleScript.errorNumber] as? Int) != -128 {
-            let alert = NSAlert()
-            alert.messageText = L("Не удалось изменить общий доступ")
-            alert.informativeText = error[NSAppleScript.errorMessage] as? String ?? ""
-            alert.runModal()
+    static func admin(_ commands: [[String]], prompt: String = L("WinEx хочет изменить общий доступ к папке.")) -> Bool {
+        let status = authorize(prompt: prompt)
+        if status == errAuthorizationCanceled { return false }
+        guard status == errAuthorizationSuccess, let authorization else {
+            return failed(SecCopyErrorMessageString(status, nil) as String? ?? "\(status)")
         }
+        // The tool's exit status comes back as the last line (the call itself doesn't report it)
+        let script = "( \(adminCommand(commands)) ) 2>&1; echo \"\(exitMarker)$?\""
+        guard let output = executeAsRoot(authorization, "/bin/sh", ["-c", script]) else { return failed("") }
+        let (text, exitCode) = parseOutput(output)
+        return exitCode == 0 || failed(text)
+    }
+
+    static let exitMarker = "winex-exit:"
+
+    /// What a root command printed, and its exit status (nil when the marker line is missing).
+    static func parseOutput(_ output: String) -> (text: String, exitCode: Int32?) {
+        var lines = output.components(separatedBy: "\n")
+        while lines.last?.isEmpty == true { lines.removeLast() }
+        guard let last = lines.last, last.hasPrefix(exitMarker) else { return (output, nil) }
+        lines.removeLast()
+        return (lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines), Int32(last.dropFirst(exitMarker.count)))
+    }
+
+    @MainActor private static var authorization: AuthorizationRef?
+
+    /// The right to run tools as root: the system dialog (Touch ID or password) unless it's still
+    /// granted from a moment ago.
+    @MainActor private static func authorize(prompt: String) -> OSStatus {
+        if authorization == nil {
+            var created: AuthorizationRef?
+            let status = AuthorizationCreate(nil, nil, [], &created)
+            guard status == errAuthorizationSuccess else { return status }
+            authorization = created
+        }
+        guard let authorization else { return errAuthorizationInternal }
+        return kAuthorizationRightExecute.withCString { right in
+            kAuthorizationEnvironmentPrompt.withCString { promptKey in
+                prompt.withCString { promptText in
+                    var rightItem = AuthorizationItem(name: right, valueLength: 0, value: nil, flags: 0)
+                    var promptItem = AuthorizationItem(name: promptKey, valueLength: strlen(promptText),
+                                                       value: UnsafeMutableRawPointer(mutating: promptText), flags: 0)
+                    return withUnsafeMutablePointer(to: &rightItem) { rightPointer in
+                        withUnsafeMutablePointer(to: &promptItem) { promptPointer in
+                            var rights = AuthorizationRights(count: 1, items: rightPointer)
+                            var environment = AuthorizationEnvironment(count: 1, items: promptPointer)
+                            return AuthorizationCopyRights(authorization, &rights, &environment,
+                                                           [.interactionAllowed, .extendRights, .preAuthorize], nil)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// AuthorizationExecuteWithPrivileges: deprecated and not in Swift's headers, but still the
+    /// system's way to run a tool as root without installing a helper; looked up at run time.
+    private typealias ExecuteWithPrivileges = @convention(c) (
+        AuthorizationRef, UnsafePointer<CChar>, AuthorizationFlags,
+        UnsafePointer<UnsafeMutablePointer<CChar>?>, UnsafeMutablePointer<UnsafeMutablePointer<FILE>?>?) -> OSStatus
+
+    /// Everything the tool printed (it has finished then), or nil if it couldn't be started.
+    private static func executeAsRoot(_ authorization: AuthorizationRef, _ tool: String, _ arguments: [String]) -> String? {
+        guard let security = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW),
+              let symbol = dlsym(security, "AuthorizationExecuteWithPrivileges") else { return nil }
+        let execute = unsafeBitCast(symbol, to: ExecuteWithPrivileges.self)
+        var cArguments: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
+        defer { cArguments.forEach { free($0) } }
+        var pipe: UnsafeMutablePointer<FILE>?
+        let status = tool.withCString { path in
+            cArguments.withUnsafeBufferPointer { buffer in
+                execute(authorization, path, [], buffer.baseAddress!, &pipe)
+            }
+        }
+        guard status == errAuthorizationSuccess, let pipe else { return nil }
+        defer { fclose(pipe) }
+        let data = FileHandle(fileDescriptor: fileno(pipe), closeOnDealloc: false).readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    @MainActor private static func failed(_ message: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = L("Не удалось изменить общий доступ")
+        alert.informativeText = message
+        alert.runModal()
         return false
     }
 
@@ -110,10 +186,6 @@ enum FolderSharing {
 
     static func shellQuoted(_ text: String) -> String {
         "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    static func appleScriptQuoted(_ text: String) -> String {
-        "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     /// A tool's output, or nil when it fails.

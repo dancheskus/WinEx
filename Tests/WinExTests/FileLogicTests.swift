@@ -620,7 +620,9 @@ struct RecentsAndSharingTests {
 
     @Test func commandsQuoted() {
         #expect(FolderSharing.shellQuoted("it's a \"name\"") == #"'it'\''s a "name"'"#)
-        #expect(FolderSharing.appleScriptQuoted(#"a "b" \c"#) == #""a \"b\" \\c""#)
+        #expect(FolderSharing.parseOutput("oops\nwinex-exit:1\n") == ("oops", 1))
+        #expect(FolderSharing.parseOutput("winex-exit:0\n") == ("", 0))
+        #expect(FolderSharing.parseOutput("cut off").exitCode == nil)
     }
 
     @Test func permissionLevels() {

@@ -378,7 +378,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             try FileManager.default.setAttributes([.posixPermissions: newMode], ofItemAtPath: path)
         } catch {
             // Not the owner's: as an administrator
-            FolderSharing.admin([["/bin/chmod", String(newMode & 0o7777, radix: 8), path]])
+            FolderSharing.admin([["/bin/chmod", String(newMode & 0o7777, radix: 8), path]],
+                               prompt: L("WinEx хочет изменить права доступа к «%@».", single.displayName))
         }
         refreshAccessPage()
     }

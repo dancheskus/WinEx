@@ -823,5 +823,7 @@ enum English {
         "Его можно включить и в Системных настройках ▸ Основные ▸ Общий доступ ▸ «Общий доступ к файлам».": "It can also be turned on in System Settings ▸ General ▸ Sharing ▸ File Sharing.",
         "Открыть настройки общего доступа": "Open Sharing Settings",
         "Чтобы открыть общий доступ к этой папке, включите общий доступ к файлам": "To share this folder, turn on File Sharing",
+        "WinEx хочет изменить общий доступ к папке.": "WinEx wants to change folder sharing.",
+        "WinEx хочет изменить права доступа к «%@».": "WinEx wants to change the permissions of “%@”.",
     ]
 }
