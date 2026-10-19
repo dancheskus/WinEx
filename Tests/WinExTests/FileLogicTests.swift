@@ -169,6 +169,7 @@ struct ContextMenuTests {
         func share(_ sender: Any?) {}
         func toggleTag(_ sender: NSMenuItem) {}
         func customizeFolder(_ sender: Any?) {}
+        func assignTags(_ sender: Any?) {}
         func showProperties(_ sender: Any?) {}
         func duplicate(_ sender: Any?) {}
         func compress(_ sender: Any?) {}
