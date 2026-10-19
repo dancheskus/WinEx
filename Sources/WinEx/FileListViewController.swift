@@ -54,6 +54,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private var items: [FileItem] = []
     #if DEBUG
     var debugShownTags: [String: [String]] { Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.tags.map(\.name)) }) }
+    var debugShowsFinderLook: Bool { finderLook != nil }
     #endif
     private var watcher: DirectoryWatcher?
     private var tagWatcher: TagChangeWatcher?
@@ -667,6 +668,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func apply(_ listing: FolderLoader.Listing) {
         allItems = listing.items
         allItemsOrder = listing.order
+        if let folder = listing.lookFolder { folderLook = (folder, listing.look) }
         errorMessage = listing.error.map { error in
             location == .trash
                 ? L("Корзина откроется, когда WinEx получит «Полный доступ к диску»")
@@ -682,12 +684,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// A folder styled for Finder (a disk image's window): its background, and icons of its size
     /// where Finder puts them — in the icon views.
     private var finderLook: FinderLook?
+    /// The styling read with the last listing of a folder (`FolderLoader.Listing.look`).
+    private var folderLook: (folder: URL, look: FinderLook?)?
     private let lookLayout = FinderLookLayout()
     private let lookBackground = FinderLookBackground()
 
     private func updateFinderLook() {
         // (Groups: Finder's own arrangement doesn't apply, as in Finder)
-        finderLook = search == nil && !groups.isGrouped ? directory.flatMap(FinderLook.read) : nil
+        finderLook = search == nil && !groups.isGrouped && folderLook?.folder == directory ? folderLook?.look : nil
         guard let look = finderLook, viewMode != .details, !viewMode.isHorizontalItem else {
             if collectionView.collectionViewLayout !== flowLayout { collectionView.collectionViewLayout = flowLayout }
             collectionView.backgroundView = nil

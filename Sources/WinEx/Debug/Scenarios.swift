@@ -1347,7 +1347,16 @@ enum Scenarios {
         s.window?.navigate(to: mount)
         s.run([
             (0.5, "icons", { s.setViewMode(.largeIcons) }),
-            (1.5, "shot", {
+            (0.5, "styled", {
+                // (Read with the listing in the background, not on the main thread)
+                s.note("  window shows the look: \(s.window?.debugShowsFinderLook ?? false)  expect \(look != nil)")
+                s.window?.navigate(to: FileManager.default.homeDirectoryForCurrentUser)
+            }),
+            (0.5, "another folder: not styled", {
+                s.note("  home styled: \(s.window?.debugShowsFinderLook ?? true)  expect false")
+                s.window?.navigate(to: mount)
+            }),
+            (1.0, "shot", {
                 if let number = s.window?.window?.windowNumber {
                     try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
                 }

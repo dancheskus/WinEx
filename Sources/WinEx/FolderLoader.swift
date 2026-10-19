@@ -14,6 +14,10 @@ final class FolderLoader {
         /// The order `items` are sorted in, if any.
         var order: FileItem.SortOrder?
         var error: Error?
+        /// The folder whose Finder styling was read along with the listing (none for search results),
+        /// and that styling: reading `.DS_Store` on the main thread on every refresh stalled the window.
+        var lookFolder: URL?
+        var look: FinderLook?
     }
 
     typealias Produce = @Sendable () -> Listing
@@ -109,7 +113,10 @@ final class FolderLoader {
                 at: directory, includingPropertiesForKeys: FileItem.keys, options: options)
             // iCloud Drive also shows the apps' folders (Pages, TextEdit…), as in Finder
             if directory.standardizedFileURL.path == CloudDrive.root.path { urls += CloudDrive.appFolders() }
-            return Listing(items: FileItem.sorted(urls.map(FileItem.init), by: order), order: order)
+            var listing = Listing(items: FileItem.sorted(urls.map(FileItem.init), by: order), order: order)
+            listing.lookFolder = directory
+            listing.look = FinderLook.read(directory)
+            return listing
         } catch {
             return Listing(error: error)
         }
