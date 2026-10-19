@@ -4,8 +4,8 @@ import QuickLookThumbnailing
 
 /// Finder's preview pane (⇧⌘P, «Панель предпросмотра» in the view menus): the selected file as a
 /// whole-page Quick Look picture in a rounded frame (videos and sounds play there), its name and
-/// size, kind, dates, tags and what `FileDetails` knows about it; the folder shown when nothing is
-/// selected; a count for several.
+/// size, kind, dates, tags and what `FileDetails` knows about it; a count for several; empty when
+/// nothing is selected.
 final class PreviewPane: NSView {
     static let minimumWidth: CGFloat = 220
     static let maximumWidth: CGFloat = 560
@@ -46,7 +46,6 @@ final class PreviewPane: NSView {
     private var textURL: URL?
     private let nameLabel = NSTextField(wrappingLabelWithString: "")
     private let kindLabel = NSTextField(wrappingLabelWithString: "")
-    private let placeholder = NSTextField(labelWithString: L("Нет предпросмотра"))
     private let openButton = PreviewPane.actionButton(L("Открыть"), "arrow.up.forward.app")
     private let shareButton = PreviewPane.actionButton(L("Поделиться"), "square.and.arrow.up")
     private let infoButton = PreviewPane.actionButton(L("Свойства"), "info.circle")
@@ -71,9 +70,8 @@ final class PreviewPane: NSView {
         set { AppDefaults.store.set(newValue, forKey: "previewPaneShowsMore") }
     }
 
-    /// What's shown: the selection, or the folder (`isFolderShown`).
+    /// What's shown: the selection.
     private(set) var urls: [URL] = []
-    private var isFolderShown = false
     private var detailsTask: Task<Void, Never>?
 
     override init(frame: NSRect) {
@@ -122,14 +120,13 @@ final class PreviewPane: NSView {
         moreButton.action = #selector(toggleMore(_:))
         tagStrip.onAdd = { [weak self] tag in self?.changeTags { $0 + [tag] } }
         tagStrip.onRemove = { [weak self] tag in self?.changeTags { $0.filter { $0.name != tag.name } } }
-        placeholder.font = .systemFont(ofSize: 13)
-        placeholder.textColor = .tertiaryLabelColor
-        placeholder.alignment = .center
         openButton.target = self; openButton.action = #selector(openItems(_:))
         shareButton.target = self; shareButton.action = #selector(shareItems(_:))
         infoButton.target = self; infoButton.action = #selector(showProperties(_:))
-        [previewBox, iconView, nameLabel, kindLabel, placeholder, openButton, shareButton, infoButton,
+        [previewBox, iconView, nameLabel, kindLabel, openButton, shareButton, infoButton,
          infoHeading, moreButton, tagsHeading, tagStrip].forEach(document.addSubview)
+        // Empty until something is selected
+        reload()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -153,15 +150,12 @@ final class PreviewPane: NSView {
 
     // MARK: - What's shown
 
-    /// Shows `selection`, or `folder` when nothing is selected (nil: a place without files of its
-    /// own, as «Этот Mac»). The same items again change nothing (the list reports often).
-    func show(selection: [URL], folder: URL?) {
+    /// Shows `selection`; nothing at all when nothing is selected, as in Finder. The same items
+    /// again change nothing (the list reports often).
+    func show(selection: [URL]) {
         let files = selection.filter(\.isFileURL)
-        let folderShown = files.isEmpty
-        let shown = folderShown ? [folder].compactMap { $0 }.filter(\.isFileURL) : files
-        guard shown != urls || folderShown != isFolderShown else { return }
-        urls = shown
-        isFolderShown = folderShown
+        guard files != urls else { return }
+        urls = files
         reload()
     }
 
@@ -173,13 +167,12 @@ final class PreviewPane: NSView {
         sizeTask = nil
         setLines([])
         let urls = urls
-        placeholder.isHidden = !urls.isEmpty
         for view in [iconView, nameLabel, kindLabel, infoHeading] as [NSView] { view.isHidden = urls.isEmpty }
         // Tags of one item (as in Finder; several would mean merging different sets)
         tagsHeading.isHidden = urls.count != 1
         tagStrip.isHidden = urls.count != 1
         tagStrip.tags = urls.count == 1 ? FileTags.tags(of: urls[0]) : []
-        openButton.isHidden = urls.isEmpty || isFolderShown
+        openButton.isHidden = urls.isEmpty
         shareButton.isHidden = urls.isEmpty
         infoButton.isHidden = urls.isEmpty
         guard let first = urls.first else {
@@ -510,7 +503,6 @@ final class PreviewPane: NSView {
         }
         var y: CGFloat = margin
         if urls.isEmpty {
-            placeholder.frame = NSRect(x: margin, y: max((scrollView.contentSize.height - 20) / 2, margin), width: inner, height: 20)
             document.frame = NSRect(x: 0, y: 0, width: width, height: scrollView.contentSize.height)
             return
         }

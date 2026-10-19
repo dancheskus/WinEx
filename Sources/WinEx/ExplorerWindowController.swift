@@ -497,11 +497,11 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         commandBar.updateState()
     }
 
-    /// The pane follows the selection (or shows the folder); nothing is read while it's hidden, and
+    /// The pane follows the selection (empty without one); nothing is read while it's hidden, and
     /// hiding it lets go of what it showed (a video stops, it's read afresh when shown again).
     private func updatePreviewPane() {
-        guard filesSplit.isPaneShown else { return previewPane.show(selection: [], folder: nil) }
-        previewPane.show(selection: fileList.selection, folder: fileList.directory)
+        guard filesSplit.isPaneShown else { return previewPane.show(selection: []) }
+        previewPane.show(selection: fileList.selection)
     }
 
     #if DEBUG

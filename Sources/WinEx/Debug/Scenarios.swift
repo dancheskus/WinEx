@@ -432,7 +432,7 @@ enum Scenarios {
         s.run([
             (1.0, "details view, pane off at first", { s.setViewMode(.details); report("expect hidden"); s.note("  \(widths())") }),
             (0.2, "⇧⌘P", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
-            (0.5, "", { report("expect «preview» — Папка, no Открыть"); s.note("  \(widths())  expect pane 280") }),
+            (0.5, "", { report("expect «» (empty: nothing selected), no buttons"); s.note("  \(widths())  expect pane 280") }),
             (0.2, "select the picture", { s.select("picture.png") }),
             (1.0, "", {
                 report("expect picture.png, live true, Изображение: 64 × 48"); snapshot("picture.png")

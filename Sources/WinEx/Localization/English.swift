@@ -825,7 +825,6 @@ enum English {
         "Чтобы открыть общий доступ к этой папке, включите общий доступ к файлам": "To share this folder, turn on File Sharing",
         "WinEx хочет изменить общий доступ к папке.": "WinEx wants to change folder sharing.",
         "WinEx хочет изменить права доступа к «%@».": "WinEx wants to change the permissions of “%@”.",
-        "Нет предпросмотра": "No Preview",
         "Панель предпросмотра": "Preview Pane",
         "Панель предпросмотра (⇧⌘P)": "Preview Pane (⇧⌘P)",
         "Папок": "Folders",
