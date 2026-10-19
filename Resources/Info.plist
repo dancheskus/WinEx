@@ -78,6 +78,8 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>WinEx передаёт Finder комментарии к файлам, чтобы они были видны и в его окне «Свойства».</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_smb._tcp</string>

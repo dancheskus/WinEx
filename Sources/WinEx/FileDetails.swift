@@ -32,7 +32,52 @@ enum FileDetails {
             if type.conforms(to: .plainText) || type.conforms(to: .sourceCode) { sections += text(url) }
         }
         if let from = whereFrom(url) { sections.append(from) }
+        // What Spotlight knows on top (Finder's «Подробнее»), without repeating a value shown above
+        let shown = Set(sections.flatMap(\.rows).map(\.value))
+        if var spotlight = spotlight(url) {
+            spotlight.rows.removeAll { shown.contains($0.value) }
+            if !spotlight.rows.isEmpty { sections.append(spotlight) }
+        }
         return sections
+    }
+
+    // MARK: Spotlight
+
+    /// The attributes Finder's «Подробнее» shows from Spotlight's index: when the content was made,
+    /// in which app, its authors, title, keywords, version, protection…
+    private static func spotlight(_ url: URL) -> Section? {
+        guard let item = MDItemCreateWithURL(nil, url as CFURL) else { return nil }
+        func value(_ key: CFString) -> Any? { MDItemCopyAttribute(item, key) }
+        func text(_ any: Any?) -> String? {
+            switch any {
+            case let string as String: string.isEmpty ? nil : string
+            case let strings as [String]: strings.isEmpty ? nil : strings.joined(separator: ", ")
+            case let number as NSNumber: number.stringValue
+            case let date as Date: longDate(date)
+            default: nil
+            }
+        }
+        var section = Section(title: L("Содержимое"), rows: [])
+        let created = value(kMDItemContentCreationDate) as? Date
+        let modified = value(kMDItemContentModificationDate) as? Date
+        let keys: [(CFString, String)] = [
+            (kMDItemTitle, L("Заголовок")), (kMDItemAuthors, L("Авторы")), (kMDItemDescription, L("Описание")),
+            (kMDItemKeywords, L("Ключевые слова")), (kMDItemCopyright, L("Авторские права")),
+            (kMDItemCreator, L("Создано в приложении")), (kMDItemEncodingApplications, L("Программы кодирования")),
+            (kMDItemVersion, L("Версия")), (kMDItemSecurityMethod, L("Безопасность")), (kMDItemLanguages, L("Языки")),
+            (kMDItemComposer, L("Композитор")), (kMDItemMusicalGenre, L("Жанр")), (kMDItemRecordingYear, L("Год")),
+            (kMDItemComment, L("Комментарий")), (kMDItemEXIFVersion, L("Версия EXIF")),
+        ]
+        if let created { section.rows.append(Row(label: L("Контент создан"), value: longDate(created))) }
+        if let modified, longDate(modified) != created.map(longDate) { section.rows.append(Row(label: L("Контент изменён"), value: longDate(modified))) }
+        for (key, label) in keys {
+            // "None" is Spotlight's word for an unprotected document
+            guard let shown = text(value(key)), shown != "None" else { continue }
+            // (Spotlight titles many files with their own name)
+            if key == kMDItemTitle, shown == url.lastPathComponent || shown == url.deletingPathExtension().lastPathComponent { continue }
+            section.rows.append(Row(label: label, value: shown))
+        }
+        return section.rows.isEmpty ? nil : section
     }
 
     // MARK: Pictures

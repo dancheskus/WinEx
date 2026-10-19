@@ -5,7 +5,7 @@ import AppKit
 /// `TagPicker`.
 final class TagStrip: NSView {
     /// The file's tags, in their order.
-    var tags: [FileTags.Tag] = [] { didSet { rebuild() } }
+    var tags: [FileTags.Tag] = [] { didSet { rebuild(); invalidateIntrinsicContentSize() } }
     var onAdd: ((FileTags.Tag) -> Void)?
     var onRemove: ((FileTags.Tag) -> Void)?
 
@@ -73,6 +73,14 @@ final class TagStrip: NSView {
     override func layout() {
         super.layout()
         arrange(width: bounds.width)
+        // Laid out in auto layout (the properties window): as tall as its rows at this width
+        if bounds.width != arrangedWidth { arrangedWidth = bounds.width; invalidateIntrinsicContentSize() }
+    }
+
+    private var arrangedWidth: CGFloat = 0
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: arrange(width: arrangedWidth > 0 ? arrangedWidth : 400, apply: false))
     }
 
     private func offerRemoval(of tag: FileTags.Tag, from plate: NSView) {
@@ -147,8 +155,14 @@ private final class TagPlate: NSView {
 
     override func updateLayer() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = (FileTags.color(forIndex: fileTag.color) ?? .systemGray).cgColor
+            layer?.backgroundColor = Self.plateColor(fileTag.color).cgColor
         }
+    }
+
+    /// The tag's colour, a light one (yellow) deepened so the white name reads on it, as in Finder.
+    private static func plateColor(_ index: Int) -> NSColor {
+        let color = FileTags.color(forIndex: index) ?? .systemGray
+        return index == 5 ? color.blended(withFraction: 0.3, of: .black) ?? color : color
     }
 
     override func mouseDown(with event: NSEvent) { onClick?(self) }

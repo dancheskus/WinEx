@@ -9,6 +9,7 @@ enum Scenarios {
         "undo": undo,
         "grouping": grouping,
         "preview": previewPane,
+        "propsedit": propertiesEditing,
         "commandoverflow": commandOverflow,
         "commandcustomize": commandCustomize,
         "newfolder": newFolder,
@@ -292,6 +293,53 @@ enum Scenarios {
     /// ⇧⌘P: the preview pane beside the files — the folder with nothing selected, a picture with
     /// its live preview and details, a folder's item count, several items; hidden again, the files
     /// take the whole width.
+    /// «Свойства» as Finder's: the name changed in place, tags, a comment, «Шаблон», an alias's
+    /// original, Spotlight's details («Контент создан», «Создано в приложении»).
+    static func propertiesEditing(_ s: Scenario) {
+        let folder = s.makeFiles(["отчёт.txt", "другой.txt"], in: "props")
+        let file = folder.appendingPathComponent("отчёт.txt")
+        let alias = folder.appendingPathComponent("отчёт — псевдоним")
+        if let data = try? file.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil) {
+            try? URL.writeBookmarkData(data, to: alias)
+        }
+        func props() -> PropertiesWindowController? { PropertiesWindowController.debugLast }
+        s.run([
+            (0.5, "open", { PropertiesWindowController.show(for: [file]) }),
+            (0.8, "", {
+                let texts = props()?.debugTexts ?? []
+                s.note("  cards: \(["Имя", "Теги", "Комментарии", "Добавить тег"].map { "\($0) \(texts.contains(L($0)))" })  expect true ×4 (the tag link is a button: false is fine)")
+            }),
+            (0.2, "rename", { props()?.debugRename("итог.txt") }),
+            (0.5, "", { s.note("  files: \(s.files(in: folder))  expect итог.txt; window \(props()?.window?.title ?? "")") }),
+            (0.2, "comment", { props()?.debugComment("Проверить к пятнице") }),
+            (0.3, "", { s.note("  comment read back: «\(FinderInfo.comment(of: folder.appendingPathComponent("итог.txt")))»  expect Проверить к пятнице") }),
+            (0.2, "stationery on", { props()?.debugStationery(true) }),
+            (0.3, "", { s.note("  stationery: \(FinderInfo.isStationery(folder.appendingPathComponent("итог.txt")))  expect true") }),
+            (0.2, "stationery off", { props()?.debugStationery(false) }),
+            (0.3, "", { s.note("  stationery: \(FinderInfo.isStationery(folder.appendingPathComponent("итог.txt")))  expect false") }),
+            (0.2, "a tag added", { props()?.debugTagStrip.onAdd?(FileTags.Tag(name: "Синий", color: 4)) }),
+            (0.3, "", { s.note("  tags: \(FileTags.tags(of: folder.appendingPathComponent("итог.txt")).map(\.name))  expect Синий; plates \(props()?.debugTagStrip.debugPlates ?? [])") }),
+            (0.2, "the alias", { props()?.window?.close(); PropertiesWindowController.show(for: [alias]) }),
+            (0.8, "", {
+                let texts = props()?.debugTexts ?? []
+                s.note("  alias card: \(texts.contains(L("Оригинал"))), original shown: \(texts.contains { $0.hasSuffix("итог.txt") })  expect true, true (it follows the rename)")
+                props()?.window?.close()
+            }),
+            (0.3, "a picture's details", {
+                let picture = folder.appendingPathComponent("картинка.png")
+                let image = NSImage(size: NSSize(width: 40, height: 30), flipped: false) { NSColor.systemOrange.setFill(); $0.fill(); return true }
+                if let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) { try? png.write(to: picture) }
+                PropertiesWindowController.show(for: [picture])
+                props()?.debugShowPage(1)
+            }),
+            (2.0, "", {
+                let texts = props()?.debugTexts ?? []
+                s.note("  «Подробно»: Просмотр \(texts.contains(L("Просмотр"))), Изображение \(texts.contains(L("Изображение")))  expect true, true (Содержимое only once Spotlight indexed it)")
+                props()?.window?.close()
+            }),
+        ])
+    }
+
     static func previewPane(_ s: Scenario) {
         let base = s.makeFiles(["notes.txt", "Box/", "Box/one.txt", "Box/two.txt"], in: "preview")
         let longName = "transaction-statement_6aa1f557-8129-afd0-9620-65d664bed632_ru_d8f322.txt"

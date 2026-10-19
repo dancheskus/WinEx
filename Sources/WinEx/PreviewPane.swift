@@ -220,7 +220,22 @@ final class PreviewPane: NSView {
             setLines(rows)
         }
         iconView.image = Self.icon(for: urls)
+        if urls.count == 1 { loadIcon(of: first) }
         needsLayout = true
+    }
+
+    /// The icon Finder's pane shows: Quick Look's (a folder with something in it shows a sheet
+    /// inside, a customised folder its look), sharp at the pane's whole width.
+    private func loadIcon(of url: URL) {
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.maximumWidth, height: Self.maximumWidth),
+                                                   scale: window?.backingScaleFactor ?? 2, representationTypes: .icon)
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
+            guard let image = representation?.nsImage else { return }
+            DispatchQueue.main.async {
+                guard let self, self.urls == [url] else { return }
+                self.iconView.image = image
+            }
+        }
     }
 
     /// `url` in the frame — the whole first page or picture, a player for videos and sounds —

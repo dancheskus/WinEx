@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// its menus, rounded cards, roomy rows) with tabs like Explorer's: «Общие» (type, app, place,
 /// size, dates, attributes), «Подробно» (what matters for the kind of file: picture size and
 /// camera settings, durations and codecs, pages, app version, where it was downloaded from) and «Доступ» (owner and permissions, sharing a folder on the network).
-final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
+final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
     private static var open: [PropertiesWindowController] = []
 
     static func show(for urls: [URL]) {
@@ -15,9 +15,12 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         open.append(controller)
         NSApp.activate()
         controller.showWindow(nil)
+        // Nothing focused at first (the name field would take it, its text selected), as in Finder
+        controller.window?.makeFirstResponder(nil)
     }
 
-    private let urls: [URL]
+    /// (The one item's URL changes when it's renamed here.)
+    private var urls: [URL]
     private let cancel = CancelFlag()
     private var isSingle: Bool { urls.count == 1 }
     private var single: URL { urls[0] }
@@ -31,6 +34,12 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
     private let lockedSwitch = NSSwitch()
     private let hiddenSwitch = NSSwitch()
     private let extensionSwitch = NSSwitch()
+    private let stationerySwitch = NSSwitch()
+    /// «Имя и расширение»: the whole name, edited in place (Return or leaving the field renames).
+    private let nameField = NSTextField()
+    /// Finder's «Комментарии».
+    private let commentField = NSTextField()
+    private let tagStrip = TagStrip()
 
     private let tabBar = PropertiesTabBar()
     private let pageHolder = NSView()
@@ -187,7 +196,19 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         let values = urls.map { try? $0.resourceValues(forKeys: keys) }
         let page = PropertiesUI.stack()
 
-        var about: [NSView] = [PropertiesUI.row(L("Тип"), PropertiesUI.value(typeDescription))]
+        var about: [NSView] = []
+        if isSingle, values[0]?.isVolume != true {
+            nameField.stringValue = single.lastPathComponent
+            nameField.font = .systemFont(ofSize: 13)
+            nameField.bezelStyle = .roundedBezel
+            nameField.delegate = self
+            nameField.target = self
+            nameField.action = #selector(renameItem(_:))
+            nameField.lineBreakMode = .byTruncatingMiddle
+            nameField.widthAnchor.constraint(equalToConstant: Self.width - 48 - 28 - PropertiesUI.labelWidth - 12).isActive = true
+            about.append(PropertiesUI.row(L("Имя"), nameField))
+        }
+        about.append(PropertiesUI.row(L("Тип"), PropertiesUI.value(typeDescription)))
         if isSingle, values[0]?.isVolume == true, let format = values[0]?.volumeLocalizedFormatDescription {
             about.append(PropertiesUI.row(L("Файловая система"), PropertiesUI.value(format)))
         }
@@ -214,6 +235,34 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         }
         page.addArrangedSubview(PropertiesUI.card(nil, about))
 
+        if isSingle {
+            // Finder's tags under the name: plates, «Добавить тег»
+            tagStrip.tags = FileTags.tags(of: single)
+            tagStrip.onAdd = { [weak self] tag in self?.changeTags { $0 + [tag] } }
+            tagStrip.onRemove = { [weak self] tag in self?.changeTags { $0.filter { $0.name != tag.name } } }
+            tagStrip.translatesAutoresizingMaskIntoConstraints = false
+            let holder = NSView()
+            holder.addSubview(tagStrip)
+            NSLayoutConstraint.activate([
+                tagStrip.topAnchor.constraint(equalTo: holder.topAnchor, constant: 8),
+                tagStrip.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -8),
+                tagStrip.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 8),
+                tagStrip.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -8),
+            ])
+            page.addArrangedSubview(PropertiesUI.card(L("Теги"), [holder]))
+        }
+        if isSingle, let original = aliasOriginal {
+            // An alias: what it opens, and pointing it at something else
+            let path = PropertiesUI.value(original.map { Self.shortPath($0.path) } ?? L("Не найден"))
+            path.toolTip = original?.path
+            var controls: [NSView] = [path]
+            if original != nil { controls.append(PropertiesUI.linkButton(L("Показать"), target: self, action: #selector(revealOriginal(_:)))) }
+            controls.append(PropertiesUI.linkButton(L("Выбрать новый…"), target: self, action: #selector(chooseNewOriginal(_:))))
+            let line = NSStackView(views: controls)
+            line.spacing = 8
+            page.addArrangedSubview(PropertiesUI.card(L("Псевдоним"), [PropertiesUI.row(L("Оригинал"), line)]))
+        }
+
         var sizes = [PropertiesUI.row(L("Размер"), sizeValue), PropertiesUI.row(L("На диске"), allocatedValue)]
         if urls.contains(where: \.isBrowsableDirectory) || !isSingle { sizes.append(PropertiesUI.row(L("Содержит"), containsValue)) }
         page.addArrangedSubview(PropertiesUI.card(L("Размер"), sizes))
@@ -225,6 +274,29 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
                          PropertiesUI.row(L("Открыт"), PropertiesUI.value(date(v.contentAccessDate)))]
             if let added = v.addedToDirectoryDate { dates.append(PropertiesUI.row(L("Добавлен"), PropertiesUI.value(date(added)))) }
             page.addArrangedSubview(PropertiesUI.card(L("Даты"), dates))
+        }
+        if isSingle, values[0]?.isVolume != true {
+            commentField.stringValue = FinderInfo.comment(of: single)
+            commentField.placeholderString = L("Комментарий к файлу (виден в Finder и находится поиском)")
+            commentField.font = .systemFont(ofSize: 13)
+            commentField.isBordered = false
+            commentField.drawsBackground = false
+            commentField.focusRingType = .none
+            commentField.delegate = self
+            commentField.cell?.wraps = true
+            commentField.cell?.isScrollable = false
+            commentField.usesSingleLineMode = false
+            commentField.translatesAutoresizingMaskIntoConstraints = false
+            let holder = NSView()
+            holder.addSubview(commentField)
+            NSLayoutConstraint.activate([
+                commentField.topAnchor.constraint(equalTo: holder.topAnchor, constant: 10),
+                commentField.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -10),
+                commentField.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 14),
+                commentField.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -14),
+                commentField.heightAnchor.constraint(greaterThanOrEqualToConstant: 34),
+            ])
+            page.addArrangedSubview(PropertiesUI.card(L("Комментарии"), [holder]))
         }
 
         // One file: its attributes are on «Доступ»; several: here (there's no «Доступ» for a group)
@@ -249,7 +321,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         extensionSwitch.state = state(values.map { $0?.hasHiddenExtension })
         extensionSwitch.target = self
         extensionSwitch.action = #selector(toggleExtension(_:))
-        for control in [lockedSwitch, hiddenSwitch, extensionSwitch] { control.controlSize = .small }
+        stationerySwitch.state = isSingle && !single.hasDirectoryPath && FinderInfo.isStationery(single) ? .on : .off
+        stationerySwitch.target = self
+        stationerySwitch.action = #selector(toggleStationery(_:))
+        for control in [lockedSwitch, hiddenSwitch, extensionSwitch, stationerySwitch] { control.controlSize = .small }
         var rows = [
             PropertiesUI.row(L("Только чтение"), lockedSwitch, hint: L("Защищено от изменения и удаления")),
             PropertiesUI.row(L("Скрытый"), hiddenSwitch, hint: L("Не виден, пока скрытые файлы не показаны")),
@@ -258,6 +333,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         if urls.allSatisfy({ !$0.isBrowsableDirectory && !$0.pathExtension.isEmpty }) {
             rows.append(PropertiesUI.row(L("Скрыть расширение"), extensionSwitch,
                                          hint: L("Имя без расширения, если в настройках не включено «Показывать все расширения»")))
+        }
+        // Finder's «Шаблон»: opening the file makes a copy to work on
+        if isSingle, (try? single.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true {
+            rows.append(PropertiesUI.row(L("Шаблон"), stationerySwitch, hint: L("Открывается копия, сам файл не меняется")))
         }
         return PropertiesUI.card(L("Атрибуты"), rows)
     }
@@ -284,6 +363,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             let sections = await Task.detached(priority: .userInitiated) { await FileDetails.sections(for: url) }.value
             guard let self else { return }
             detailsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+            if let preview = await previewCard(for: url) { detailsStack.addArrangedSubview(preview) }
             for section in sections {
                 let rows = section.rows.map { row -> NSView in
                     let value: NSView = row.link.map { link in
@@ -304,6 +384,29 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
             }
             fitWindow()
         }
+    }
+
+    /// Finder's «Просмотр»: the file's picture (its first page, the photo) across the card.
+    private func previewCard(for url: URL) async -> NSView? {
+        let side = Self.width - 48 - 28
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: 320), scale: window?.backingScaleFactor ?? 2,
+                                                   representationTypes: .thumbnail)
+        guard let image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage,
+              image.size.width > 0, image.size.height > 0 else { return nil }
+        let scale = min(side / image.size.width, 320 / image.size.height, 1.5)
+        let view = NSImageView(image: image)
+        view.imageScaling = .scaleProportionallyUpOrDown
+        view.translatesAutoresizingMaskIntoConstraints = false
+        let holder = NSView()
+        holder.addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: holder.topAnchor, constant: 14),
+            view.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -14),
+            view.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
+            view.widthAnchor.constraint(equalToConstant: (image.size.width * scale).rounded()),
+            view.heightAnchor.constraint(equalToConstant: (image.size.height * scale).rounded()),
+        ])
+        return PropertiesUI.card(L("Просмотр"), [holder])
     }
 
     @objc private func openLink(_ sender: NSButton) {
@@ -582,6 +685,90 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         AppDelegate.shared.reveal(single)
     }
 
+    // MARK: - Name, tags, comments, alias
+
+    @objc private func renameItem(_ sender: Any?) {
+        let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
+        let old = single
+        guard !name.isEmpty, name != old.lastPathComponent else { return nameField.stringValue = old.lastPathComponent }
+        guard !name.contains("/") else {
+            NSSound.beep()
+            return nameField.stringValue = old.lastPathComponent
+        }
+        let new = old.deletingLastPathComponent().appendingPathComponent(name)
+        do {
+            try FileManager.default.moveItem(at: old, to: new)
+        } catch {
+            nameField.stringValue = old.lastPathComponent
+            if let window { NSAlert(error: error).beginSheetModal(for: window) }
+            return
+        }
+        FileUndo.recordRename(from: old, to: new)
+        urls[0] = new
+        window?.title = L("Свойства: %@", new.displayName)
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        switch obj.object as? NSTextField {
+        case nameField: renameItem(nil)
+        case commentField:
+            let text = commentField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text != FinderInfo.comment(of: single) { FinderInfo.setComment(text, on: single) }
+        default: break
+        }
+    }
+
+    private func changeTags(_ change: ([FileTags.Tag]) -> [FileTags.Tag]) {
+        let url = single
+        let current = FileTags.tags(of: url)
+        var seen = Set<String>()
+        let tags = change(current).filter { seen.insert($0.name).inserted }
+        do { try FileTags.setTags(tags, on: url) } catch { NSAlert(error: error).runModal(); return }
+        FileUndo.recordTags(before: [url: current])
+        TagLibrary.merge(tags)
+        tagStrip.tags = tags
+        fitWindow()
+        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
+    }
+
+    /// For an alias (Finder's, not a symlink): what it points to (nil inside: the original is gone).
+    private var aliasOriginal: URL?? {
+        let values = try? single.resourceValues(forKeys: [.isAliasFileKey, .isSymbolicLinkKey])
+        guard values?.isAliasFile == true, values?.isSymbolicLink != true else { return nil }
+        return .some(try? URL(resolvingAliasFileAt: single, options: [.withoutUI, .withoutMounting]))
+    }
+
+    @objc private func revealOriginal(_ sender: Any?) {
+        if let original = aliasOriginal ?? nil { AppDelegate.shared.reveal(original) }
+    }
+
+    /// «Выбрать новый оригинал…»: the alias now opens the item picked.
+    @objc private func chooseNewOriginal(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.message = L("Выберите, что будет открывать псевдоним «%@»", single.displayName)
+        guard let window, panel.runModal() == .OK, let target = panel.url else { return }
+        do {
+            let data = try target.bookmarkData(options: .suitableForBookmarkFile, includingResourceValuesForKeys: nil, relativeTo: nil)
+            try URL.writeBookmarkData(data, to: single)
+        } catch {
+            NSAlert(error: error).beginSheetModal(for: window)
+            return
+        }
+        // Shown afresh with the new original
+        let url = single
+        window.close()
+        PropertiesWindowController.show(for: [url])
+    }
+
+    @objc private func toggleStationery(_ sender: NSSwitch) {
+        do { try FinderInfo.setStationery(sender.state == .on, on: single) } catch {
+            sender.state = sender.state == .on ? .off : .on
+            NSAlert(error: error).runModal()
+        }
+    }
+
     @objc private func toggleLocked(_ sender: NSSwitch) {
         setFlag(\.isUserImmutable, sender.state == .on)
     }
@@ -603,6 +790,26 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate {
         }
         NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
     }
+
+    #if DEBUG
+    static var debugLast: PropertiesWindowController? { open.last }
+    var debugURL: URL { single }
+    func debugRename(_ name: String) { nameField.stringValue = name; renameItem(nil) }
+    func debugComment(_ text: String) {
+        commentField.stringValue = text
+        controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: commentField))
+    }
+    func debugStationery(_ on: Bool) { stationerySwitch.state = on ? .on : .off; toggleStationery(stationerySwitch) }
+    var debugTagStrip: TagStrip { tagStrip }
+    func debugShowPage(_ index: Int) { showPage(index) }
+    /// Every text the window shows (headings, labels, values).
+    var debugTexts: [String] {
+        func texts(_ view: NSView) -> [String] {
+            ((view as? NSTextField).map { [$0.stringValue] } ?? []) + view.subviews.flatMap(texts)
+        }
+        return window?.contentView.map(texts) ?? []
+    }
+    #endif
 
     // MARK: - Window
 
