@@ -6,7 +6,7 @@ import QuickLookThumbnailing
 /// whole-page Quick Look picture in a rounded frame (videos and sounds play there), its name and
 /// size, kind, dates, tags and what `FileDetails` knows about it; the folder shown when nothing is
 /// selected; a count for several.
-final class PreviewPane: NSView, NSTokenFieldDelegate {
+final class PreviewPane: NSView {
     static let minimumWidth: CGFloat = 220
     static let maximumWidth: CGFloat = 560
 
@@ -59,7 +59,9 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
     private let moreButton = NSButton(title: "", target: nil, action: nil)
     /// «Теги»: the file's tags, typed or picked like in Finder.
     private let tagsHeading = PreviewPane.heading(L("Теги"))
-    private let tagsField = NSTokenField()
+    private let tagStrip = TagStrip()
+    /// A folder's size, added up in the background (stopped when something else is shown).
+    private var sizeTask: Task<Void, Never>?
     /// The whole name, before it's shortened to two lines.
     private var fullName = ""
 
@@ -118,15 +120,8 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
         moreButton.alignment = .right
         moreButton.target = self
         moreButton.action = #selector(toggleMore(_:))
-        tagsField.placeholderString = L("Добавить теги…")
-        tagsField.tokenStyle = .rounded
-        tagsField.font = .systemFont(ofSize: 12)
-        tagsField.delegate = self
-        tagsField.target = self
-        tagsField.action = #selector(tagsEdited(_:))
-        tagsField.cell?.wraps = true
-        tagsField.cell?.isScrollable = false
-        tagsField.bezelStyle = .roundedBezel
+        tagStrip.onAdd = { [weak self] tag in self?.changeTags { $0 + [tag] } }
+        tagStrip.onRemove = { [weak self] tag in self?.changeTags { $0.filter { $0.name != tag.name } } }
         placeholder.font = .systemFont(ofSize: 13)
         placeholder.textColor = .tertiaryLabelColor
         placeholder.alignment = .center
@@ -134,7 +129,7 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
         shareButton.target = self; shareButton.action = #selector(shareItems(_:))
         infoButton.target = self; infoButton.action = #selector(showProperties(_:))
         [previewBox, iconView, nameLabel, kindLabel, placeholder, openButton, shareButton, infoButton,
-         infoHeading, moreButton, tagsHeading, tagsField].forEach(document.addSubview)
+         infoHeading, moreButton, tagsHeading, tagStrip].forEach(document.addSubview)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -174,14 +169,16 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
     func reload() {
         detailsTask?.cancel()
         detailsTask = nil
+        sizeTask?.cancel()
+        sizeTask = nil
         setLines([])
         let urls = urls
         placeholder.isHidden = !urls.isEmpty
         for view in [iconView, nameLabel, kindLabel, infoHeading] as [NSView] { view.isHidden = urls.isEmpty }
         // Tags of one item (as in Finder; several would mean merging different sets)
         tagsHeading.isHidden = urls.count != 1
-        tagsField.isHidden = urls.count != 1
-        tagsField.objectValue = urls.count == 1 ? FileTags.tags(of: urls[0]).map(\.name) : []
+        tagStrip.isHidden = urls.count != 1
+        tagStrip.tags = urls.count == 1 ? FileTags.tags(of: urls[0]) : []
         openButton.isHidden = urls.isEmpty || isFolderShown
         shareButton.isHidden = urls.isEmpty
         infoButton.isHidden = urls.isEmpty
@@ -208,6 +205,7 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
             if let modified = values?.contentModificationDate { rows.append((L("Изменён"), Self.date(modified), false)) }
             setLines(rows)
             loadDetails(of: first, isFolder: isFolder && values?.isPackage != true)
+            if isFolder { addUpSize(of: first, kind: kind) }
         } else {
             fullName = "\(urls.count) \(plural(urls.count, L("объект"), L("объекта"), L("объектов")))"
             let sizes = urls.map { try? $0.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .localizedTypeDescriptionKey]) }
@@ -410,31 +408,40 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
 
     // MARK: - Tags
 
-    /// Typed or changed tags go onto the file (with undo, the tag colours it already had kept).
-    @objc private func tagsEdited(_ sender: Any?) { saveTags() }
-
-    func controlTextDidEndEditing(_ obj: Notification) { saveTags() }
-
-    private func saveTags() {
+    /// The file's tags changed in the pane (with undo; Finder's other views follow).
+    private func changeTags(_ change: ([FileTags.Tag]) -> [FileTags.Tag]) {
         guard urls.count == 1, let url = urls.first else { return }
-        let names = (tagsField.objectValue as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let current = FileTags.tags(of: url)
-        guard names != current.map(\.name) else { return }
         var seen = Set<String>()
-        let tags = names.filter { seen.insert($0).inserted }.map { FileTags.tag(named: $0, knownTags: current) }
-        let before = [url: current]
+        let tags = change(current).filter { seen.insert($0.name).inserted }
         do { try FileTags.setTags(tags, on: url) } catch { NSAlert(error: error).runModal(); return }
-        FileUndo.recordTags(before: before)
+        FileUndo.recordTags(before: [url: current])
         TagLibrary.merge(tags)
+        tagStrip.tags = tags
+        needsLayout = true
         NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
     }
 
-    /// Completes typed tag names from the known ones (favourites first).
-    func tokenField(_ tokenField: NSTokenField, completionsForSubstring substring: String, indexOfToken tokenIndex: Int,
-                    indexOfSelectedItem selectedIndex: UnsafeMutablePointer<Int>?) -> [Any]? {
-        let known = FileTags.favorites.map(\.name) + TagLibrary.entries.map(\.name)
-        var seen = Set<String>()
-        return known.filter { seen.insert($0).inserted && $0.localizedCaseInsensitiveContains(substring) }
+    /// «Папка — 207,7 МБ»: everything inside added up, as Finder's pane shows it.
+    private func addUpSize(of folder: URL, kind: String) {
+        sizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            let bytes = await Task.detached(priority: .utility) { () -> Int64? in
+                guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) else { return nil }
+                var total: Int64 = 0, count = 0
+                for case let url as URL in walker {
+                    count += 1
+                    if count % 500 == 0, Task.isCancelled { return nil }
+                    let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                    if values?.isRegularFile == true { total += Int64(values?.fileSize ?? 0) }
+                }
+                return total
+            }.value
+            guard let self, let bytes, !Task.isCancelled, self.urls == [folder] else { return }
+            self.kindLabel.stringValue = kind + " — " + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+            self.needsLayout = true
+        }
     }
 
     // MARK: - Actions
@@ -489,7 +496,12 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
         preview?.frame = fitted
         thumbnailView.frame = fitted
         textScroll.frame = fitted
-        let iconSide = min(area.width, area.height, 160)
+        // Without a preview (folders, apps…) the icon takes the pane's whole width, as in Finder
+        if previewBox.isHidden {
+            area = NSRect(x: margin, y: y, width: inner, height: inner)
+            previewHeight = inner
+        }
+        let iconSide = min(area.width, area.height)
         iconView.frame = NSRect(x: area.midX - iconSide / 2, y: area.midY - iconSide / 2, width: iconSide, height: iconSide)
         y += previewHeight + 12
         nameLabel.stringValue = twoLines(fullName, width: inner - 4)
@@ -537,13 +549,13 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
             line.value.frame = NSRect(x: margin + labelWidth + 10, y: y, width: valueWidth, height: valueHeight)
             y += max(labelHeight, valueHeight) + 5
         }
-        if !tagsField.isHidden {
+        if !tagStrip.isHidden {
             y += 14
             tagsHeading.frame = NSRect(x: margin, y: y, width: inner, height: height(of: tagsHeading, width: inner))
             y += tagsHeading.frame.height + 6
-            let fieldHeight = max(ceil(tagsField.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: inner, height: 1000)).height ?? 24), 24)
-            tagsField.frame = NSRect(x: margin, y: y, width: inner, height: fieldHeight)
-            y += fieldHeight
+            let stripHeight = tagStrip.arrange(width: inner, apply: false)
+            tagStrip.frame = NSRect(x: margin, y: y, width: inner, height: stripHeight)
+            y += stripHeight
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: max(y + margin, scrollView.contentSize.height))
     }
@@ -555,8 +567,8 @@ final class PreviewPane: NSView, NSTokenFieldDelegate {
     var debugShownLines: Int { lines.filter { !$0.label.isHidden }.count }
     var debugMore: String { moreButton.isHidden ? "-" : moreButton.title }
     func debugToggleMore() { toggleMore(nil) }
-    var debugTags: [String] { tagsField.isHidden ? ["(hidden)"] : tagsField.objectValue as? [String] ?? [] }
-    func debugSetTags(_ names: [String]) { tagsField.objectValue = names; saveTags() }
+    var debugTagStrip: TagStrip? { tagStrip.isHidden ? nil : tagStrip }
+    var debugIconWidth: Int { iconView.isHidden ? 0 : Int(iconView.frame.width) }
     var debugShowsLivePreview: Bool { preview?.superview != nil }
     var debugShowsThumbnail: Bool { !previewBox.isHidden && thumbnailView.image != nil }
     var debugText: String { textScroll.isHidden ? "" : String(textView.string.prefix(30)) }

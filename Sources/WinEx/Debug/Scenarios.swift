@@ -349,22 +349,30 @@ enum Scenarios {
             (0.2, "", { s.note("  after «Показать ещё»: \(s.window?.debugPreviewPane?.debugMore ?? "?"), rows shown \(s.window?.debugPreviewPane?.debugShownLines ?? -1)  expect Показать меньше, all") }),
             (0.2, "the long name", { s.select("transaction-statement_6aa1f557-8129-afd0-9620-65d664bed632_ru_d8f322.txt") }),
             (0.5, "", { report("expect the middle left out (two lines), …d8f322.txt kept") }),
-            (0.2, "tags typed into the pane", {
-                s.select("notes.txt")
-                s.window?.debugPreviewPane?.debugSetTags(["Красный", "Проект"])
+            (0.2, "«Добавить тег»: the picker", { s.select("notes.txt") }),
+            (0.4, "", {
+                guard let picker = s.window?.debugPreviewPane?.debugTagStrip?.debugPicker() else { return s.note("  (no picker)") }
+                s.note("  rows: \(picker.debugRows)  expect the favourites, «Показать все…» if there are more")
+                picker.debugClick("Красный")
+            }),
+            (0.4, "a new tag typed, Return", {
+                guard let picker = s.window?.debugPreviewPane?.debugTagStrip?.debugPicker() else { return s.note("  (no picker)") }
+                picker.debugType("Проек")
+                s.note("  rows for «Проек»: \(picker.debugRows)  expect Создать тег «Проек»")
+                picker.debugType("Проект")
+                picker.debugReturn()
             }),
             (0.6, "", {
                 let tags = FileTags.tags(of: base.appendingPathComponent("notes.txt")).map { "\($0.name)/\($0.color)" }
-                s.note("  on the file: \(tags)  expect Красный/6, Проект; pane \(s.window?.debugPreviewPane?.debugTags ?? [])")
-                // The whole pane, down to the tags (scrolled out of the window)
-                if let page = s.find(NSScrollView.self, in: s.window?.debugPreviewPane)?.documentView,
-                   let rep = page.bitmapImageRepForCachingDisplay(in: page.bounds) {
-                    page.cacheDisplay(in: page.bounds, to: rep)
-                    try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("pane-tags.png"))
-                }
+                s.note("  on the file: \(tags)  expect Красный/6, Проект/0; plates \(s.window?.debugPreviewPane?.debugTagStrip?.debugPlates ?? [])")
+                guard let pane = s.window?.debugPreviewPane, let scroll = s.find(NSScrollView.self, in: pane), let page = scroll.documentView else { return }
+                page.scroll(NSPoint(x: 0, y: page.bounds.maxY))
+                if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8) }
             }),
+            (1.0, "Красный taken off", { s.window?.debugPreviewPane?.debugTagStrip?.onRemove?(FileTags.Tag(name: "Красный", color: 6)) }),
+            (0.4, "", { s.note("  on the file: \(FileTags.tags(of: base.appendingPathComponent("notes.txt")).map(\.name))  expect Проект") }),
             (1.0, "select the folder", { s.select("Box") }),
-            (0.8, "", { report("expect Box, live false, Содержит: 2") }),
+            (0.8, "", { report("expect Box — Папка — 9 Б, live false, Содержит: 2"); s.note("  icon \(s.window?.debugPreviewPane?.debugIconWidth ?? -1)  expect 248 (the whole width)") }),
             (0.2, "select two", {
                 guard let table = s.table else { return }
                 table.selectRowIndexes(IndexSet(0..<2), byExtendingSelection: false)
@@ -389,7 +397,7 @@ enum Scenarios {
                 }
                 // No trace of the divider left over the files
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-3"), atomically: true, encoding: .utf8) }
+                    if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-4"), atomically: true, encoding: .utf8) }
                 }
             }),
             (1.2, "⇧⌘P", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
