@@ -11,8 +11,24 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
 
     static func show(for urls: [URL]) {
         guard !urls.isEmpty else { return }
+        // Already open for the same items (hidden behind other windows): brought forward, not doubled
+        let paths = Set(urls.map(\.standardizedFileURL.path))
+        if let existing = open.first(where: { Set($0.urls.map(\.standardizedFileURL.path)) == paths }) {
+            NSApp.activate()
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        // On the monitor the request came from (the window in front, else the mouse's)
+        let mouse = NSEvent.mouseLocation
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
         let controller = PropertiesWindowController(urls: urls)
         open.append(controller)
+        if let window = controller.window, let visible = screen?.visibleFrame {
+            // A little offset for each one already open on that monitor, as Finder cascades them
+            let shift = CGFloat((open.count - 1) % 8) * 22
+            window.setFrameOrigin(NSPoint(x: visible.midX - window.frame.width / 2 + shift,
+                                          y: min(visible.maxY - 40, visible.midY + window.frame.height / 2) - window.frame.height - shift))
+        }
         NSApp.activate()
         controller.showWindow(nil)
         // Nothing focused at first (the name field would take it, its text selected), as in Finder
@@ -40,6 +56,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     /// Finder's «Комментарии».
     private let commentField = NSTextField()
     private let tagStrip = TagStrip()
+    private let codeField = NSTextField()
+    private let codeSave = NSButton(title: L("Сохранить"), target: nil, action: nil)
+    private let codeCancel = NSButton(title: L("Отменить"), target: nil, action: nil)
+    private let codeHint = NSTextField(labelWithString: "")
 
     private let tabBar = PropertiesTabBar()
     private let pageHolder = NSView()
@@ -69,7 +89,6 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         super.init(window: window)
         window.delegate = self
         build()
-        window.center()
         computeSizes()
     }
 
@@ -115,6 +134,10 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
             pageHolder.widthAnchor.constraint(equalToConstant: Self.width - 48),
         ])
         window.contentView = background
+        // A click beside the fields ends their editing (the name is renamed, the comment kept)
+        let click = NSClickGestureRecognizer(target: self, action: #selector(backgroundClicked(_:)))
+        click.delaysPrimaryMouseButtonEvents = false
+        background.addGestureRecognizer(click)
         showPage(0)
     }
 
@@ -277,7 +300,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         }
         if isSingle, values[0]?.isVolume != true {
             commentField.stringValue = FinderInfo.comment(of: single)
-            commentField.placeholderString = L("Комментарий к файлу (виден в Finder и находится поиском)")
+            commentField.placeholderString = L("Добавить комментарий")
             commentField.font = .systemFont(ofSize: 13)
             commentField.isBordered = false
             commentField.drawsBackground = false
@@ -432,7 +455,29 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         var rows = classes.map { title, shift in
             PropertiesUI.row(title, permissionPopup(bits: mode >> shift & 7, shift: shift, isFolder: isFolder))
         }
-        rows.append(PropertiesUI.row(L("Код"), PropertiesUI.value(String(mode & 0o777, radix: 8))))
+        // The octal code, typed in directly: «Сохранить» / «Отменить» once it's changed
+        codeField.stringValue = Self.code(mode)
+        codeField.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        codeField.bezelStyle = .roundedBezel
+        codeField.delegate = self
+        codeField.target = self
+        codeField.action = #selector(saveCode(_:))
+        codeField.widthAnchor.constraint(equalToConstant: 64).isActive = true
+        codeSave.bezelStyle = .push
+        codeSave.controlSize = .small
+        codeSave.keyEquivalent = ""
+        codeSave.target = self
+        codeSave.action = #selector(saveCode(_:))
+        codeCancel.bezelStyle = .push
+        codeCancel.controlSize = .small
+        codeCancel.target = self
+        codeCancel.action = #selector(cancelCode(_:))
+        codeHint.font = .systemFont(ofSize: 11)
+        codeHint.textColor = .systemRed
+        updateCodeControls()
+        let codeLine = NSStackView(views: [codeField, codeSave, codeCancel, codeHint])
+        codeLine.spacing = 8
+        rows.append(PropertiesUI.row(L("Код"), codeLine))
         page.addArrangedSubview(PropertiesUI.card(L("Права"), rows))
         if isFolder, let sharing = sharingCard() { page.addArrangedSubview(sharing) }
         let access = FileManager.default
@@ -470,13 +515,55 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         return popup
     }
 
-    @objc private func permissionChanged(_ sender: NSPopUpButton) {
-        guard let level = PermissionLevel(rawValue: sender.selectedTag()), let shift = Int(sender.identifier?.rawValue ?? "") else { return }
+    /// "644"; a special bit (setuid, setgid, sticky) makes it four digits: "1777".
+    private static func code(_ mode: Int) -> String {
+        String(mode & 0o7777, radix: 8).leftPadded(to: mode & 0o7000 != 0 ? 4 : 3)
+    }
+
+    private var currentMode: Int {
+        ((try? FileManager.default.attributesOfItem(atPath: single.path))?[.posixPermissions] as? NSNumber)?.intValue ?? 0
+    }
+
+    /// The typed code as a mode: three or four octal digits, nil otherwise.
+    static func parseCode(_ text: String) -> Int? {
+        let text = text.trimmingCharacters(in: .whitespaces)
+        guard (3...4).contains(text.count), text.allSatisfy({ ("0"..."7").contains($0) }) else { return nil }
+        return Int(text, radix: 8)
+    }
+
+    private func updateCodeControls() {
+        let typed = codeField.stringValue
+        let changed = typed != Self.code(currentMode)
+        let valid = Self.parseCode(typed) != nil
+        codeSave.isHidden = !changed
+        codeCancel.isHidden = !changed
+        codeSave.isEnabled = valid
+        codeHint.isHidden = !changed || valid
+        codeHint.stringValue = L("3–4 цифры от 0 до 7")
+        codeField.textColor = changed && !valid ? .systemRed : .labelColor
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        if (obj.object as? NSTextField) === codeField { updateCodeControls() }
+    }
+
+    @objc private func saveCode(_ sender: Any?) {
+        guard let typed = Self.parseCode(codeField.stringValue) else { return NSSound.beep() }
+        // Three digits keep the special bits as they were; four set them too
+        let mode = currentMode
+        let newMode = codeField.stringValue.trimmingCharacters(in: .whitespaces).count == 4 ? typed : mode & 0o7000 | typed
+        applyMode(newMode, over: mode)
+    }
+
+    @objc private func cancelCode(_ sender: Any?) {
+        codeField.stringValue = Self.code(currentMode)
+        updateCodeControls()
+        window?.makeFirstResponder(nil)
+    }
+
+    private func applyMode(_ newMode: Int, over mode: Int) {
         let path = single.path
-        let mode = ((try? FileManager.default.attributesOfItem(atPath: path))?[.posixPermissions] as? NSNumber)?.intValue ?? 0
-        let bits = level.bits(replacing: mode >> shift & 7, isFolder: single.isBrowsableDirectory)
-        let newMode = mode & ~(7 << shift) | bits << shift
-        guard newMode != mode else { return }
+        guard newMode != mode else { return refreshAccessPage() }
         do {
             try FileManager.default.setAttributes([.posixPermissions: newMode], ofItemAtPath: path)
         } catch {
@@ -485,6 +572,17 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
                                prompt: L("WinEx хочет изменить права доступа к «%@».", single.displayName))
         }
         refreshAccessPage()
+    }
+
+    @objc private func permissionChanged(_ sender: NSPopUpButton) {
+        guard let level = PermissionLevel(rawValue: sender.selectedTag()), let shift = Int(sender.identifier?.rawValue ?? "") else { return }
+        let path = single.path
+        let mode = ((try? FileManager.default.attributesOfItem(atPath: path))?[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        let bits = level.bits(replacing: mode >> shift & 7, isFolder: single.isBrowsableDirectory)
+        let newMode = mode & ~(7 << shift) | bits << shift
+        guard newMode != mode else { return }
+        _ = path
+        applyMode(newMode, over: mode)
     }
 
     // MARK: Sharing on the network
@@ -802,6 +900,14 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     func debugStationery(_ on: Bool) { stationerySwitch.state = on ? .on : .off; toggleStationery(stationerySwitch) }
     var debugTagStrip: TagStrip { tagStrip }
     func debugShowPage(_ index: Int) { showPage(index) }
+    func debugTypeName(_ name: String) { nameField.stringValue = name }
+    func debugTypeComment(_ text: String) { commentField.stringValue = text }
+    func debugCode(_ text: String, save: Bool) {
+        codeField.stringValue = text
+        updateCodeControls()
+        if save { saveCode(nil) }
+    }
+    var debugCodeState: String { "\(codeField.stringValue) save \(codeSave.isHidden ? "hidden" : codeSave.isEnabled ? "on" : "off")" }
     /// Every text the window shows (headings, labels, values).
     var debugTexts: [String] {
         func texts(_ view: NSView) -> [String] {
@@ -817,7 +923,25 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         window?.close()
     }
 
+    @objc private func backgroundClicked(_ sender: NSClickGestureRecognizer) {
+        guard let window, let field = window.firstResponder as? NSTextView, field.isFieldEditor else { return }
+        // Not when the click was in the field being edited
+        let point = sender.location(in: nil)
+        if let editing = field.delegate as? NSView, editing.convert(editing.bounds, to: nil).contains(point) { return }
+        window.makeFirstResponder(nil)
+    }
+
+    /// Leaving the window keeps what was typed (as leaving the field does).
+    func windowDidResignKey(_ notification: Notification) { commitEditing() }
+
+    private func commitEditing() {
+        if nameField.stringValue != single.lastPathComponent, !nameField.stringValue.isEmpty, nameField.superview != nil { renameItem(nil) }
+        let comment = commentField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if commentField.superview != nil, comment != FinderInfo.comment(of: single) { FinderInfo.setComment(comment, on: single) }
+    }
+
     func windowWillClose(_ notification: Notification) {
+        if isSingle { commitEditing() }
         cancel.cancel()
         Self.open.removeAll { $0 === self }
     }
@@ -1043,6 +1167,10 @@ private extension NSLayoutConstraint {
 
 private extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+extension String {
+    func leftPadded(to length: Int) -> String { count >= length ? self : String(repeating: "0", count: length - count) + self }
 }
 
 extension Notification.Name {

@@ -8,6 +8,8 @@ final class TagStrip: NSView {
     var tags: [FileTags.Tag] = [] { didSet { rebuild(); invalidateIntrinsicContentSize() } }
     var onAdd: ((FileTags.Tag) -> Void)?
     var onRemove: ((FileTags.Tag) -> Void)?
+    /// «Добавить тег» after the plates (not in «Назначить теги», whose field is right under them).
+    var showsAddButton = true { didSet { addButton.isHidden = !showsAddButton; invalidateIntrinsicContentSize() } }
 
     private var plates: [TagPlate] = []
     private let addButton = NSButton(title: L("Добавить тег"), target: nil, action: nil)
@@ -55,7 +57,7 @@ final class TagStrip: NSView {
     func arrange(width: CGFloat, apply: Bool = true) -> CGFloat {
         let inset = Self.inset
         var x = inset.left, y = inset.top, rowHeight: CGFloat = 0
-        let views: [NSView] = plates + [addButton]
+        let views: [NSView] = plates + (showsAddButton ? [addButton] : [])
         for view in views {
             let size = view === addButton ? NSSize(width: ceil(addButton.fittingSize.width), height: 20) : view.fittingSize
             if x > inset.left, x + size.width > width - inset.right {
@@ -173,12 +175,16 @@ private final class TagPlate: NSView {
 /// colours under it and «Показать все…» for the rest. Typing narrows the list; Return takes the
 /// typed name (a known tag keeps its colour).
 final class TagPicker: NSViewController, NSTextFieldDelegate {
-    private let excluded: Set<String>
+    /// Tags already there (not offered).
+    var excluded: Set<String> { didSet { if isViewLoaded { field.stringValue = ""; reloadList() } } }
     private let onPick: (FileTags.Tag) -> Void
     private let field = NSTextField()
     private let list = NSStackView()
     private let scroll = NSScrollView()
     private var showsAll = false
+    /// Its height in a stack (inside «Назначить теги»): follows the list.
+    private var height: NSLayoutConstraint?
+    var onResize: (() -> Void)?
     private static let width: CGFloat = 230
     private static let rowHeight: CGFloat = 24
 
@@ -228,6 +234,9 @@ final class TagPicker: NSViewController, NSTextFieldDelegate {
             list.leadingAnchor.constraint(equalTo: document.leadingAnchor),
             list.widthAnchor.constraint(equalToConstant: Self.width - 8),
         ])
+        let height = root.heightAnchor.constraint(equalToConstant: 100)
+        height.isActive = true
+        self.height = height
         view = root
         reloadList()
     }
@@ -268,6 +277,8 @@ final class TagPicker: NSViewController, NSTextFieldDelegate {
         list.layoutSubtreeIfNeeded()
         scroll.documentView?.frame = NSRect(x: 0, y: 0, width: Self.width - 8, height: height)
         preferredContentSize = NSSize(width: Self.width, height: 10 + 24 + 6 + min(max(height, Self.rowHeight), 9 * Self.rowHeight) + 6)
+        self.height?.constant = preferredContentSize.height
+        onResize?()
     }
 
     private func row(_ tag: FileTags.Tag) -> NSView {
@@ -343,4 +354,92 @@ private final class PickerRow: NSView {
         NSColor.labelColor.withAlphaComponent(0.1).setFill()
         NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 5, yRadius: 5).fill()
     }
+}
+
+/// Finder's «Теги…» of the context menu: «Назначить теги «…»» — the tags all the items have
+/// (a click on one takes it off them), and the picker to add more (it stays open for several).
+final class TagAssigner: NSViewController {
+    private let urls: [URL]
+    private let strip = TagStrip()
+    private var picker: TagPicker?
+    private static var shown: NSPopover?
+
+    static func show(for urls: [URL], relativeTo rect: NSRect, of view: NSView) {
+        guard !urls.isEmpty else { return }
+        shown?.close()
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = TagAssigner(urls: urls)
+        popover.show(relativeTo: rect, of: view, preferredEdge: .maxY)
+        shown = popover
+    }
+
+    private init(urls: [URL]) {
+        self.urls = urls
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// The tags every item has, in the first one's order.
+    private var common: [FileTags.Tag] {
+        let sets = urls.map { Set(FileTags.tags(of: $0).map(\.name)) }
+        return FileTags.tags(of: urls[0]).filter { tag in sets.allSatisfy { $0.contains(tag.name) } }
+    }
+
+    override func loadView() {
+        let title = NSTextField(labelWithString: urls.count == 1 ? L("Назначить теги «%@»", menuName(urls[0].lastPathComponent))
+                                                                 : L("Назначить теги: %@ %@", urls.count, plural(urls.count, L("объект"), L("объекта"), L("объектов"))))
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        title.alignment = .center
+        title.lineBreakMode = .byTruncatingMiddle
+        strip.showsAddButton = false
+        strip.tags = common
+        strip.onRemove = { [weak self] tag in self?.change(tag, add: false) }
+        let picker = TagPicker(excluding: Set(common.map(\.name))) { [weak self] tag in self?.change(tag, add: true) }
+        self.picker = picker
+        picker.onResize = { [weak self] in self?.fit() }
+        addChild(picker)
+        let root = NSStackView(views: [title, strip, picker.view])
+        root.orientation = .vertical
+        root.alignment = .centerX
+        root.spacing = 6
+        root.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+        NSLayoutConstraint.activate([
+            title.widthAnchor.constraint(equalToConstant: 210),
+            strip.widthAnchor.constraint(equalToConstant: 210),
+        ])
+        strip.isHidden = strip.tags.isEmpty
+        view = root
+        fit()
+    }
+
+    /// The popover follows the plates and the list.
+    private func fit() {
+        guard isViewLoaded else { return }
+        view.layoutSubtreeIfNeeded()
+        preferredContentSize = NSSize(width: 230, height: view.fittingSize.height)
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        picker?.viewDidAppear()
+    }
+
+    private func change(_ tag: FileTags.Tag, add: Bool) {
+        FileTags.toggle(tag, on: urls, add: add)
+        TagLibrary.merge([tag])
+        NotificationCenter.default.post(name: .fileTagsChanged, object: nil)
+        strip.tags = common
+        strip.isHidden = strip.tags.isEmpty
+        picker?.excluded = Set(strip.tags.map(\.name))
+        fit()
+    }
+
+    #if DEBUG
+    static var debugShown: TagAssigner? { shown?.contentViewController as? TagAssigner }
+    var debugPicker: TagPicker? { picker }
+    var debugPlates: [String] { strip.debugPlates }
+    static func debugClose() { shown?.close() }
+    #endif
 }

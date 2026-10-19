@@ -319,10 +319,53 @@ enum Scenarios {
             (0.3, "", { s.note("  stationery: \(FinderInfo.isStationery(folder.appendingPathComponent("итог.txt")))  expect false") }),
             (0.2, "a tag added", { props()?.debugTagStrip.onAdd?(FileTags.Tag(name: "Синий", color: 4)) }),
             (0.3, "", { s.note("  tags: \(FileTags.tags(of: folder.appendingPathComponent("итог.txt")).map(\.name))  expect Синий; plates \(props()?.debugTagStrip.debugPlates ?? [])") }),
-            (0.2, "the alias", { props()?.window?.close(); PropertiesWindowController.show(for: [alias]) }),
+            (0.2, "opened again for the same file", {
+                let before = NSApp.windows.filter { $0.isVisible && $0.title.hasPrefix(L("Свойства")) }.count
+                PropertiesWindowController.show(for: [folder.appendingPathComponent("итог.txt")])
+                let after = NSApp.windows.filter { $0.isVisible && $0.title.hasPrefix(L("Свойства")) }.count
+                s.note("  property windows \(before) → \(after)  expect the same")
+            }),
+            (0.2, "a code typed", { props()?.debugCode("9a1", save: false) }),
+            (0.2, "", { s.note("  \(props()?.debugCodeState ?? "?")  expect save off") }),
+            (0.2, "600 saved", { props()?.debugCode("600", save: true) }),
+            (0.4, "", {
+                let mode = ((try? FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent("итог.txt").path))?[.posixPermissions] as? NSNumber)?.intValue ?? 0
+                s.note("  mode \(String(mode, radix: 8)); \(props()?.debugCodeState ?? "?")  expect 600, save hidden")
+            }),
+            (0.2, "a name typed, the window closed (no Return)", {
+                props()?.debugTypeName("финал.txt")
+                props()?.debugTypeComment("Без Return")
+                props()?.window?.close()
+            }),
+            (0.4, "", {
+                s.note("  files: \(s.files(in: folder))  expect финал.txt")
+                s.note("  comment: «\(FinderInfo.comment(of: folder.appendingPathComponent("финал.txt")))»  expect Без Return")
+            }),
+            (0.2, "«Теги…»: Назначить теги", {
+                guard let view = s.window?.window?.contentView else { return s.note("  (no window)") }
+                TagAssigner.show(for: [folder.appendingPathComponent("финал.txt"), folder.appendingPathComponent("другой.txt")],
+                                 relativeTo: NSRect(x: 100, y: 100, width: 20, height: 20), of: view)
+            }),
+            (0.6, "", {
+                guard let assigner = TagAssigner.debugShown, let picker = assigner.debugPicker else { return s.note("  (no popover)") }
+                s.note("  common plates \(assigner.debugPlates)  expect []; rows \(picker.debugRows.prefix(3))…")
+                picker.debugClick("Зеленый")
+            }),
+            (0.4, "", {
+                // scripts/capture-window.sh propsedit: the popover with a plate
+                if let number = TagAssigner.debugShown?.view.window?.windowNumber {
+                    try? "\(number)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (0.4, "", {
+                let tags = ["финал.txt", "другой.txt"].map { FileTags.tags(of: folder.appendingPathComponent($0)).map(\.name) }
+                s.note("  tags \(tags), plates \(TagAssigner.debugShown?.debugPlates ?? [])  expect Зеленый on both (+Синий on финал)")
+                TagAssigner.debugClose()
+            }),
+            (0.3, "the alias", { PropertiesWindowController.show(for: [alias]) }),
             (0.8, "", {
                 let texts = props()?.debugTexts ?? []
-                s.note("  alias card: \(texts.contains(L("Оригинал"))), original shown: \(texts.contains { $0.hasSuffix("итог.txt") })  expect true, true (it follows the rename)")
+                s.note("  alias card: \(texts.contains(L("Оригинал"))), original shown: \(texts.contains { $0.hasSuffix("финал.txt") })  expect true, true (it follows the renames)")
                 props()?.window?.close()
             }),
             (0.3, "a picture's details", {

@@ -1696,6 +1696,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         NSSharingServicePicker(items: selectedFileURLs).show(relativeTo: iconRect(at: centers[i]), of: self, preferredEdge: .maxY)
     }
 
+    @objc func assignTags(_ sender: Any?) {
+        guard let i = selection.sorted().first, items.indices.contains(i) else { return }
+        let urls = selectedFileURLs, rect = iconRect(at: centers[i])
+        DispatchQueue.main.async { TagAssigner.show(for: urls, relativeTo: rect, of: self) }
+    }
+
     @objc func customizeFolder(_ sender: Any?) {
         guard let i = selection.first, items.indices.contains(i) else { return }
         FolderCustomizationController.show(for: items[i].url, relativeTo: iconRect(at: centers[i]), of: self)

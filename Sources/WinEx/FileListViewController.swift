@@ -1233,6 +1233,20 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         if !urls.isEmpty { TerminalLauncher.open(urls) } else if let directory { TerminalLauncher.open(folder: directory) }
     }
 
+    @objc func assignTags(_ sender: Any?) {
+        guard let index = targetRows.first ?? selectedIndexes.first, items.indices.contains(index) else { return }
+        let urls = targetURLs
+        let (anchor, rect) = itemFrame(index)
+        // After the menu has closed (a popover can't show while the menu tracks)
+        DispatchQueue.main.async { TagAssigner.show(for: urls.isEmpty ? [self.items[index].url] : urls, relativeTo: rect, of: anchor) }
+    }
+
+    /// Where an item is drawn, in the view showing it.
+    private func itemFrame(_ index: Int) -> (NSView, NSRect) {
+        viewMode == .details ? (tableView, tableView.rect(ofRow: groups.row(for: index)))
+            : (collectionView, collectionView.layoutAttributesForItem(at: groups.indexPath(for: index))?.frame ?? .zero)
+    }
+
     @objc func customizeFolder(_ sender: Any?) {
         guard let index = targetRows.first ?? selectedIndexes.first, items.indices.contains(index) else { return }
         let anchor: NSView, rect: NSRect

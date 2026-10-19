@@ -15,6 +15,7 @@ import UniformTypeIdentifiers
     func share(_ sender: Any?)
     func toggleTag(_ sender: NSMenuItem)
     func customizeFolder(_ sender: Any?)
+    func assignTags(_ sender: Any?)
     func showProperties(_ sender: Any?)
     func duplicate(_ sender: Any?)
     func compress(_ sender: Any?)
@@ -80,9 +81,13 @@ enum FileContextMenu {
         // Finder's row of tag colours (and, for a folder, «Настроить папку…» right under it)
         let tagRow = TagRowMenuView.menuItem(for: urls)
         menu.addItem(tagRow)
+        // Under the circles, as in Finder: «Теги…» (every tag, a new one); the circles' caption
+        // takes its place while the mouse is on them
+        add(L("Теги…"), #selector(FileMenuActions.assignTags(_:)))
+        menu.items.last?.image = MenuStyle.symbol("tag")
+        (tagRow.view as? TagRowMenuView)?.captionItem = menu.items.last
         if customizableFolder {
             add(L("Настроить папку…"), #selector(FileMenuActions.customizeFolder(_:)))
-            (tagRow.view as? TagRowMenuView)?.captionItem = menu.items.last
         }
         menu.addItem(.separator())
         add(L("Свойства"), #selector(FileMenuActions.showProperties(_:)))

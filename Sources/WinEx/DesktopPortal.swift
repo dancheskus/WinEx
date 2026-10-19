@@ -414,6 +414,11 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         NSSharingServicePicker(items: selectedURLs).show(relativeTo: iconRect(first), of: self, preferredEdge: .minY)
     }
     func toggleTag(_ sender: NSMenuItem) { FileContextMenu.toggleTag(sender) }
+    func assignTags(_ sender: Any?) {
+        guard let i = selection.sorted().first else { return }
+        let urls = selectedURLs, rect = iconRect(i)
+        DispatchQueue.main.async { TagAssigner.show(for: urls, relativeTo: rect, of: self) }
+    }
     func customizeFolder(_ sender: Any?) {
         guard let i = selection.sorted().first else { return }
         FolderCustomizationController.show(for: items[i].url, relativeTo: iconRect(i), of: self)

@@ -846,7 +846,6 @@ enum English {
         "Ключевые слова": "Keywords",
         "Комментарии": "Comments",
         "Комментарий": "Comment",
-        "Комментарий к файлу (виден в Finder и находится поиском)": "A comment on the file (shown in Finder, found by search)",
         "Композитор": "Composer",
         "Контент изменён": "Content modified",
         "Контент создан": "Content created",
@@ -861,5 +860,11 @@ enum English {
         "Создано в приложении": "Content creator",
         "Шаблон": "Stationery pad",
         "Языки": "Languages",
+        "3–4 цифры от 0 до 7": "3–4 digits from 0 to 7",
+        "Добавить комментарий": "Add a Comment",
+        "Назначить теги «%@»": "Tags for “%@”",
+        "Назначить теги: %@ %@": "Tags for %@ %@",
+        "Сохранить": "Save",
+        "Теги…": "Tags…",
     ]
 }

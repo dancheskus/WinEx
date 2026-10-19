@@ -219,8 +219,18 @@ final class PreviewPane: NSView {
             if folders > 0 { rows.append((L("Папок"), "\(folders)", false)) }
             setLines(rows)
         }
-        iconView.image = Self.icon(for: urls)
-        if urls.count == 1 { loadIcon(of: first) }
+        if urls.count == 1 {
+            // Quick Look's icon comes in a moment: the plain one only if it doesn't (shown first,
+            // a full folder blinked from empty to full)
+            iconView.image = nil
+            loadIcon(of: first)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self, self.urls == [first], self.iconView.image == nil else { return }
+                self.iconView.image = NSWorkspace.shared.icon(forFile: first.path)
+            }
+        } else {
+            iconView.image = Self.icon(for: urls)
+        }
         needsLayout = true
     }
 
