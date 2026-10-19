@@ -220,13 +220,13 @@ final class PreviewPane: NSView {
             setLines(rows)
         }
         if urls.count == 1 {
-            // Quick Look's icon comes in a moment: the plain one only if it doesn't (shown first,
-            // a full folder blinked from empty to full)
-            iconView.image = nil
-            loadIcon(of: first)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self, self.urls == [first], self.iconView.image == nil else { return }
-                self.iconView.image = NSWorkspace.shared.icon(forFile: first.path)
+            // Quick Look's icon (kept once made). Until it comes the icon shown stays — folder to
+            // folder nothing blinks; cleared, or the plain one first, the pane blinked
+            if let known = Self.icons.object(forKey: first.path as NSString) {
+                iconView.image = known
+            } else {
+                if iconView.image == nil || iconView.isHidden { iconView.image = NSWorkspace.shared.icon(forFile: first.path) }
+                loadIcon(of: first)
             }
         } else {
             iconView.image = Self.icon(for: urls)
@@ -242,6 +242,7 @@ final class PreviewPane: NSView {
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
             guard let image = representation?.nsImage else { return }
             DispatchQueue.main.async {
+                Self.icons.setObject(image, forKey: url.path as NSString)
                 guard let self, self.urls == [url] else { return }
                 self.iconView.image = image
             }
@@ -319,6 +320,13 @@ final class PreviewPane: NSView {
         if let text = String(data: data, encoding: .utf8) { return text }
         return String(data: data, encoding: .windowsCP1251) ?? String(data: data, encoding: .isoLatin1)
     }
+
+    /// Quick Look's icons, by path (made once a session; a folder's look changing is rare).
+    private static let icons: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 300
+        return cache
+    }()
 
     /// The frame's height at most (it's as wide as the pane).
     private static let previewHeight: CGFloat = 340

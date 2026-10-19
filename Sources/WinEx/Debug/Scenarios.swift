@@ -332,7 +332,17 @@ enum Scenarios {
                 let mode = ((try? FileManager.default.attributesOfItem(atPath: folder.appendingPathComponent("итог.txt").path))?[.posixPermissions] as? NSNumber)?.intValue ?? 0
                 s.note("  mode \(String(mode, radix: 8)); \(props()?.debugCodeState ?? "?")  expect 600, save hidden")
             }),
-            (0.2, "a name typed, the window closed (no Return)", {
+            (0.2, "a name typed, Esc, the window closed", {
+                props()?.debugTypeName("не-сохранять.txt")
+                props()?.debugEscapeName()
+                s.note("  window still open: \(props()?.window?.isVisible == true)  expect true")
+                props()?.window?.close()
+            }),
+            (0.4, "", {
+                s.note("  files: \(s.files(in: folder))  expect итог.txt still (Esc dropped the name)")
+                PropertiesWindowController.show(for: [folder.appendingPathComponent("итог.txt")])
+            }),
+            (0.4, "a name typed, the window closed (no Return)", {
                 props()?.debugTypeName("финал.txt")
                 props()?.debugTypeComment("Без Return")
                 props()?.window?.close()

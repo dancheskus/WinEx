@@ -806,6 +806,22 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         window?.title = L("Свойства: %@", new.displayName)
     }
 
+    /// Esc in the name or the comment: what was typed is dropped (the window stays open; a second
+    /// Esc closes it, nothing renamed).
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard selector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+        switch control {
+        case nameField: nameField.stringValue = single.lastPathComponent
+        case commentField: commentField.stringValue = FinderInfo.comment(of: single)
+        case codeField:
+            cancelCode(nil)
+            return true
+        default: return false
+        }
+        window?.makeFirstResponder(nil)
+        return true
+    }
+
     func controlTextDidEndEditing(_ obj: Notification) {
         switch obj.object as? NSTextField {
         case nameField: renameItem(nil)
@@ -901,6 +917,7 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     var debugTagStrip: TagStrip { tagStrip }
     func debugShowPage(_ index: Int) { showPage(index) }
     func debugTypeName(_ name: String) { nameField.stringValue = name }
+    func debugEscapeName() { _ = control(nameField, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:))) }
     func debugTypeComment(_ text: String) { commentField.stringValue = text }
     func debugCode(_ text: String, save: Bool) {
         codeField.stringValue = text
