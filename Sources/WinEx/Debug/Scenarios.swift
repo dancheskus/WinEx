@@ -383,9 +383,13 @@ enum Scenarios {
                 let image = NSImage(size: NSSize(width: 40, height: 30), flipped: false) { NSColor.systemOrange.setFill(); $0.fill(); return true }
                 if let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) { try? png.write(to: picture) }
                 PropertiesWindowController.show(for: [picture])
-                props()?.debugShowPage(1)
             }),
-            (2.0, "", {
+            (1.5, "«Подробно» opened after a moment", { props()?.debugShowPage(1) }),
+            (0.05, "", {
+                // Already there: gathered when the window opened
+                s.note("  at once: Изображение \((props()?.debugTexts ?? []).contains(L("Изображение")))  expect true")
+            }),
+            (0.5, "", {
                 let texts = props()?.debugTexts ?? []
                 s.note("  «Подробно»: Просмотр \(texts.contains(L("Просмотр"))), Изображение \(texts.contains(L("Изображение")))  expect true, true (Содержимое only once Spotlight indexed it)")
                 props()?.window?.close()

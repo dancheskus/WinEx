@@ -65,7 +65,6 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     private let pageHolder = NSView()
     private var pages: [NSView] = []
     private let detailsStack = PropertiesUI.stack()
-    private var detailsLoaded = false
 
     static let width: CGFloat = 520
 
@@ -109,6 +108,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
         if isSingle, !single.isBrowsableDirectory {
             titles.append(L("Подробно"))
             pages.append(detailsPage())
+            // Gathered right away, in the background: «Подробно» is ready by the time it's opened
+            loadDetails()
         }
         if isSingle {
             titles.append(L("Доступ"))
@@ -154,7 +155,6 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
             page.trailingAnchor.constraint(equalTo: pageHolder.trailingAnchor),
             page.bottomAnchor.constraint(equalTo: pageHolder.bottomAnchor),
         ])
-        if pages.count > 1, index == 1, !detailsLoaded { loadDetails() }
         fitWindow()
     }
 
@@ -380,7 +380,6 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
     }
 
     private func loadDetails() {
-        detailsLoaded = true
         let url = single
         Task { [weak self] in
             let sections = await Task.detached(priority: .userInitiated) { await FileDetails.sections(for: url) }.value
@@ -405,7 +404,8 @@ final class PropertiesWindowController: NSWindowController, NSWindowDelegate, NS
                 none.textColor = .secondaryLabelColor
                 detailsStack.addArrangedSubview(none)
             }
-            fitWindow()
+            // (Gathered while another tab is shown: that one keeps its size)
+            if detailsStack.superview != nil { fitWindow() }
         }
     }
 
