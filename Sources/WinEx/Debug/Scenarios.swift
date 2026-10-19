@@ -433,7 +433,35 @@ enum Scenarios {
             (1.0, "details view, pane off at first", { s.setViewMode(.details); report("expect hidden"); s.note("  \(widths())") }),
             (0.2, "⇧⌘P", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
             (0.5, "", { report("expect «» (empty: nothing selected), no buttons"); s.note("  \(widths())  expect pane 280") }),
-            (0.2, "select the picture", { s.select("picture.png") }),
+            (0.2, "nothing selected, then the document: what shows meanwhile", {
+                s.table?.deselectAll(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    s.select("document.pdf")
+                    var states: [String] = []
+                    for n in 0..<35 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(n) * 0.02) {
+                            let state = s.window?.debugPreviewPane?.debugTopState ?? "?"
+                            if states.last != state { states.append(state) }
+                            if n == 34 { s.note("  states: \(states)  expect blank → preview (no icon between)") }
+                        }
+                    }
+                }
+            }),
+            (1.2, "nothing selected, then a folder", {
+                s.table?.deselectAll(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    s.select("Box")
+                    var states: [String] = []
+                    for n in 0..<35 {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(n) * 0.02) {
+                            let state = s.window?.debugPreviewPane?.debugTopState ?? "?"
+                            if states.last != state { states.append(state) }
+                            if n == 34 { s.note("  states: \(states)  expect blank → one icon (not two)") }
+                        }
+                    }
+                }
+            }),
+            (1.2, "select the picture", { s.select("picture.png") }),
             (1.0, "", {
                 report("expect picture.png, live true, Изображение: 64 × 48"); snapshot("picture.png")
                 // scripts/capture-window.sh preview: the live preview is drawn by Quick Look's own process

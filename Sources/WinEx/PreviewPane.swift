@@ -34,6 +34,8 @@ final class PreviewPane: NSView {
         return view
     }()
     private let iconView = NSImageView()
+    /// The icon shown is a folder's.
+    private var iconIsFolder = false
     /// Finder's frame around the preview: the page or picture fitted into it whole.
     private let previewBox = PreviewBox()
     private let thumbnailView = NSImageView()
@@ -167,6 +169,8 @@ final class PreviewPane: NSView {
         sizeTask = nil
         setLines([])
         let urls = urls
+        // (A folder's icon on screen can stay while the next folder's is made: they look alike)
+        let folderIconShown = !iconView.isHidden && iconView.image != nil && iconIsFolder
         for view in [iconView, nameLabel, kindLabel, infoHeading] as [NSView] { view.isHidden = urls.isEmpty }
         // Tags of one item (as in Finder; several would mean merging different sets)
         tagsHeading.isHidden = urls.count != 1
@@ -213,16 +217,24 @@ final class PreviewPane: NSView {
             setLines(rows)
         }
         if urls.count == 1 {
-            // Quick Look's icon (kept once made). Until it comes the icon shown stays — folder to
-            // folder nothing blinks; cleared, or the plain one first, the pane blinked
+            // Quick Look's icon (kept once made). Nothing in its place until it comes — the plain
+            // icon first, then Quick Look's, was a blink — unless a folder's icon is shown and
+            // another folder's is coming; the plain one only if Quick Look takes long
+            let isFolder = (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
             if let known = Self.icons.object(forKey: first.path as NSString) {
                 iconView.image = known
             } else {
-                if iconView.image == nil || iconView.isHidden { iconView.image = NSWorkspace.shared.icon(forFile: first.path) }
+                if !(folderIconShown && isFolder) { iconView.image = nil }
                 loadIcon(of: first)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    guard let self, self.urls == [first], self.iconView.image == nil else { return }
+                    self.iconView.image = NSWorkspace.shared.icon(forFile: first.path)
+                }
             }
+            iconIsFolder = isFolder
         } else {
             iconView.image = Self.icon(for: urls)
+            iconIsFolder = false
         }
         needsLayout = true
     }
@@ -256,6 +268,13 @@ final class PreviewPane: NSView {
         previewBox.isHidden = true
         iconView.isHidden = urls.isEmpty
         guard let url else { return }
+        // The page or picture is coming: no icon before it (it was a blink); the icon only if
+        // there's none, or it's slow
+        iconView.isHidden = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, self.urls == [url], self.previewBox.isHidden else { return }
+            self.iconView.isHidden = false
+        }
         let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
         if type?.conforms(to: .audiovisualContent) == true, let preview {
             previewBox.addSubview(preview)
@@ -272,7 +291,15 @@ final class PreviewPane: NSView {
                                                    scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
         thumbnailRequest = request
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
-            guard let image = representation?.nsImage else { return }
+            guard let image = representation?.nsImage else {
+                // No picture of it: its icon
+                DispatchQueue.main.async {
+                    guard let self, self.thumbnailRequest === request else { return }
+                    self.iconView.isHidden = false
+                    self.needsLayout = true
+                }
+                return
+            }
             DispatchQueue.main.async {
                 guard let self, self.thumbnailRequest === request else { return }
                 self.thumbnailRequest = nil
@@ -289,7 +316,12 @@ final class PreviewPane: NSView {
         textURL = url
         Task { [weak self] in
             let text = await Task.detached(priority: .userInitiated) { Self.beginning(of: url) }.value
-            guard let self, self.textURL == url, let text else { return }
+            guard let self, self.textURL == url else { return }
+            guard let text else {
+                // Not text after all: its icon
+                self.iconView.isHidden = false
+                return self.needsLayout = true
+            }
             self.textView.string = text
             self.textView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             self.textView.textColor = .labelColor
@@ -593,6 +625,12 @@ final class PreviewPane: NSView {
     var debugMore: String { moreButton.isHidden ? "-" : moreButton.title }
     func debugToggleMore() { toggleMore(nil) }
     var debugTagStrip: TagStrip? { tagStrip.isHidden ? nil : tagStrip }
+    /// What the top of the pane shows now: the preview, an icon (by identity), or nothing.
+    var debugTopState: String {
+        if !previewBox.isHidden { return "preview" }
+        if !iconView.isHidden, let image = iconView.image { return "icon\(ObjectIdentifier(image).hashValue % 10000)" }
+        return "blank"
+    }
     var debugIconWidth: Int { iconView.isHidden ? 0 : Int(iconView.frame.width) }
     var debugShowsLivePreview: Bool { preview?.superview != nil }
     var debugShowsThumbnail: Bool { !previewBox.isHidden && thumbnailView.image != nil }
