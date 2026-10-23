@@ -3806,7 +3806,9 @@ enum Scenarios {
         // A second window with two tabs: both must come back after the update
         let second = AppDelegate.shared.openWindow(with: [ExplorerTab(url: s.sandbox), ExplorerTab(url: FileManager.default.temporaryDirectory)])
         second.selectTab(at: 1)
-        s.note("  windows before: \(AppDelegate.shared.windowControllers.map { $0.tabs.count })")
+        second.window?.miniaturize(nil)
+        AppDelegate.shared.showSettings(tab: .updates)
+        s.note("  windows before: \(AppDelegate.shared.windowControllers.map { $0.tabs.count }), the 2-tab one minimized, Settings open")
         Updater.shared.check(userInitiated: true)
         // The update quits this process; if it doesn't within 20 s, say so
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { s.note("  (still running — no update happened)"); s.run([]) }
@@ -3840,6 +3842,8 @@ enum Scenarios {
         s.run([
             (1.0, "back", {
                 s.note("  windows after: \(AppDelegate.shared.windowControllers.map { $0.tabs.count })  expect as before")
+                s.note("  minimized: \(AppDelegate.shared.windowControllers.map { $0.window?.isMiniaturized == true })  expect the 2-tab one")
+                s.note("  Settings open: \(NSApp.windows.contains { $0.isVisible && $0.contentViewController is NSTabViewController })  expect false")
                 s.note("  told: \(Updater.shared.debugUpdateNotice ?? "nothing")  expect «обновлён до версии 99.0.0»")
             }),
         ])

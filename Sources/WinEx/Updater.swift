@@ -229,7 +229,8 @@ final class Updater {
             tell(L("Не удалось обновить WinEx"), error.localizedDescription)
             return
         }
-        AppDelegate.shared.saveSession(settingsOpen: AppDelegate.shared.settingsOpen, settingsTab: .updates)
+        // (The folder windows; Settings, even if the update was asked for there, stays closed)
+        AppDelegate.shared.saveSession(settingsOpen: false)
         AppDefaults.store.set(["from": currentVersion, "to": release.version, "notes": release.body ?? "",
                                "page": release.html_url?.absoluteString ?? ""], forKey: Self.updateNoticeKey)
         isRelaunching = true
