@@ -85,6 +85,12 @@ enum MainMenu {
                 alternate.allowsKeyEquivalentWhenHidden = true
                 return alternate
             }(),
+            {
+                // ⌥⌘⌫, as in Finder: with ⌥ held the item above turns into this one
+                let alternate = item(L("Удалить навсегда…"), #selector(FileListViewController.deleteForever(_:)), key(NSBackspaceCharacter), [.command, .option])
+                alternate.isAlternate = true
+                return alternate
+            }(),
             .separator(),
             item(L("Свойства"), #selector(FileListViewController.showProperties(_:)), "i"),
             {

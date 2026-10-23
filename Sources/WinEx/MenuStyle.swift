@@ -29,7 +29,7 @@ enum MenuStyle {
         "customizeFolder:": ("tag", "", []),
         "showProperties:": ("info.circle", "i", .command),
         "putBackFromTrash:": ("arrow.uturn.backward", "", []),
-        "deleteForever:": ("trash.slash", "", []),
+        "deleteForever:": ("trash.slash", String(Character(UnicodeScalar(NSBackspaceCharacter)!)), [.command, .option]),
         "emptyTrash:": ("trash", "", []),
         "disconnectFromServer:": ("eject", "", []),
         "ejectSelectedShares:": ("eject", "", []),

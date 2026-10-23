@@ -149,18 +149,10 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.borderType = .bezelBorder
-
-        let add = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Новый тег")) ?? NSImage(), target: self, action: #selector(addTag(_:)))
-        removeButton.image = NSImage(systemSymbolName: "minus", accessibilityDescription: L("Удалить тег"))
-        removeButton.target = self
-        removeButton.action = #selector(removeTag(_:))
-        for button in [add, removeButton] {
-            button.bezelStyle = .smallSquare
-            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        }
-        let buttons = NSStackView(views: [add, removeButton])
-        buttons.spacing = 0
+        let list = ListBox(scroll, buttons: [
+            ListBox.button("plus", L("Новый тег"), target: self, action: #selector(addTag(_:))),
+            ListBox.button("minus", L("Удалить тег"), target: self, action: #selector(removeTag(_:)), into: removeButton),
+        ])
 
         let hint = SettingsForm.hint(L("«Сбоку» — показывать тег в боковом меню. «Избранный» — кружок в контекстном меню файлов, общий с Finder; Finder видит только избранные теги и те, что стоят на файлах, поэтому новый тег сразу избранный. Переименование и смена цвета применяются ко всем файлам с тегом."))
         hint.preferredMaxLayoutWidth = SettingsForm.width - 40
@@ -171,7 +163,7 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
         tint.title = L("Оттенять папки цветом тега")
         tint.state = Settings.tintFoldersByTags ? .on : .off
 
-        let stack = NSStackView(views: [scroll, buttons, hint, tint])
+        let stack = NSStackView(views: [list, hint, tint])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
@@ -183,7 +175,7 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
-            scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            list.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.heightAnchor.constraint(equalToConstant: 300),
             widthAnchor.constraint(equalToConstant: SettingsForm.width),
         ])
@@ -343,17 +335,16 @@ final class TagSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate,
     }
 }
 
-/// Settings ▸ Программы: "Открыть с помощью" (added apps, where they're offered, an item of their
-/// own in the context menu; apps left out) and the entries of "Создать".
+/// Settings ▸ Программы: the apps of "Открыть с помощью" (which show, for what, in the submenu
+/// or the menu itself; apps added) and the entries of "Создать".
 final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate {
     private let appsTable = NSTableView()
-    private let hiddenTable = NSTableView()
     private let templatesTable = NSTableView()
     private let removeApp = NSButton()
     private let removeTemplate = NSButton()
-    private var apps: [AppsConfig.App] = []
-    private var hiddenList: [String] = []
-    /// Every app macOS offers to open common kinds of files or folders, by name.
+    private var shownList: [String] = []
+    /// Every app macOS offers to open common kinds of files or folders, and the ones added: the
+    /// switched-on ones first, each part by name.
     private var offered: [URL] = []
     /// Built-ins first (they can only be switched off), then the user's own.
     private var rows: [(builtin: NewItemTemplate?, custom: AppsConfig.Template?)] = []
@@ -366,23 +357,16 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         stack.spacing = 8
 
         stack.addArrangedSubview(Self.heading(L("Открыть с помощью")))
-        stack.addArrangedSubview(SettingsForm.wideHint(L("Добавьте программу и укажите, для чего её предлагать. «В меню» — отдельный пункт «Открыть в …» прямо в контекстном меню.")))
-        setUp(appsTable, columns: [("app", L("Программа"), 205), ("scope", L("Для"), 150), ("ext", L("Расширения"), 140), ("menu", L("В меню"), 90)])
-        stack.addArrangedSubview(Self.scroll(appsTable, height: 130))
-        stack.addArrangedSubview(buttons(add: #selector(addApp(_:)), remove: removeApp, action: #selector(removeApp(_:))))
-        stack.setCustomSpacing(16, after: stack.arrangedSubviews.last!)
-
-        stack.addArrangedSubview(SettingsForm.wideHint(L("Программы в «Открыть с помощью» — снимите флажок, чтобы скрыть:")))
-        setUp(hiddenTable, columns: [("shown", "", 34), ("hidden", L("Программа"), 560)])
-        hiddenTable.headerView = nil
-        stack.addArrangedSubview(Self.scroll(hiddenTable, height: 200))
+        stack.addArrangedSubview(SettingsForm.wideHint(L("Отмеченные программы есть в «Открыть с помощью» (программа по умолчанию — всегда). «В меню» — вместо этого отдельный пункт «Открыть в …» прямо в контекстном меню. «+» — программа, которую macOS сама не предлагает.")))
+        setUp(appsTable, columns: [("shown", "", 34), ("app", L("Программа"), 200), ("scope", L("Для"), 170), ("ext", L("Расширения"), 120), ("menu", L("В меню"), 70)])
+        appsTable.tableColumn(withIdentifier: .init("menu"))?.headerToolTip = L("Отдельный пункт «Открыть в …» в контекстном меню вместо «Открыть с помощью»")
+        stack.addArrangedSubview(list(appsTable, height: 290, add: #selector(addApp(_:)), remove: removeApp, action: #selector(removeApp(_:))))
         stack.setCustomSpacing(22, after: stack.arrangedSubviews.last!)
 
         stack.addArrangedSubview(Self.heading(L("Создать")))
         stack.addArrangedSubview(SettingsForm.wideHint(L("Что предлагать в меню «Создать». Для своего типа укажите название, имя файла и, если хотите, образец — новые файлы будут его копиями.")))
         setUp(templatesTable, columns: [("on", "", 34), ("title", L("Название"), 210), ("file", L("Имя файла"), 230), ("source", L("Образец"), 110)])
-        stack.addArrangedSubview(Self.scroll(templatesTable, height: 240))
-        stack.addArrangedSubview(buttons(add: #selector(addTemplate(_:)), remove: removeTemplate, action: #selector(removeTemplate(_:))))
+        stack.addArrangedSubview(list(templatesTable, height: 240, add: #selector(addTemplate(_:)), remove: removeTemplate, action: #selector(removeTemplate(_:))))
 
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -393,7 +377,7 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -20),
             widthAnchor.constraint(equalToConstant: SettingsForm.width),
         ])
-        for view in stack.arrangedSubviews where view is NSScrollView {
+        for view in stack.arrangedSubviews where view is ListBox {
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         reload()
@@ -412,7 +396,6 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.borderType = .bezelBorder
         scroll.heightAnchor.constraint(equalToConstant: height).isActive = true
         return scroll
     }
@@ -430,38 +413,31 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         table.delegate = self
     }
 
-    private func buttons(add: Selector, remove: NSButton, action: Selector) -> NSView {
-        let plus = NSButton(image: NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить")) ?? NSImage(), target: self, action: add)
-        remove.image = NSImage(systemSymbolName: "minus", accessibilityDescription: L("Удалить"))
-        remove.target = self
-        remove.action = action
-        for button in [plus, remove] {
-            button.bezelStyle = .smallSquare
-            button.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        }
-        let row = NSStackView(views: [plus, remove])
-        row.spacing = 0
-        return row
+    private func list(_ table: NSTableView, height: CGFloat, add: Selector, remove: NSButton, action: Selector) -> ListBox {
+        ListBox(Self.scroll(table, height: height), buttons: [
+            ListBox.button("plus", L("Добавить"), target: self, action: add),
+            ListBox.button("minus", L("Удалить"), target: self, action: action, into: remove),
+        ])
     }
 
     private func reload() {
-        apps = AppsConfig.apps
-        hiddenList = AppsConfig.hiddenApps
-        if offered.isEmpty { offered = Self.offeredApps() }
-        rows = NewItemTemplate.files.map { ($0, nil) } + AppsConfig.templates.map { (nil, $0) }
-        [appsTable, hiddenTable, templatesTable].forEach { $0.reloadData() }
+        shownList = AppsConfig.shownApps
+        if offered.isEmpty { offered = sortedOffered(Self.allApps()) }
+        rows = sortedRows(NewItemTemplate.files.map { ($0, nil) } + AppsConfig.templates.map { (nil, $0) })
+        [appsTable, templatesTable].forEach { $0.reloadData() }
         updateButtons()
     }
 
     private func updateButtons() {
-        removeApp.isEnabled = appsTable.selectedRow >= 0
+        // Only an app added here goes; the ones macOS offers are just switched off
+        removeApp.isEnabled = offered.indices.contains(appsTable.selectedRow) && !AppsConfig.isListed(offered[appsTable.selectedRow])
         removeTemplate.isEnabled = rows.indices.contains(templatesTable.selectedRow) && rows[templatesTable.selectedRow].custom != nil
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { updateButtons() }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-        tableView === appsTable ? apps.count : tableView === hiddenTable ? offered.count : rows.count
+        tableView === appsTable ? offered.count : rows.count
     }
 
     // MARK: Cells
@@ -479,38 +455,39 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
                         : view.leadingAnchor.constraint(equalTo: holder.leadingAnchor, constant: 4),
                 view.trailingAnchor.constraint(lessThanOrEqualTo: holder.trailingAnchor, constant: -4),
             ])
-            if view is NSTextField { view.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -4).isActive = true }
+            if view is NSTextField || view is ResettableField { view.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -4).isActive = true }
             return holder
         }
     }
 
     private func cell(_ tableView: NSTableView, _ tableColumn: NSTableColumn?, _ row: Int) -> NSView? {
         let id = tableColumn?.identifier.rawValue ?? ""
-        if tableView === hiddenTable {
-            let app = offered[row]
-            if id == "shown" { return checkbox(!hiddenList.contains(AppsConfig.identity(of: app)), tag: row, action: #selector(toggleOffered(_:))) }
-            return appCell(app)
-        }
         if tableView === appsTable {
-            let app = apps[row]
+            let url = offered[row]
+            let shown = shownList.contains(AppsConfig.identity(of: url))
+            let app = AppsConfig.config(for: url) ?? AppsConfig.App(path: url.path, scope: AppsConfig.isListed(url) ? .system : .all)
             switch id {
-            case "app": return appCell(app.url)
+            case "shown": return checkbox(shown, tag: row, action: #selector(toggleOffered(_:)))
+            case "app": return appCell(url)
             case "scope":
                 let popup = NSPopUpButton()
                 popup.isBordered = false
                 for scope in AppsConfig.Scope.allCases { popup.addItem(withTitle: scope.title) }
                 popup.selectItem(at: AppsConfig.Scope.allCases.firstIndex(of: app.scope) ?? 0)
-                popup.tag = row
                 popup.target = self
                 popup.action = #selector(changeScope(_:))
+                popup.isEnabled = shown
                 return popup
             case "ext":
                 let field = editable(app.extensions.joined(separator: ", "), tag: row, placeholder: L("любые"))
-                field.isEnabled = app.scope != .folders
+                field.isEnabled = shown && app.scope != .folders
                 field.identifier = .init("ext")
+                markOwnExtensions(field, app: url, extensions: field.isEnabled ? app.extensions : [])
                 return field
             default:
-                return checkbox(app.inMainMenu, tag: row, action: #selector(toggleInMenu(_:)))
+                let box = checkbox(app.inMainMenu, tag: row, action: #selector(toggleInMenu(_:)))
+                box.isEnabled = shown
+                return box
             }
         }
         let entry = rows[row]
@@ -519,12 +496,22 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
             // The user's own types can be switched off too (kept, not shown in «Создать»)
             return checkbox(!AppsConfig.hiddenTemplates.contains(entry.builtin?.id ?? entry.custom?.id ?? ""), tag: row, action: #selector(toggleTemplate(_:)))
         case "title":
-            if let builtin = entry.builtin { return label(builtin.title) }
+            if let builtin = entry.builtin {
+                return ResettableField(editable(builtin.title, tag: row, placeholder: builtin.defaultTitle), identifier: "btitle",
+                                       changed: builtin.title != builtin.defaultTitle, original: builtin.defaultTitle,
+                                       target: self, reset: #selector(resetTemplateName(_:)))
+            }
             let field = editable(entry.custom?.title ?? "", tag: row, placeholder: "")
             field.identifier = .init("title")
             return field
         case "file":
-            if let builtin = entry.builtin { return label(builtin.fileName, secondary: true) }
+            if let builtin = entry.builtin {
+                let field = ResettableField(editable(builtin.fileName, tag: row, placeholder: builtin.defaultFileName), identifier: "bfile",
+                                            changed: builtin.fileName != builtin.defaultFileName, original: builtin.defaultFileName,
+                                            target: self, reset: #selector(resetTemplateName(_:)))
+                if !field.changed { field.field.textColor = .secondaryLabelColor }
+                return field
+            }
             let field = editable(entry.custom?.fileName ?? "", tag: row, placeholder: "")
             field.identifier = .init("file")
             return field
@@ -538,6 +525,30 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
             button.toolTip = custom.sourcePath ?? L("Новые файлы будут копиями образца; без него — пустыми")
             return button
         }
+    }
+
+    /// Extensions `app` opens anyway (it's their default app) change nothing: «Открыть» already
+    /// opens them there, and «Открыть в …» isn't added for them. Struck through, the tooltip says why.
+    private func markOwnExtensions(_ field: NSTextField, app: URL, extensions: [String]) {
+        let identity = AppsConfig.identity(of: app)
+        let own = extensions.filter { ext in
+            guard let type = UTType(filenameExtension: ext), let opener = NSWorkspace.shared.urlForApplication(toOpen: type) else { return false }
+            return AppsConfig.identity(of: opener) == identity
+        }
+        guard !own.isEmpty else { return }
+        let text = NSMutableAttributedString(string: field.stringValue, attributes: [.font: field.font ?? .systemFont(ofSize: NSFont.systemFontSize),
+                                                                                   .foregroundColor: NSColor.labelColor])
+        var start = text.string.startIndex
+        for ext in extensions {
+            guard let range = text.string.range(of: ext, range: start..<text.string.endIndex) else { continue }
+            start = range.upperBound
+            guard own.contains(ext) else { continue }
+            text.addAttributes([.strikethroughStyle: NSUnderlineStyle.single.rawValue, .foregroundColor: NSColor.tertiaryLabelColor],
+                               range: NSRange(range, in: text.string))
+        }
+        field.attributedStringValue = text
+        field.toolTip = L("%@ и так открывает %@ по умолчанию: это делает пункт «Открыть», отдельный пункт не нужен.",
+                          OpenWithMenu.appName(app), own.map { "." + $0 }.joined(separator: ", "))
     }
 
     private func appCell(_ url: URL) -> NSView {
@@ -578,49 +589,118 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
 
     // MARK: Changes
 
+    /// The list's apps: the ones macOS offers for common items, then the ones added here.
+    private static func allApps() -> [URL] {
+        var apps = AppsConfig.listedApps()
+        for app in AppsConfig.apps where FileManager.default.fileExists(atPath: app.path) && !AppsConfig.isListed(app.url) {
+            let identity = AppsConfig.identity(of: app.url)
+            if !apps.contains(where: { AppsConfig.identity(of: $0) == identity }) { apps.append(app.url) }
+        }
+        return apps
+    }
+
+    /// An app macOS doesn't offer: on, for files and folders; one already in the list is just
+    /// switched on. Either way it's selected and shown.
     @objc private func addApp(_ sender: Any?) {
         chooseApp { [weak self] app in
-            var list = AppsConfig.apps
-            guard !list.contains(where: { $0.path == app.path }) else { return }
-            list.append(AppsConfig.App(path: app.path))
-            AppsConfig.apps = list
-            self?.reload()
+            guard let self else { return }
+            let identity = AppsConfig.identity(of: app)
+            if AppsConfig.config(for: app) == nil && !AppsConfig.isListed(app) { AppsConfig.change(app) { _ in } }
+            if !AppsConfig.shownApps.contains(identity) { AppsConfig.shownApps += [identity] }
+            shownList = AppsConfig.shownApps
+            if !offered.contains(where: { AppsConfig.identity(of: $0) == identity }) { offered.append(app) }
+            offered = sortedOffered(offered)
+            reload()
+            if let row = offered.firstIndex(where: { AppsConfig.identity(of: $0) == identity }) {
+                appsTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                appsTable.scrollRowToVisible(row)
+            }
         }
     }
 
     @objc private func removeApp(_ sender: Any?) {
-        guard apps.indices.contains(appsTable.selectedRow) else { return }
-        var list = apps
-        list.remove(at: appsTable.selectedRow)
-        AppsConfig.apps = list
+        guard offered.indices.contains(appsTable.selectedRow) else { return }
+        let app = offered[appsTable.selectedRow]
+        let identity = AppsConfig.identity(of: app)
+        AppsConfig.apps = AppsConfig.apps.filter { AppsConfig.identity(of: $0.url) != identity }
+        AppsConfig.shownApps = AppsConfig.shownApps.filter { $0 != identity }
+        offered.removeAll { AppsConfig.identity(of: $0) == identity }
         reload()
     }
 
     @objc private func toggleOffered(_ sender: NSButton) {
-        guard offered.indices.contains(sender.tag) else { return }
-        let identity = AppsConfig.identity(of: offered[sender.tag])
-        var list = AppsConfig.hiddenApps.filter { $0 != identity }
-        if sender.state == .off { list.append(identity) }
-        AppsConfig.hiddenApps = list
-        hiddenList = list
+        // Rows move, so the row is the checkbox's place now, not its tag
+        let row = appsTable.row(for: sender)
+        guard offered.indices.contains(row) else { return }
+        let identity = AppsConfig.identity(of: offered[row])
+        var list = AppsConfig.shownApps.filter { $0 != identity }
+        if sender.state == .on { list.append(identity) }
+        AppsConfig.shownApps = list
+        shownList = list
+        // Its other settings only matter when it's on
+        appsTable.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(1..<appsTable.numberOfColumns))
+        // The row moves to its place a moment later, once the tick has been seen; several quick
+        // clicks move together
+        reorderWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.moveOfferedRows() }
+        reorderWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
     }
 
-    /// The apps of "Открыть с помощью" for folders and the usual kinds of files (text, documents,
-    /// pictures, sound, video, archives, code, web pages), without WinEx, each once.
-    private static func offeredApps() -> [URL] {
-        let types: [UTType] = [.folder, .plainText, .rtf, .pdf, .image, .png, .jpeg, .movie, .mpeg4Movie, .audio, .mp3,
-                               .html, .json, .xml, .zip, .sourceCode, .shellScript, .spreadsheet, .presentation,
-                               UTType("org.openxmlformats.wordprocessingml.document"), UTType("net.daringfireball.markdown")].compactMap { $0 }
-        var seen = Set<String>()
-        var apps: [URL] = []
-        for type in types {
-            for app in NSWorkspace.shared.urlsForApplications(toOpen: type) {
-                let identity = AppsConfig.identity(of: app)
-                guard app.standardizedFileURL != Bundle.main.bundleURL.standardizedFileURL, seen.insert(identity).inserted else { continue }
-                apps.append(app)
-            }
+    private var reorderWork: DispatchWorkItem?
+
+    private func sortedOffered(_ apps: [URL]) -> [URL] {
+        let shown = Set(shownList)
+        return apps.sorted { a, b in
+            let onA = shown.contains(AppsConfig.identity(of: a)), onB = shown.contains(AppsConfig.identity(of: b))
+            if onA != onB { return onA }
+            return OpenWithMenu.appName(a).localizedStandardCompare(OpenWithMenu.appName(b)) == .orderedAscending
         }
-        return apps.sorted { OpenWithMenu.appName($0).localizedStandardCompare(OpenWithMenu.appName($1)) == .orderedAscending }
+    }
+
+    /// Slides the rows to the new order (switched-on ones on top) without scrolling the list: the
+    /// row clicked glides up or down, the others close up behind it.
+    private func moveOfferedRows() {
+        let old = offered
+        offered = sortedOffered(old)
+        Self.slide(appsTable, from: old, to: offered, key: AppsConfig.identity(of:))
+    }
+
+    /// Moves `table`'s rows from `items`' order to `target`'s, animated, the list not scrolled.
+    /// (The table's data must be in `target`'s order already: it draws the moved rows from it.)
+    private static func slide<Item>(_ table: NSTableView, from items: [Item], to target: [Item], key: (Item) -> String) {
+        guard target.map(key) != items.map(key) else { return }
+        var current = items
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.allowsImplicitAnimation = true
+            table.beginUpdates()
+            for (index, item) in target.enumerated() where key(current[index]) != key(item) {
+                guard let from = current.firstIndex(where: { key($0) == key(item) }) else { continue }
+                current.insert(current.remove(at: from), at: index)
+                table.moveRow(at: from, to: index)
+            }
+            table.endUpdates()
+        }
+    }
+
+    // MARK: «Создать»: the ones switched on first
+
+    private static func templateID(_ row: (builtin: NewItemTemplate?, custom: AppsConfig.Template?)) -> String {
+        row.builtin?.id ?? row.custom?.id ?? ""
+    }
+
+    /// Switched-on types first, each part in its own order (built-ins, then the user's).
+    private func sortedRows(_ list: [(builtin: NewItemTemplate?, custom: AppsConfig.Template?)]) -> [(builtin: NewItemTemplate?, custom: AppsConfig.Template?)] {
+        let off = Set(AppsConfig.hiddenTemplates)
+        return list.filter { !off.contains(Self.templateID($0)) } + list.filter { off.contains(Self.templateID($0)) }
+    }
+
+    private var templateReorderWork: DispatchWorkItem?
+
+    private func templateRow(_ view: NSView) -> Int {
+        let row = templatesTable.row(for: view)
+        return rows.indices.contains(row) ? row : -1
     }
 
     /// An app chosen in a sheet on the settings window.
@@ -638,32 +718,43 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     }
 
     @objc private func changeScope(_ sender: NSPopUpButton) {
-        guard apps.indices.contains(sender.tag) else { return }
-        var list = apps
-        list[sender.tag].scope = AppsConfig.Scope.allCases[max(0, sender.indexOfSelectedItem)]
-        AppsConfig.apps = list
-        reload()
+        let row = appsTable.row(for: sender)
+        guard offered.indices.contains(row) else { return }
+        AppsConfig.change(offered[row]) { $0.scope = AppsConfig.Scope.allCases[max(0, sender.indexOfSelectedItem)] }
+        appsTable.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<appsTable.numberOfColumns))
     }
 
     @objc private func toggleInMenu(_ sender: NSButton) {
-        guard apps.indices.contains(sender.tag) else { return }
-        var list = apps
-        list[sender.tag].inMainMenu = sender.state == .on
-        AppsConfig.apps = list
-        apps = list
+        let row = appsTable.row(for: sender)
+        guard offered.indices.contains(row) else { return }
+        AppsConfig.change(offered[row]) { $0.inMainMenu = sender.state == .on }
     }
 
     @objc private func toggleTemplate(_ sender: NSButton) {
-        guard rows.indices.contains(sender.tag), let id = rows[sender.tag].builtin?.id ?? rows[sender.tag].custom?.id else { return }
+        // Rows move, so the row is the checkbox's place now, not its tag
+        let row = templateRow(sender)
+        guard row >= 0 else { return }
+        let id = Self.templateID(rows[row])
         var off = AppsConfig.hiddenTemplates.filter { $0 != id }
         if sender.state == .off { off.append(id) }
         AppsConfig.hiddenTemplates = off
+        // As with the apps: the row moves a moment later, several quick clicks together
+        templateReorderWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let old = rows
+            rows = sortedRows(old)
+            Self.slide(templatesTable, from: old, to: rows, key: Self.templateID)
+        }
+        templateReorderWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
     }
 
     @objc private func addTemplate(_ sender: Any?) {
-        AppsConfig.templates += [AppsConfig.Template(title: L("Новый тип"), fileName: L("Новый файл.txt"))]
+        let template = AppsConfig.Template(title: L("Новый тип"), fileName: L("Новый файл.txt"))
+        AppsConfig.templates += [template]
         reload()
-        let row = rows.count - 1
+        let row = rows.firstIndex { $0.custom?.id == template.id } ?? rows.count - 1
         templatesTable.scrollRowToVisible(row)
         templatesTable.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         templatesTable.editColumn(templatesTable.column(withIdentifier: .init("title")), row: row, with: nil, select: true)
@@ -676,7 +767,8 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
     }
 
     @objc private func chooseSample(_ sender: NSButton) {
-        guard rows.indices.contains(sender.tag), let custom = rows[sender.tag].custom else { return }
+        let row = templateRow(sender)
+        guard row >= 0, let custom = rows[row].custom else { return }
         let panel = NSOpenPanel()
         // WinEx's folder of sample files (made if it isn't there yet)
         let examples = SettingsBackup.samplesFolder
@@ -709,18 +801,41 @@ final class AppsSettingsView: NSView, NSTableViewDataSource, NSTableViewDelegate
         reload()
     }
 
+    /// The ↺ by a renamed built-in: its own title or file name again.
+    @objc private func resetTemplateName(_ sender: NSButton) {
+        guard let field = (sender.superview as? ResettableField)?.field, case let row = templateRow(field), row >= 0,
+              let builtin = rows[row].builtin else { return }
+        if field.identifier?.rawValue == "btitle" {
+            AppsConfig.templateTitles[builtin.id] = nil
+        } else {
+            AppsConfig.templateFileNames[builtin.id] = nil
+        }
+        reload()
+    }
+
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
         let text = field.stringValue.trimmingCharacters(in: .whitespaces)
         switch field.identifier?.rawValue {
         case "ext":
-            guard apps.indices.contains(field.tag) else { return }
-            var list = apps
-            list[field.tag].extensions = text.lowercased().split(whereSeparator: { ", ;".contains($0) })
-                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }.filter { !$0.isEmpty }
-            AppsConfig.apps = list
+            let row = appsTable.row(for: field)
+            guard offered.indices.contains(row) else { return }
+            AppsConfig.change(offered[row]) {
+                $0.extensions = text.lowercased().split(whereSeparator: { ", ;".contains($0) })
+                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }.filter { !$0.isEmpty }
+            }
+        case "btitle", "bfile":
+            let row = templateRow(field)
+            guard row >= 0, let builtin = rows[row].builtin else { return }
+            let isTitle = field.identifier?.rawValue == "btitle"
+            let original = isTitle ? builtin.defaultTitle : builtin.defaultFileName
+            // Empty or the built-in text again: back to the built-in one
+            var names = isTitle ? AppsConfig.templateTitles : AppsConfig.templateFileNames
+            names[builtin.id] = text.isEmpty || text == original ? nil : text
+            if isTitle { AppsConfig.templateTitles = names } else { AppsConfig.templateFileNames = names }
         case "title", "file":
-            guard rows.indices.contains(field.tag), let custom = rows[field.tag].custom, !text.isEmpty else { return reload() }
+            let row = templateRow(field)
+            guard row >= 0, let custom = rows[row].custom, !text.isEmpty else { return reload() }
             AppsConfig.templates = AppsConfig.templates.map { template in
                 guard template.id == custom.id else { return template }
                 var changed = template
@@ -1014,4 +1129,31 @@ private final class SwatchButton: NSView {
         action()
         superview?.subviews.forEach { $0.needsDisplay = true }
     }
+}
+
+/// A table cell's text field with a ↺ after it while the text isn't the built-in one.
+private final class ResettableField: NSStackView {
+    let field: NSTextField
+    let changed: Bool
+
+    init(_ field: NSTextField, identifier: String, changed: Bool, original: String, target: AnyObject, reset: Selector) {
+        self.field = field
+        self.changed = changed
+        super.init(frame: .zero)
+        field.identifier = .init(identifier)
+        spacing = 2
+        addArrangedSubview(field)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        if changed {
+            let button = NSButton(image: NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: L("Вернуть «%@»", original)) ?? NSImage(),
+                                  target: target, action: reset)
+            button.isBordered = false
+            button.contentTintColor = .secondaryLabelColor
+            button.toolTip = L("Вернуть «%@»", original)
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            addArrangedSubview(button)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 }

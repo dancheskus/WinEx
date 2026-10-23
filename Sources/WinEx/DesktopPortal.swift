@@ -335,6 +335,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
         case (36, []), (125, [.command]): openSelected(nil)
         case (126, [.command]), (51, []): goUp?()
         case (51, [.command]): moveToTrash(nil)
+        case (51, [.command, .option]): Places.deleteForever(selectedURLs, emptying: false)
         case (0, [.command]): selection = Set(items.indices)
         case (49, []): if !selection.isEmpty { QuickLook.toggle(for: self) }
         case (53, []): selection = []

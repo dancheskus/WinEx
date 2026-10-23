@@ -55,7 +55,8 @@ final class ConnectToServerWindow: NSWindowController, NSTableViewDataSource, NS
     private var onConnect: (@MainActor (String) -> Void)?
     private let address = NSComboBox()
     private let table = NSTableView()
-    private let addRemove = NSSegmentedControl()
+    private let addButton = NSButton()
+    private let removeButton = NSButton()
     private let connectButton = NSButton(title: L("Подключиться"), target: nil, action: nil)
 
     private init() {
@@ -95,16 +96,10 @@ final class ConnectToServerWindow: NSWindowController, NSTableViewDataSource, NS
         let scroll = NSScrollView()
         scroll.documentView = table
         scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-
-        addRemove.segmentCount = 2
-        addRemove.trackingMode = .momentary
-        addRemove.setImage(NSImage(systemSymbolName: "plus", accessibilityDescription: L("Добавить")), forSegment: 0)
-        addRemove.setImage(NSImage(systemSymbolName: "minus", accessibilityDescription: L("Удалить")), forSegment: 1)
-        addRemove.setToolTip(L("Добавить адрес в избранное"), forSegment: 0)
-        addRemove.setToolTip(L("Убрать выбранный сервер из избранного"), forSegment: 1)
-        addRemove.target = self
-        addRemove.action = #selector(addOrRemove(_:))
+        let list = ListBox(scroll, buttons: [
+            ListBox.button("plus", L("Добавить адрес в избранное"), target: self, action: #selector(addFavorite(_:)), into: addButton),
+            ListBox.button("minus", L("Убрать выбранный сервер из избранного"), target: self, action: #selector(removeFavorite(_:)), into: removeButton),
+        ])
 
         let browse = NSButton(title: L("Просмотреть"), target: self, action: #selector(browse(_:)))
         browse.toolTip = L("Серверы в сети («Сеть»)")
@@ -112,7 +107,7 @@ final class ConnectToServerWindow: NSWindowController, NSTableViewDataSource, NS
         connectButton.action = #selector(connect(_:))
         connectButton.keyEquivalent = "\r"
 
-        for view in [address, title, scroll, addRemove, browse, connectButton] as [NSView] {
+        for view in [address, title, list, browse, connectButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -122,16 +117,14 @@ final class ConnectToServerWindow: NSWindowController, NSTableViewDataSource, NS
             address.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
             title.topAnchor.constraint(equalTo: address.bottomAnchor, constant: 16),
             title.leadingAnchor.constraint(equalTo: address.leadingAnchor),
-            scroll.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 6),
-            scroll.leadingAnchor.constraint(equalTo: address.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: address.trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: addRemove.topAnchor, constant: -10),
-            addRemove.leadingAnchor.constraint(equalTo: address.leadingAnchor),
-            addRemove.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
+            list.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 6),
+            list.leadingAnchor.constraint(equalTo: address.leadingAnchor),
+            list.trailingAnchor.constraint(equalTo: address.trailingAnchor),
+            list.bottomAnchor.constraint(equalTo: connectButton.topAnchor, constant: -16),
             connectButton.trailingAnchor.constraint(equalTo: address.trailingAnchor),
-            connectButton.centerYAnchor.constraint(equalTo: addRemove.centerYAnchor),
+            connectButton.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -20),
             browse.trailingAnchor.constraint(equalTo: connectButton.leadingAnchor, constant: -8),
-            browse.centerYAnchor.constraint(equalTo: addRemove.centerYAnchor),
+            browse.centerYAnchor.constraint(equalTo: connectButton.centerYAnchor),
         ])
         window.initialFirstResponder = address
         updateButtons()
@@ -139,8 +132,8 @@ final class ConnectToServerWindow: NSWindowController, NSTableViewDataSource, NS
 
     private func updateButtons() {
         connectButton.isEnabled = URL(string: Self.normalized(address.stringValue))?.host != nil
-        addRemove.setEnabled(connectButton.isEnabled, forSegment: 0)
-        addRemove.setEnabled(table.selectedRow >= 0, forSegment: 1)
+        addButton.isEnabled = connectButton.isEnabled
+        removeButton.isEnabled = table.selectedRow >= 0
     }
 
     private func connect(to text: String) {
@@ -181,14 +174,17 @@ final class ConnectToServerWindow: NSWindowController, NSTableViewDataSource, NS
     /// Esc closes it, as any window of this kind.
     override func cancelOperation(_ sender: Any?) { window?.close() }
 
-    @objc private func addOrRemove(_ sender: NSSegmentedControl) {
-        if sender.selectedSegment == 0 {
-            let text = Self.normalized(address.stringValue)
-            guard URL(string: text)?.host != nil else { return NSSound.beep() }
-            if !Self.favorites.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { Self.favorites.append(text) }
-        } else if Self.favorites.indices.contains(table.selectedRow) {
-            Self.favorites.remove(at: table.selectedRow)
-        }
+    @objc private func addFavorite(_ sender: Any?) {
+        let text = Self.normalized(address.stringValue)
+        guard URL(string: text)?.host != nil else { return NSSound.beep() }
+        if !Self.favorites.contains(where: { $0.caseInsensitiveCompare(text) == .orderedSame }) { Self.favorites.append(text) }
+        table.reloadData()
+        updateButtons()
+    }
+
+    @objc private func removeFavorite(_ sender: Any?) {
+        guard Self.favorites.indices.contains(table.selectedRow) else { return }
+        Self.favorites.remove(at: table.selectedRow)
         table.reloadData()
         updateButtons()
     }

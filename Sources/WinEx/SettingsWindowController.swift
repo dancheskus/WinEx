@@ -27,7 +27,6 @@ final class SettingsWindowController: NSWindowController {
     private let shellCheckbox = NSButton(checkboxWithTitle: L("Команда open в Терминале открывает папки в WinEx"), target: nil, action: nil)
     private let resetDesktopButton = NSButton(title: L("Сбросить рабочий стол как в Finder…"), target: nil, action: nil)
     // Клавиатура
-    private let keysMode = NSSegmentedControl(labels: [L("Как в Finder"), L("Как в Windows")], trackingMode: .selectOne, target: nil, action: nil)
     private lazy var keysTable = KeyboardModesView(rows: KeyboardModesView.allRows, windowsKeys: Settings.windowsKeys)
     // Доступ
     private let accessIcon = NSImageView()
@@ -225,14 +224,10 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func keyboardPane() -> NSView {
-        keysMode.target = self
-        keysMode.action = #selector(changeKeysMode(_:))
-        keysMode.controlSize = .large
         keysTable.onChange = { [weak self] windows in self?.setWindowsKeys(windows) }
         return SettingsForm.build([
-            .row(L("Клавиши:"), keysMode),
-            .row(nil, SettingsForm.hint(L("Сочетания с ⌘ работают всегда. «Как в Windows» добавляет клавиши Windows, и Enter открывает, а не переименовывает."))),
             .row(nil, keysTable),
+            .row(nil, SettingsForm.hint(L("Нажмите на столбец, чтобы выбрать. Сочетания с ⌘ работают всегда. «Как в Windows» добавляет клавиши Windows, и Enter открывает, а не переименовывает."))),
             .gap,
             .row(nil, SettingsForm.keyTable(title: L("В обоих режимах"), [
                 ("⌘I, ⌥Enter", L("свойства")), ("⌃⌘F", L("полный экран")),
@@ -333,7 +328,6 @@ final class SettingsWindowController: NSWindowController {
         commandBarCheckbox.state = Settings.showCommandBar ? .on : .off
         terminalCheckbox.state = Settings.terminalInMenu ? .on : .off
         syncTerminal()
-        keysMode.selectedSegment = Settings.windowsKeys ? 1 : 0
         keysTable.windowsKeys = Settings.windowsKeys
         updatesCheckbox.state = Updater.automaticChecks ? .on : .off
         syncHotKey()
@@ -470,10 +464,7 @@ final class SettingsWindowController: NSWindowController {
         syncHotKey()
     }
 
-    @objc private func changeKeysMode(_ sender: NSSegmentedControl) { setWindowsKeys(sender.selectedSegment == 1) }
-
     private func setWindowsKeys(_ windows: Bool) {
-        keysMode.selectedSegment = windows ? 1 : 0
         keysTable.windowsKeys = windows
         guard windows != Settings.windowsKeys else { return }
         Settings.windowsKeys = windows

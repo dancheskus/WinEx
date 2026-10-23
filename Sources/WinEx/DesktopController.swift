@@ -1507,6 +1507,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         switch (event.keyCode, modifiers) {
         case (36, []), (76, []): if Settings.windowsKeys { openSelection() } else { renameSelected(nil) }
         case (51, [.command]): trashSelection()
+        case (51, [.command, .option]): Places.deleteForever(selectedFileURLs, emptying: false)   // ⌥⌘⌫ (Finder)
         case (0, [.command]): selection = Set(items.indices); needsDisplay = true
         case (5, [.command]):
             if let area = emptyArea, selection.isEmpty { makeFence(in: area) }

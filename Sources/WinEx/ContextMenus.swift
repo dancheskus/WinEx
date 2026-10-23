@@ -120,16 +120,20 @@ final class OpenWithMenu: NSObject {
         guard let first = urls.first else { return nil }
         let workspace = NSWorkspace.shared
         let defaultApp = workspace.urlForApplication(toOpen: first)
+        // Not WinEx (any copy): «Открыть» and «Открыть в новой вкладке / окне» are for that
+        let ownIdentity = AppsConfig.identity(of: Bundle.main.bundleURL)
         var seen = Set<String>()
         var apps: [URL] = []
-        // The system's apps for the first item (the ones hidden in Settings ▸ Программы left out,
-        // except the default one), then the apps added there
-        let added = AppsConfig.apps.filter { $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) }.map(\.url)
+        // The system's apps for the first item (the ones switched off in Settings ▸ Программы or
+        // put in the menu itself left out, except the default one), then the apps given other
+        // items there
+        let added = AppsConfig.apps.filter { $0.scope != .system && AppsConfig.isShown($0.url) && !$0.inMainMenu
+            && $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) }.map(\.url)
         for app in [defaultApp].compactMap({ $0 }) + workspace.urlsForApplications(toOpen: first) + added {
             let name = appName(app)
-            // Skip duplicates (several copies of one app) and WinEx itself
-            guard !seen.contains(name), app.standardizedFileURL != Bundle.main.bundleURL.standardizedFileURL else { continue }
-            if app != defaultApp, AppsConfig.isHidden(app), !added.contains(app) { continue }
+            // Skip duplicates (several copies of one app)
+            guard !seen.contains(name), AppsConfig.identity(of: app) != ownIdentity else { continue }
+            if app != defaultApp, !added.contains(app), !AppsConfig.showsInOpenWith(app, for: urls) { continue }
             seen.insert(name)
             apps.append(app)
         }
@@ -177,7 +181,7 @@ final class OpenWithMenu: NSObject {
         func isDefault(_ app: AppsConfig.App) -> Bool {
             defaults.allSatisfy { $0 == app.url.standardizedFileURL }
         }
-        return AppsConfig.apps.filter { $0.inMainMenu && $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) && !isDefault($0) }.map { app in
+        return AppsConfig.apps.filter { $0.inMainMenu && AppsConfig.isShown($0.url) && $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) && !isDefault($0) }.map { app in
             let item = NSMenuItem(title: L("Открыть в %@", app.name), action: #selector(openWith(_:)), keyEquivalent: "")
             item.target = shared
             item.representedObject = Request(urls: urls, app: app.url)
@@ -254,8 +258,12 @@ final class AlwaysOpenWithView: NSView {
 
 /// An entry of the "New" submenu (Explorer's ShellNew). Only types some installed app can open are offered.
 final class NewItemTemplate: NSObject {
-    let title: String
-    let fileName: String
+    /// A built-in's own title and file name (Settings ▸ Программы can rename it).
+    let defaultTitle: String
+    let defaultFileName: String
+    private let isBuiltin: Bool
+    var title: String { isBuiltin ? AppsConfig.templateTitles[id] ?? defaultTitle : defaultTitle }
+    var fileName: String { isBuiltin ? AppsConfig.templateFileNames[id] ?? defaultFileName : defaultFileName }
     let symbol: String
     private let contentType: UTType?
     private let makeData: (() throws -> Data)?
@@ -265,10 +273,11 @@ final class NewItemTemplate: NSObject {
     /// A custom entry's sample file (copied for each new one).
     private var source: URL?
 
-    private init(_ id: String, _ title: String, fileName: String, symbol: String, type: UTType?, data: (() throws -> Data)?) {
+    private init(_ id: String, _ title: String, fileName: String, symbol: String, type: UTType?, data: (() throws -> Data)?, builtin: Bool = true) {
         self.id = id
-        self.title = title
-        self.fileName = fileName
+        self.defaultTitle = title
+        self.defaultFileName = fileName
+        self.isBuiltin = builtin
         self.symbol = symbol
         self.contentType = type
         self.makeData = data
@@ -276,7 +285,7 @@ final class NewItemTemplate: NSObject {
 
     var isFolder: Bool { makeData == nil }
 
-    static let folder = NewItemTemplate("folder", L("Папку"), fileName: L("Новая папка"), symbol: "folder", type: nil, data: nil)
+    static let folder = NewItemTemplate("folder", L("Папку"), fileName: L("Новая папка"), symbol: "folder", type: nil, data: nil, builtin: false)
 
     static let files: [NewItemTemplate] = [
         NewItemTemplate("txt", L("Текстовый документ"), fileName: L("Новый текстовый документ.txt"), symbol: "doc.plaintext",
@@ -306,7 +315,7 @@ final class NewItemTemplate: NSObject {
     /// Settings ▸ Программы ▸ Создать: an entry of the user's.
     static func custom(_ template: AppsConfig.Template) -> NewItemTemplate {
         let item = NewItemTemplate(template.id, template.title, fileName: template.fileName, symbol: "doc.badge.plus",
-                                   type: nil, data: { Data() })
+                                   type: nil, data: { Data() }, builtin: false)
         item.source = template.sourcePath.map(URL.init(fileURLWithPath:))
         return item
     }

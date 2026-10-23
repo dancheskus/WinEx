@@ -32,6 +32,8 @@ enum Scenarios {
         "trashaccess": trashAccess,
         "update": update,
         "settings": settingsTabs,
+        "keyscolumns": keysColumns,
+        "listboxes": listBoxes,
         "sidebar": sidebar,
         "recents": recents,
         "commandbar": commandBarScenario,
@@ -2888,8 +2890,28 @@ enum Scenarios {
         ])
     }
 
-    /// Settings ▸ Программы: an added app with its own item, a hidden app, a custom template.
+    /// Settings ▸ Программы: an added app with its own item, a hidden app, a custom template; a
+    /// switched-on app moves up among the others that are on, the list doesn't scroll.
     static func appsSettings(_ s: Scenario) {
+        var switched = "", scrollY: CGFloat = 0
+        func tables(_ view: NSView?) -> [NSTableView] {
+            guard let view else { return [] }
+            return (view as? NSTableView).map { [$0] } ?? view.subviews.flatMap(tables)
+        }
+        func offeredTable() -> NSTableView? {
+            let window = NSApp.windows.first { $0.isVisible && $0.contentViewController is NSTabViewController }
+            return tables(window?.contentView).first { $0.tableColumns.first?.identifier.rawValue == "shown" }
+        }
+        func checkbox(_ table: NSTableView, row: Int) -> NSButton? {
+            table.view(atColumn: 0, row: row, makeIfNecessary: true)?.subviews.compactMap { $0 as? NSButton }.first
+        }
+        func names(_ table: NSTableView) -> [(name: String, on: Bool)] {
+            (0..<table.numberOfRows).map { row in
+                let name = (table.view(atColumn: 1, row: row, makeIfNecessary: true)?.subviews.first as? NSStackView)?
+                    .arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }.first ?? "?"
+                return (name, checkbox(table, row: row)?.state == .on)
+            }
+        }
         let base = s.makeFiles(["заметка.rtf"])
         let folder = base.appendingPathComponent("проект")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -2897,7 +2919,10 @@ enum Scenarios {
         let code = workspace.urlForApplication(withBundleIdentifier: "com.microsoft.VSCode")
         let pages = workspace.urlForApplication(withBundleIdentifier: "com.apple.iWork.Pages")
         if let code { AppsConfig.apps = [AppsConfig.App(path: code.path, scope: .all, extensions: ["rtf", "md"], inMainMenu: true)] }
-        if let pages { AppsConfig.hiddenApps = [AppsConfig.identity(of: pages)] }
+        // Pages isn't a basic app: off until switched on
+        s.note("  shown by default: \(AppsConfig.shownApps)")
+        let rtfFile = base.appendingPathComponent("заметка.rtf")
+        s.note("  Pages in «Открыть с помощью»: \(pages.map { AppsConfig.showsInOpenWith($0, for: [rtfFile]) } ?? false)  expect false")
         let sample = base.appendingPathComponent("образец.md")
         try? "# Заметка\n".write(to: sample, atomically: true, encoding: .utf8)
         AppsConfig.templates = [AppsConfig.Template(title: "Заметка Markdown", fileName: "Заметка.md", sourcePath: sample.path)]
@@ -2907,7 +2932,11 @@ enum Scenarios {
         s.note("  folder «Открыть с помощью»: \(titles(OpenWithMenu.item(for: [folder])))")
         s.note("  folder own items: \(OpenWithMenu.mainMenuItems(for: [folder]).map(\.title))  expect [Открыть в Visual Studio Code]")
         let rtf = base.appendingPathComponent("заметка.rtf")
-        s.note("  rtf «Открыть с помощью»: \(titles(OpenWithMenu.item(for: [rtf])))  expect no Pages")
+        s.note("  rtf «Открыть с помощью»: \(titles(OpenWithMenu.item(for: [rtf])))  expect no Pages, no VS Code (it's in the menu itself)")
+        if let code { AppsConfig.change(code) { $0.inMainMenu = false } }
+        s.note("  rtf «Открыть с помощью», VS Code not in the menu: \(titles(OpenWithMenu.item(for: [rtf])))  expect VS Code")
+        s.note("  rtf own items: \(OpenWithMenu.mainMenuItems(for: [rtf]).map(\.title))  expect none")
+        if let code { AppsConfig.change(code) { $0.inMainMenu = true } }
         s.note("  rtf own items: \(OpenWithMenu.mainMenuItems(for: [rtf]).map(\.title))")
         let script = base.appendingPathComponent("скрипт.sh")
         try? "echo".write(to: script, atomically: true, encoding: .utf8)
@@ -2915,6 +2944,10 @@ enum Scenarios {
         if let code { AppsConfig.apps = [AppsConfig.App(path: code.path, scope: .all, extensions: [], inMainMenu: true)] }
         s.note("  .sh opens with \(opener); own items: \(OpenWithMenu.mainMenuItems(for: [script]).map(\.title))  expect none if VS Code is the default")
         s.note("  «Создать»: \(NewItemTemplate.availableFiles.map(\.title))  expect no PowerPoint, + Заметка Markdown")
+        AppsConfig.templateTitles = ["txt": "Заметка TXT"]
+        AppsConfig.templateFileNames = ["txt": "Заметка.txt"]
+        let renamed = NewItemTemplate.files.first { $0.id == "txt" }
+        s.note("  renamed txt: \(renamed?.title ?? "-") / \(renamed?.fileName ?? "-")  expect Заметка TXT / Заметка.txt")
         if let custom = NewItemTemplate.availableFiles.last, let made = try? custom.create(in: folder) {
             s.note("  created \(made.lastPathComponent): \((try? String(contentsOf: made, encoding: .utf8)) ?? "?")")
         }
@@ -2925,7 +2958,66 @@ enum Scenarios {
                     try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-0"), atomically: true, encoding: .utf8)
                 }
             }),
-            (2.0, "done", {}),
+            (1.5, "switch on the first app that's off", {
+                guard let table = offeredTable() else { return s.note("  (no table)") }
+                let before = names(table)
+                let on = before.filter(\.on).count
+                guard on < before.count, let box = checkbox(table, row: on) else { return s.note("  (nothing to switch on)") }
+                switched = before[on].name
+                scrollY = table.enclosingScrollView?.contentView.bounds.origin.y ?? -1
+                box.performClick(nil)
+                s.note("  switched on \(switched) (row \(on) of \(before.count), \(on) on before)")
+            }),
+            (1.0, "order after", {
+                guard let table = offeredTable() else { return }
+                let after = names(table)
+                let on = after.prefix { $0.on }
+                s.note("  on rows: \(on.map(\.name))  expect sorted, with \(switched)")
+                s.note("  every on row on top: \(after.drop { $0.on }.allSatisfy { !$0.on })  expect true")
+                s.note("  scroll kept: \(table.enclosingScrollView?.contentView.bounds.origin.y == scrollY)  expect true")
+                s.note("  stored: \(AppsConfig.shownApps.count) apps")
+            }),
+            (0.3, "scrolled to the end, switch the last app on (rows come into view as it leaves)", {
+                guard let table = offeredTable(), table.numberOfRows > 0 else { return s.note("  (no table)") }
+                let last = table.numberOfRows - 1
+                table.scrollRowToVisible(last)
+                guard let box = checkbox(table, row: last) else { return s.note("  (no checkbox)") }
+                let name = names(table)[last].name
+                box.performClick(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                    let after = names(table)
+                    s.note("  switched on \(name); every on row on top: \(after.drop { $0.on }.allSatisfy { !$0.on })  expect true (and no crash)")
+                    table.scrollRowToVisible(0)
+                    if let row = after.firstIndex(where: { $0.name == name }), let box = checkbox(table, row: row) { box.performClick(nil) }
+                }
+            }),
+            (1.2, "", {}),
+            (0.5, "extensions VS Code opens anyway", {
+                guard let table = offeredTable(), let code else { return }
+                AppsConfig.change(code) { $0.extensions = ["rtf", "sh"] }
+                guard let row = names(table).firstIndex(where: { $0.name == "Visual Studio Code" }) else { return s.note("  (no VS Code row)") }
+                table.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
+                let field = table.view(atColumn: 3, row: row, makeIfNecessary: true)?.subviews.first as? NSTextField
+                s.note("  ext tooltip: \(field?.toolTip ?? "none")  expect .sh only (if VS Code opens .sh)")
+            }),
+            (0.3, "switch «Создать ▸ Документ RTF» off", {
+                let window = NSApp.windows.first { $0.isVisible && $0.contentViewController is NSTabViewController }
+                guard let table = tables(window?.contentView).first(where: { $0.tableColumns.first?.identifier.rawValue == "on" }) else { return s.note("  (no table)") }
+                let titles = { (0..<table.numberOfRows).map { row -> String in
+                    let view = table.view(atColumn: 1, row: row, makeIfNecessary: true)?.subviews.first
+                    return (view as? NSTextField)?.stringValue ?? (view as? NSStackView)?.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }.first ?? "?"
+                } }
+                s.note("  before: \(titles())")
+                let box = table.view(atColumn: 0, row: 1, makeIfNecessary: true)?.subviews.compactMap { $0 as? NSButton }.first
+                box?.performClick(nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { s.note("  after:  \(titles())  expect RTF after the switched-on ones") }
+            }),
+            (1.2, "photograph", {
+                if let window = NSApp.windows.first(where: { $0.isVisible && $0.contentViewController is NSTabViewController }) {
+                    try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-1"), atomically: true, encoding: .utf8)
+                }
+            }),
+            (1.5, "done", {}),
         ])
     }
 
@@ -3684,6 +3776,72 @@ enum Scenarios {
         }
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { step(0) }
+    }
+
+    /// Settings ▸ Клавиатура: a click anywhere on a column picks that mode, the other column lights
+    /// up under the mouse. Pictures of each state.
+    static func keysColumns(_ s: Scenario) {
+        Settings.windowsKeys = false
+        AppDelegate.shared.showSettings(tab: .keyboard)
+        func find(_ view: NSView?) -> KeyboardModesView? {
+            guard let view else { return nil }
+            if let table = view as? KeyboardModesView { return table }
+            return view.subviews.lazy.compactMap(find).first
+        }
+        func window() -> NSWindow? { NSApp.windows.first { find($0.contentView) != nil } }
+        /// Taken from outside by scripts/capture-window.sh (shot-0…3: finder, hover windows, windows, hover finder).
+        var shots = 0
+        func picture() {
+            guard let window = window() else { return }
+            try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(shots)"), atomically: true, encoding: .utf8)
+            shots += 1
+        }
+        /// A point in the column's middle, a third down (on the keys, not between rows).
+        func point(_ fraction: CGFloat) -> NSPoint? {
+            guard let table = find(window()?.contentView) else { return nil }
+            return table.convert(NSPoint(x: table.bounds.width * fraction, y: table.bounds.height * 0.6), to: nil)
+        }
+        func send(_ type: NSEvent.EventType, _ fraction: CGFloat) {
+            guard let window = window(), let at = point(fraction),
+                  let event = NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            else { return s.note("  (no table)") }
+            if type == .mouseMoved, let table = find(window.contentView) { table.mouseMoved(with: event) } else { window.sendEvent(event) }
+        }
+        s.run([
+            (1.0, "finder mode", { picture(); s.note("  windowsKeys=\(Settings.windowsKeys)") }),
+            (0.3, "hover windows column", { send(.mouseMoved, 0.88) }),
+            (0.4, "picture", { picture() }),
+            (1.0, "click windows column (on a key)", { send(.leftMouseDown, 0.88); send(.leftMouseUp, 0.88) }),
+            (0.5, "after click", { picture(); s.note("  windowsKeys=\(Settings.windowsKeys) (expect true)") }),
+            (1.0, "hover finder column", { send(.mouseMoved, 0.62) }),
+            (0.4, "picture", { picture() }),
+            (1.0, "click finder column", { send(.leftMouseDown, 0.62); send(.leftMouseUp, 0.62) }),
+            (0.5, "after click", { s.note("  windowsKeys=\(Settings.windowsKeys) (expect false)") }),
+            (1.0, "click action label (outside columns)", { send(.leftMouseDown, 0.15); send(.leftMouseUp, 0.15) }),
+            (0.3, "after", { s.note("  windowsKeys=\(Settings.windowsKeys) (expect false)") }),
+        ])
+    }
+
+    /// Lists with + / − under them (ListBox): Settings ▸ Теги, ▸ Программы, «Подключение к серверу».
+    /// Pictures by scripts/capture-window.sh listboxes 3.
+    static func listBoxes(_ s: Scenario) {
+        var shots = 0
+        func picture(_ window: NSWindow?) {
+            guard let window else { return s.note("  (no window)") }
+            try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(shots)"), atomically: true, encoding: .utf8)
+            shots += 1
+        }
+        func settings() -> NSWindow? { NSApp.windows.first { $0.contentViewController is NSTabViewController } }
+        s.run([
+            (0.5, "tags", { AppDelegate.shared.showSettings(tab: .tags) }),
+            (1.0, "picture", { picture(settings()) }),
+            (1.0, "apps", { AppDelegate.shared.showSettings(tab: .apps) }),
+            (1.0, "picture", { picture(settings()) }),
+            (1.0, "connect to server", { settings()?.close(); ConnectToServerWindow.show { _ in } }),
+            (1.0, "picture", { picture(ConnectToServerWindow.shared?.window) }),
+            (1.0, "close", { ConnectToServerWindow.shared?.window?.close() }),
+        ])
     }
 
     /// The updater's download and signature check (without the restart): a build signed with our

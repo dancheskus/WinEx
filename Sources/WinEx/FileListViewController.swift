@@ -1240,7 +1240,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
     }
 
-    @objc private func deleteForever(_ sender: Any?) {
+    @objc func deleteForever(_ sender: Any?) {
         Places.deleteForever(targetURLs, emptying: false)
     }
 
@@ -1366,7 +1366,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             return directory != nil
         }
         switch menuItem.action {
-        case #selector(cut(_:)), #selector(copy(_:)), #selector(moveToTrash(_:)), #selector(openSelected(_:)),
+        case #selector(cut(_:)), #selector(copy(_:)), #selector(moveToTrash(_:)), #selector(deleteForever(_:)), #selector(openSelected(_:)),
              #selector(renameSelected(_:)), #selector(openInNewTab(_:)), #selector(openInNewWindow(_:)),
              #selector(duplicate(_:)), #selector(compress(_:)), #selector(makeAlias(_:)):
             return !targetRows.isEmpty
