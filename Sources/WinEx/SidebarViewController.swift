@@ -86,6 +86,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         observers.add(TagLibrary.didChange) { [weak self] in self?.rebuild() }
         observers.add(ServerShares.connectionsChanged) { [weak self] in self?.rebuild() }
         observers.add(MobileDevices.didChange) { [weak self] in self?.rebuild() }
+        observers.add(ServerReachability.didChange) { [weak self] in self?.rebuild() }
+        observers.add(NetworkBrowser.didChange) { [weak self] in self?.rebuild() }
+        ServerReachability.start()
         rebuild()
     }
 
@@ -124,15 +127,20 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsInternalKey, .volumeIsLocalKey,
                                       .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsRootFileSystemKey]
         var servers: [Item] = []
-        for url in fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [] {
-            let values = try? url.resourceValues(forKeys: Set(keys))
-            let name = values?.volumeLocalizedName ?? url.lastPathComponent
+        // Network shares are known from the mount table: asking a share goes to its server, and
+        // one that's gone (another network) would hold the whole window for seconds
+        let shares = Dictionary(MountTable.networkMounts().map { ($0.volume.standardizedFileURL.path, $0) }) { first, _ in first }
+        for url in fm.mountedVolumeURLs(includingResourceValuesForKeys: [], options: [.skipHiddenVolumes]) ?? [] {
+            let share = shares[url.standardizedFileURL.path]
+            let values = share == nil ? try? url.resourceValues(forKeys: Set(keys)) : nil
+            let shareName = share?.remount.map(Places.shareName(of:)).flatMap { $0.isEmpty ? nil : $0 }
+            let name = values?.volumeLocalizedName ?? shareName ?? url.lastPathComponent
             let item: Item
             let place: SidebarConfig.Place
-            if values?.volumeIsLocal == false {
+            if share != nil || values?.volumeIsLocal == false {
                 // Shares go under their server, one entry each, as in Finder: it lists all the
                 // server's shares, and ⏏ disconnects them all
-                guard let server = Places.serverURL(ofVolume: url) else {
+                guard let server = share?.remount.flatMap(Places.serverRoot) else {
                     item = Item(title: name, url: url, symbol: "externaldrive.connected.to.line.below")
                     item.ejectable = true
                     add(.servers, item)
@@ -168,7 +176,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             }
         }
         // Servers logged in to with nothing mounted yet: still there, as in Finder
-        for server in ServerShares.connected where !servers.contains(where: { Places.sameServer($0.url, server) }) {
+        // (Not when it doesn't answer from here: the NAS at home, the Mac elsewhere)
+        for server in ServerShares.connected where !servers.contains(where: { Places.sameServer($0.url, server) })
+            && ServerReachability.isReachable(server) {
             let entry = Item(title: Places.serverName(of: server) ?? server.absoluteString, url: server, symbol: "server.rack")
             entry.ejectable = true
             servers.append(entry)
@@ -178,6 +188,14 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             let airDrop = Item(title: "AirDrop", url: link, symbol: "airplayaudio")
             airDrop.action = { Places.openAirDrop() }
             add(.airDrop, airDrop)
+        }
+        // File servers found on the network the Mac is on (Finder's "Bonjour computers"): they come
+        // and go with the network; one already shown as connected isn't repeated
+        if SidebarConfig.shows(.bonjour) {
+            NetworkBrowser.shared.start()
+            for server in NetworkBrowser.shared.servers where !servers.contains(where: { Places.sameServer($0.url, server.url) }) {
+                add(.bonjour, Item(title: server.name, url: server.url, symbol: "server.rack"))
+            }
         }
         add(.network, Item(title: L("Сеть"), url: Places.networkURL, symbol: "network"))
         add(.trash, Item(title: L("Корзина"), url: Places.trashURL, symbol: "trash"))

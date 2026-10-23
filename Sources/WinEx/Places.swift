@@ -164,14 +164,12 @@ enum Places {
     }
 
     /// The network shares mounted now (Finder's or WinEx's), with the address each was mounted from.
+    /// (From the mount table: a share whose server is gone doesn't hold anything up.)
     static func mountedShares() -> [(volume: URL, remount: URL)] {
-        let keys: [URLResourceKey] = [.volumeIsLocalKey, .volumeURLForRemountingKey]
-        return (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [])
-            .compactMap { volume in
-                guard let values = try? volume.resourceValues(forKeys: Set(keys)), values.volumeIsLocal == false,
-                      let remount = values.volumeURLForRemounting else { return nil }
-                return (volume, remount)
-            }
+        MountTable.networkMounts().compactMap { mount in
+            guard !mount.isHidden, let remount = mount.remount else { return nil }
+            return (mount.volume, remount)
+        }
     }
 
     /// The server of each mounted share, remembered: once ejected, a share can't say where it was from.
@@ -202,7 +200,7 @@ enum Places {
     }
 
     private static func remountURL(of volume: URL) -> URL? {
-        (try? volume.resourceValues(forKeys: [.volumeURLForRemountingKey]))?.volumeURLForRemounting
+        MountTable.networkMount(at: volume)?.remount
     }
 
     static func unmount(_ volume: URL) {
@@ -222,6 +220,74 @@ enum Places {
         for share in mountedShares(on: server) { unmount(share.volume) }
         ServerShares.setConnected(server, false)
         for controller in AppDelegate.shared.windowControllers { controller.leaveServer(server) }
+    }
+}
+
+/// The mounted volumes as the kernel lists them, read without waiting for any of them: which are
+/// network shares and where each came from. Asking a share itself (its name, whether it's local,
+/// its address) goes to its server, and when the server is gone — another network, the NAS off —
+/// every such question waits seconds for it; the mount table answers at once.
+enum MountTable {
+    struct Mount {
+        let volume: URL
+        /// Not shown in Finder (mounted "nobrowse").
+        let isHidden: Bool
+        /// smb://user@NAS._smb._tcp.local/Daniel: the address it was mounted from.
+        let remount: URL?
+    }
+
+    private static let networkTypes: Set<String> = ["smbfs", "afpfs", "nfs", "webdav", "ftp"]
+
+    /// The network shares mounted now.
+    static func networkMounts() -> [Mount] {
+        let count = getfsstat(nil, 0, MNT_NOWAIT)
+        guard count > 0 else { return [] }
+        // (Room for a few more, mounted meanwhile; getfsstat fills what fits)
+        let capacity = Int(count) + 8
+        let table = UnsafeMutablePointer<statfs>.allocate(capacity: capacity)
+        defer { table.deallocate() }
+        let filled = getfsstat(table, Int32(capacity * MemoryLayout<statfs>.stride), MNT_NOWAIT)
+        guard filled > 0 else { return [] }
+        return (0..<Int(min(filled, Int32(capacity)))).compactMap { index in
+            var entry = table[index]
+            let type = string(&entry.f_fstypename)
+            guard networkTypes.contains(type) else { return nil }
+            return Mount(volume: URL(fileURLWithPath: string(&entry.f_mntonname), isDirectory: true),
+                         isHidden: entry.f_flags & UInt32(MNT_DONTBROWSE) != 0,
+                         remount: remountURL(type: type, from: string(&entry.f_mntfromname)))
+        }
+    }
+
+    /// The network share mounted at `volume`, if it is one.
+    static func networkMount(at volume: URL) -> Mount? {
+        let path = volume.standardizedFileURL.path
+        return networkMounts().first { $0.volume.standardizedFileURL.path == path }
+    }
+
+    /// What the mount table says a share was mounted from ("//user@NAS._smb._tcp.local/Daniel"),
+    /// as an address (smb://user@NAS._smb._tcp.local/Daniel).
+    static func remountURL(type: String, from source: String) -> URL? {
+        // (The login method, "user;AUTH=…@host", isn't part of the address)
+        let source = source.replacingOccurrences(of: ";AUTH=[^@]*", with: "", options: [.regularExpression, .caseInsensitive])
+        let address: String
+        switch type {
+        case "smbfs": address = "smb:" + source
+        case "afpfs": address = "afp:" + source
+        case "nfs":
+            // host:/path
+            guard let colon = source.firstIndex(of: ":") else { return nil }
+            address = "nfs://" + source[..<colon] + source[source.index(after: colon)...]
+        default: address = source   // webdav, ftp: the address itself
+        }
+        guard address.contains("://") else { return nil }
+        return URL(string: address)
+            ?? address.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed).flatMap(URL.init(string:))
+    }
+
+    private static func string<T>(_ field: inout T) -> String {
+        withUnsafeBytes(of: &field) { bytes in
+            String(decoding: bytes.prefix { $0 != 0 }, as: UTF8.self)
+        }
     }
 }
 
@@ -266,6 +332,13 @@ enum ServerShares {
         NotificationCenter.default.post(name: connectionsChanged, object: nil)
     }
 
+    /// Runs `handler` on the main thread whenever a server is connected or disconnected.
+    static func observeConnections(_ handler: @escaping @MainActor () -> Void) {
+        NotificationCenter.default.addObserver(forName: connectionsChanged, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { handler() }
+        }
+    }
+
     /// Last lists read, by server name: shown at once while a fresh one is read.
     @MainActor private static var known: [String: (names: [String], user: String?)] = [:]
 
@@ -293,6 +366,7 @@ enum ServerShares {
                 MainActor.assumeIsolated {
                     guard let result else { return completion(nil) }
                     setConnected(server, true)
+                    ServerReachability.reached(server)
                     let user = result.user ?? mountedUser?.removingPercentEncoding
                     known[key] = (result.names, user)
                     completion(listing(result.names, user: user, on: server))
@@ -358,6 +432,113 @@ private enum NetAuth {
         var list: Unmanaged<CFDictionary>?
         guard enumerate(connection, nil, &list) == 0, let shares = list?.takeRetainedValue() as? [String: Any] else { return nil }
         return (ServerShares.diskShares(shares), session?["MountedByUser"] as? String)
+    }
+}
+
+/// Whether the servers logged in to with nothing mounted answer from here. Away from home the NAS
+/// leaves the sidebar — still remembered, it comes back once it answers again. Checked at launch
+/// and when the network changes (Wi‑Fi, VPN, waking elsewhere): one short connection attempt per
+/// server, nothing in between.
+@MainActor
+enum ServerReachability {
+    static let didChange = Notification.Name("WinExServerReachabilityChanged")
+
+    /// Server names (lowercased) that didn't answer at the last check.
+    private static var unreachable: Set<String> = []
+    private static var monitor: NWPathMonitor?
+    private static var pendingCheck: DispatchWorkItem?
+    private static var generation = 0
+
+    static func start() {
+        guard monitor == nil else { return }
+        let monitor = NWPathMonitor()
+        // (Called once at the start too: the first check)
+        monitor.pathUpdateHandler = { _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { scheduleCheck() } }
+        }
+        monitor.start(queue: .global(qos: .utility))
+        self.monitor = monitor
+        ServerShares.observeConnections { scheduleCheck() }
+    }
+
+    static func isReachable(_ server: URL) -> Bool {
+        guard let key = Places.serverName(of: server)?.lowercased() else { return true }
+        return !unreachable.contains(key)
+    }
+
+    /// The server just let us in: it's here.
+    static func reached(_ server: URL) {
+        guard let key = Places.serverName(of: server)?.lowercased(), unreachable.remove(key) != nil else { return }
+        NotificationCenter.default.post(name: didChange, object: nil)
+    }
+
+    /// A network changing comes in several steps (Wi‑Fi joins, the address comes, the VPN follows):
+    /// checked once it has settled.
+    private static func scheduleCheck() {
+        pendingCheck?.cancel()
+        let work = DispatchWorkItem { MainActor.assumeIsolated { check() } }
+        pendingCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
+    private static func check() {
+        generation += 1
+        let token = generation
+        // (One per server name: the same server reached two ways is asked once)
+        var servers: [String: URL] = [:]
+        for server in ServerShares.connected {
+            if let key = Places.serverName(of: server)?.lowercased(), servers[key] == nil { servers[key] = server }
+        }
+        var answers: [String: Bool] = [:]
+        func apply() {
+            guard token == generation else { return }
+            let now = Set(answers.filter { !$0.value }.keys)
+            guard now != unreachable else { return }
+            unreachable = now
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+        guard !servers.isEmpty else { return apply() }
+        for (key, server) in servers {
+            probe(server) { answered in
+                answers[key] = answered
+                if answers.count == servers.count { apply() }
+            }
+        }
+    }
+
+    /// One TCP connection to the server's file-sharing port, given up after a few seconds.
+    private static func probe(_ server: URL, completion: @escaping @MainActor (Bool) -> Void) {
+        guard let host = server.host(percentEncoded: false), !host.isEmpty else { return completion(true) }
+        let endpoint: NWEndpoint
+        let lowered = host.lowercased()
+        if let type = ["._smb._tcp.local": "_smb._tcp", "._afpovertcp._tcp.local": "_afpovertcp._tcp"]
+            .first(where: { lowered.hasSuffix($0.key) }) {
+            // A Bonjour name: found the way Finder finds it, on the network the Mac is on
+            endpoint = .service(name: String(host.dropLast(type.key.count)), type: type.value, domain: "local.", interface: nil)
+        } else {
+            let standard: Int = server.scheme == "afp" ? 548 : server.scheme == "nfs" ? 2049 : 445
+            endpoint = .hostPort(host: .init(host), port: NWEndpoint.Port(rawValue: UInt16(server.port ?? standard)) ?? 445)
+        }
+        let connection = NWConnection(to: endpoint, using: .tcp)
+        var finished = false
+        func finish(_ answered: Bool) {
+            guard !finished else { return }
+            finished = true
+            connection.cancel()
+            completion(answered)
+        }
+        connection.stateUpdateHandler = { state in
+            MainActor.assumeIsolated {
+                switch state {
+                case .ready: finish(true)
+                // (Local network access not allowed: whether it's there can't be told — not hidden)
+                case .failed(let error), .waiting(let error): finish(error == .dns(DNSServiceErrorType(kDNSServiceErr_PolicyDenied)))
+                default: break
+                }
+            }
+        }
+        connection.start(queue: .main)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated { finish(false) } }
     }
 }
 

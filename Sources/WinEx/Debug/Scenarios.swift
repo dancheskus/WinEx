@@ -80,6 +80,7 @@ enum Scenarios {
         "selfupdate": selfUpdate,
         "updated": updated,
         "nas": nas,
+        "bonjour": bonjour,
         "releasenotes": releaseNotes,
         "deviceimport": deviceImport,
         "cloudprogress": cloudProgress,
@@ -1135,6 +1136,26 @@ enum Scenarios {
                 }),
             ])
         }
+    }
+
+    /// The file servers found on the network sit in the sidebar's "Места", as Finder's "Bonjour
+    /// computers"; switched off in Settings, they go. Mounts and logs in to nothing.
+    static func bonjour(_ s: Scenario) {
+        func found() -> [String] {
+            guard let outline = s.findAll(NSOutlineView.self, in: s.window?.window?.contentView ?? NSView())
+                .first(where: { $0.dataSource is SidebarViewController }) else { return [] }
+            return (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? SidebarViewController.Item }
+                .filter { $0.place == .bonjour }.map { "\($0.title) \($0.url.absoluteString)" }
+        }
+        s.run([
+            (4.0, "servers found", {
+                s.note("  browser: \(NetworkBrowser.shared.servers.map(\.name))")
+                s.note("  sidebar: \(found())  expect the same")
+            }),
+            (0.5, "switched off", { SidebarConfig.setShows(.bonjour, false) }),
+            (0.5, "gone?", { s.note("  sidebar: \(found())  expect []") }),
+            (0.2, "switched back on", { SidebarConfig.setShows(.bonjour, true) }),
+        ])
     }
 
     /// A file server as Finder shows it: found by Bonjour, its shares listed with the saved login

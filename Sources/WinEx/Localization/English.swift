@@ -551,6 +551,7 @@ enum English {
         "Внутренние диски": "Internal Drives",
         "Внешние диски": "External Drives",
         "Подключённые серверы": "Connected Servers",
+        "Компьютеры Bonjour": "Bonjour Computers",
         "Подключено: %@": "Connected: %@",
         "Общая папка": "Shared Folder",
         "Подключена": "Connected",

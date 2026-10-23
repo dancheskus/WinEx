@@ -36,8 +36,11 @@ enum SystemDesktop {
     /// Volumes Finder would put on the desktop with the current settings.
     static func desktopVolumes() -> [URL] {
         let keys: [URLResourceKey] = [.volumeIsInternalKey, .volumeIsLocalKey, .volumeIsRemovableKey, .volumeIsEjectableKey]
-        return (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? [])
+        // (Network shares from the mount table, not asked: one whose server is gone would hold the desktop)
+        let shares = Set(MountTable.networkMounts().map { $0.volume.standardizedFileURL.path })
+        return (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [], options: [.skipHiddenVolumes]) ?? [])
             .filter { url in
+                if shares.contains(url.standardizedFileURL.path) { return showsVolume(isInternal: false, local: false, removable: false) }
                 let values = try? url.resourceValues(forKeys: Set(keys))
                 return showsVolume(isInternal: values?.volumeIsInternal ?? false,
                                    local: values?.volumeIsLocal ?? true,

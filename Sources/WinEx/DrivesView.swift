@@ -52,7 +52,13 @@ final class DrivesView: NSScrollView {
     func reload() {
         let fm = FileManager.default
         let keys: [URLResourceKey] = [.volumeLocalizedNameKey, .volumeIsEjectableKey, .volumeIsRemovableKey, .volumeIsLocalKey]
-        let volumes = (fm.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []).map { url in
+        // (Network shares from the mount table, not asked: one whose server is gone would hold the window)
+        let shares = Set(MountTable.networkMounts().map { $0.volume.standardizedFileURL.path })
+        let volumes = (fm.mountedVolumeURLs(includingResourceValuesForKeys: [], options: [.skipHiddenVolumes]) ?? []).map { url in
+            if shares.contains(url.standardizedFileURL.path) {
+                return Drive(url: url, name: url.lastPathComponent, icon: NSWorkspace.shared.icon(for: .volume),
+                             total: nil, free: nil, ejectable: true, network: true, sizeURL: url)
+            }
             let values = try? url.resourceValues(forKeys: Set(keys))
             return Drive(url: url, name: values?.volumeLocalizedName ?? url.lastPathComponent,
                          icon: NSWorkspace.shared.icon(forFile: url.path), total: nil, free: nil,

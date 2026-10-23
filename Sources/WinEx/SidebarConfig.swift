@@ -110,7 +110,7 @@ enum SidebarConfig {
     // MARK: Places
 
     enum Place: String, CaseIterable {
-        case recents, shared, computer, iCloud, internalDisks, externalDisks, devices, servers, airDrop, network, trash
+        case recents, shared, computer, iCloud, internalDisks, externalDisks, devices, servers, airDrop, bonjour, network, trash
 
         var title: String {
             switch self {
@@ -123,6 +123,7 @@ enum SidebarConfig {
             case .devices: L("iPhone и iPad")
             case .servers: L("Подключённые серверы")
             case .airDrop: "AirDrop"
+            case .bonjour: L("Компьютеры Bonjour")
             case .network: L("Сеть")
             case .trash: L("Корзина")
             }
@@ -139,6 +140,7 @@ enum SidebarConfig {
             case .devices: "iphone"
             case .servers: "externaldrive.connected.to.line.below"
             case .airDrop: "airplayaudio"
+            case .bonjour: "server.rack"
             case .network: "network"
             case .trash: "trash"
             }
