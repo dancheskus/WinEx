@@ -3820,6 +3820,17 @@ enum Scenarios {
         s.note("  again: \(Updater.shared.tellWhatsNewIfUpdated())  expect false (told once)")
         s.run([
             (0.5, "told", { s.note("  \(Updater.shared.debugUpdateNotice ?? "nothing")  expect «обновлён до версии», «Была версия 0.0.1»") }),
+            (0.2, "no version written down, but WinEx ran before (an update from before 0.9.22)", {
+                AppDefaults.store.removeObject(forKey: "lastRunVersion")
+                AppDefaults.store.set(false, forKey: "running")
+                s.note("  updated: \(Updater.shared.tellWhatsNewIfUpdated())  expect true")
+            }),
+            (0.5, "told", { s.note("  \(Updater.shared.debugUpdateNotice ?? "nothing")  expect «обновлён до версии», no version before") }),
+            (0.2, "never ran: the first launch", {
+                AppDefaults.store.removeObject(forKey: "lastRunVersion")
+                AppDefaults.store.removeObject(forKey: "running")
+                s.note("  updated: \(Updater.shared.tellWhatsNewIfUpdated())  expect false")
+            }),
         ])
     }
 

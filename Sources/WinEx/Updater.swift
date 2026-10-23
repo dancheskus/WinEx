@@ -261,7 +261,10 @@ final class Updater {
         #if DEBUG
         if Scenario.isRequested { isRelease = true }
         #endif
-        let last = store.string(forKey: Self.lastRunKey)
+        // (Versions before 0.9.22 didn't write theirs down; that one ran before shows in the mark
+        // every version sets while it runs — not there: the first launch)
+        let ranBefore = store.object(forKey: "running") != nil
+        let last = store.string(forKey: Self.lastRunKey) ?? (ranBefore ? "" : nil)
         if isRelease { store.set(currentVersion, forKey: Self.lastRunKey) }
         if let notice = store.dictionary(forKey: Self.updateNoticeKey) {
             store.removeObject(forKey: Self.updateNoticeKey)
@@ -271,7 +274,7 @@ final class Updater {
                         failedVersion: Self.isVersion(to, newerThan: currentVersion) ? to : nil)
             return false
         }
-        guard isRelease, let last, Self.isVersion(currentVersion, newerThan: last) else { return false }
+        guard isRelease, let last, last.isEmpty || Self.isVersion(currentVersion, newerThan: last) else { return false }
         // No word left: this version's notes from its release page
         Task {
             let release = await releaseNotes(of: currentVersion)
@@ -305,12 +308,10 @@ final class Updater {
         } else {
             alert.messageText = L("WinEx обновлён до версии %@", currentVersion)
             let notes = ReleaseNotes.styled(markdown)
-            if notes.length > 0 {
-                alert.informativeText = L("Была версия %@. Что нового:", from)
-                alert.accessoryView = ReleaseNotes.view(notes)
-            } else {
-                alert.informativeText = L("Была версия %@.", from)
-            }
+            if notes.length > 0 { alert.accessoryView = ReleaseNotes.view(notes) }
+            // (The version before unknown: one before 0.9.22)
+            alert.informativeText = from.isEmpty ? (notes.length > 0 ? L("Что нового:") : "")
+                : notes.length > 0 ? L("Была версия %@. Что нового:", from) : L("Была версия %@.", from)
         }
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: failedVersion == nil ? L("Все изменения…") : L("Страница релизов…"))

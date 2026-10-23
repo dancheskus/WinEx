@@ -555,6 +555,7 @@ enum English {
         "Была версия %@. Что нового:": "It was version %@. What's new:",
         "Была версия %@.": "It was version %@.",
         "Все изменения…": "All Changes…",
+        "Что нового:": "What's new:",
         "Версия %@ не установилась, работает %@. Её можно скачать со страницы релизов.": "Version %@ didn't install; %@ is running. It can be downloaded from the releases page.",
         "Компьютеры Bonjour": "Bonjour Computers",
         "Подключено: %@": "Connected: %@",
