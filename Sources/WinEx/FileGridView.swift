@@ -757,6 +757,8 @@ final class FileCollectionView: NSCollectionView {
 
     /// Item under the last right click, -1 if none (like NSTableView.clickedRow).
     private(set) var clickedIndex = -1
+    /// Counts the right clicks that asked for the menu.
+    private(set) var menuClicks = 0
 
     private var anchor: Int?
     private var lead: Int?
@@ -833,10 +835,6 @@ final class FileCollectionView: NSCollectionView {
         lead = newAnchor
         selectionIndexPaths = Set(indexes.map(groups.indexPath(for:)))
         onSelectionChange?()
-    }
-
-    func clearClickedIndex() {
-        clickedIndex = -1
     }
 
     func scrollToItem(_ index: Int) {
@@ -998,6 +996,7 @@ final class FileCollectionView: NSCollectionView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         clickedIndex = itemIndex(at: point) ?? -1
+        menuClicks += 1
         // Like Explorer: right-clicking an unselected item selects it, empty space clears
         if clickedIndex < 0 {
             apply([], lead: lead ?? 0)

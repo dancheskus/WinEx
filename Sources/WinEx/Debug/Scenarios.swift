@@ -52,6 +52,7 @@ enum Scenarios {
         "addressclick": addressClick,
         "breadcrumbs": breadcrumbs,
         "contextmenu": contextMenu,
+        "contextswitch": contextMenuSwitch,
         "importmenu": importMenu,
         "unzip": unzip,
         "paste": pasteKeys,
@@ -3646,6 +3647,44 @@ enum Scenarios {
             table.rightMouseDown(with: event)
             s.run([])
         }
+    }
+
+    /// A folder's context menu open, a file right-clicked: the menu that comes is the file's (it
+    /// was the folder's background menu — the first menu's closing forgot the new click). The
+    /// menu calls are made in the order AppKit makes them, with the first close's queued work
+    /// running before the second menu is filled.
+    static func contextMenuSwitch(_ s: Scenario) {
+        let base = s.makeFiles(["папка/", "запись.mov"])
+        s.window?.navigate(to: base)
+        s.setViewMode(.mediumIcons)
+        s.run([
+            (1.0, "folder's menu, then the file right-clicked with it open", {
+                guard let grid = s.grid, let window = grid.window, let menu = grid.menu, let delegate = menu.delegate else { return s.note("  (no grid)") }
+                func event(on name: String) -> NSEvent? {
+                    let urls = (0..<grid.count).compactMap { (grid.item(at: grid.groups.indexPath(for: $0)) as? FileGridItem)?.textField?.stringValue }
+                    guard let index = urls.firstIndex(of: name),
+                          let frame = grid.layoutAttributesForItem(at: grid.groups.indexPath(for: index))?.frame else { return nil }
+                    return NSEvent.mouseEvent(with: .rightMouseDown, location: grid.convert(NSPoint(x: frame.midX, y: frame.minY + 30), to: nil),
+                                              modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                              context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+                }
+                // (Titles carry the icon and spacing: "￼￼   Открыть\t⌘↓")
+                func has(_ title: String) -> Bool { menu.items.contains { $0.title.contains(L(title)) } }
+                guard let onFolder = event(on: "папка"), let onFile = event(on: "запись.mov") else { return s.note("  (items not found)") }
+                _ = grid.menu(for: onFolder)
+                delegate.menuNeedsUpdate?(menu)
+                s.note("  folder's menu: «Открыть в новой вкладке»: \(has("Открыть в новой вкладке"))  expect true")
+                delegate.menuDidClose?(menu)
+                _ = grid.menu(for: onFile)
+                DispatchQueue.main.async {
+                    delegate.menuNeedsUpdate?(menu)
+                    s.note("  file's menu: «Новая папка»: \(has("Новая папка"))  expect false; «Открыть с помощью»: \(has("Открыть с помощью"))  expect true")
+                    s.note("  selected: \(s.selectedNames)  expect [запись.mov]")
+                    delegate.menuDidClose?(menu)
+                }
+            }),
+            (0.5, "done", {}),
+        ])
     }
 
     /// A big archive: the extraction window with its percentage (scripts/capture-window.sh unzip).

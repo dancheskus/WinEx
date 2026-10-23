@@ -930,6 +930,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         return viewMode == .details ? groups.index(forRow: tableView.clickedRow) ?? -1 : collectionView.clickedIndex
     }
     private var contextMenuOpen = false
+    /// Counts the context menus opened: a menu closing doesn't end the one opened right after it.
+    private var contextMenuCount = 0
 
     /// The item a context menu opened from the keyboard (⇧F10) is for.
     private var keyboardMenuIndex: Int?
@@ -1389,6 +1391,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         menu.removeAllItems()
         if menu === headerMenu { return fillHeaderMenu(menu) }
         contextMenuOpen = true
+        contextMenuCount += 1
         // Like Explorer: right-clicking an item selects it (the menu acts on the selection)
         let clicked = clickedIndex
         if clicked >= 0 && !selectedIndexes.contains(clicked) { setSelection(IndexSet(integer: clicked)) }
@@ -1558,10 +1561,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     func menuDidClose(_ menu: NSMenu) {
-        // Menu actions are sent after the menu closes; forget the clicked item afterwards
+        // Menu actions are sent after the menu closes; forget the clicked item afterwards — unless
+        // another item was right-clicked with this menu open: its menu is coming (or open) by then,
+        // and forgetting its item would make it the folder's menu
+        let count = contextMenuCount
+        let clicks = collectionView.menuClicks
         DispatchQueue.main.async { [weak self] in
-            self?.collectionView.clearClickedIndex()
-            self?.contextMenuOpen = false
+            guard let self, count == contextMenuCount, clicks == collectionView.menuClicks else { return }
+            contextMenuOpen = false
         }
     }
 
