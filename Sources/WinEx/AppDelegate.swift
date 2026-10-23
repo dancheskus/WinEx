@@ -108,7 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let session = AppDefaults.store.dictionary(forKey: Self.sessionKey) else { return false }
         AppDefaults.store.removeObject(forKey: Self.sessionKey)
         restoreWindows(session["windows"] as? [[String: Any]] ?? [])
-        if session["settings"] as? Bool == true { showSettings(tab: .general) }
+        // (Not after an update, even if the version before asked for it: 0.9.23 did)
+        if session["settings"] as? Bool == true, !Updater.shared.isJustUpdated { showSettings(tab: .general) }
         return true
     }
 

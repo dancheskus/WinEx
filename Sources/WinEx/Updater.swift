@@ -242,6 +242,9 @@ final class Updater {
     /// Written before quitting for an update; the new version reads it once at launch.
     private static let updateNoticeKey = "justUpdated"
 
+    /// Started by an update (its word not read yet).
+    var isJustUpdated: Bool { AppDefaults.store.dictionary(forKey: Self.updateNoticeKey) != nil }
+
     #if DEBUG
     /// Scenario runs: what the window would have said (no dialog).
     private(set) var debugUpdateNotice: String?

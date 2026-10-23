@@ -81,6 +81,7 @@ enum Scenarios {
         "selfupdate": selfUpdate,
         "updated": updated,
         "quietupdate": quietUpdate,
+        "settingsafterupdate": settingsAfterUpdate,
         "nas": nas,
         "bonjour": bonjour,
         "releasenotes": releaseNotes,
@@ -3834,6 +3835,21 @@ enum Scenarios {
                 s.note("  updated: \(Updater.shared.tellWhatsNewIfUpdated())  expect false")
             }),
         ])
+    }
+
+    /// Back from an update whose version before (0.9.23) asked for Settings too: not opened; back
+    /// from a new language with Settings asked for: opened.
+    static func settingsAfterUpdate(_ s: Scenario) {
+        func settingsShown() -> Bool { NSApp.windows.contains { $0.isVisible && $0.contentViewController is NSTabViewController } }
+        AppDefaults.store.set(["windows": [], "settings": true] as [String: Any], forKey: "restartSession")
+        AppDefaults.store.set(["from": "0.9.23", "to": Updater.shared.currentVersion, "notes": ""], forKey: "justUpdated")
+        _ = AppDelegate.shared.restoreSession()
+        s.note("  after an update: Settings \(settingsShown())  expect false")
+        AppDefaults.store.removeObject(forKey: "justUpdated")
+        AppDefaults.store.set(["windows": [], "settings": true] as [String: Any], forKey: "restartSession")
+        _ = AppDelegate.shared.restoreSession()
+        s.note("  after a new language: Settings \(settingsShown())  expect true")
+        s.run([])
     }
 
     /// The relaunched copy after "selfupdate": reports its version and quits.
