@@ -127,7 +127,7 @@ final class OpenWithMenu: NSObject {
         // The system's apps for the first item (the ones switched off in Settings ▸ Программы or
         // put in the menu itself left out, except the default one), then the apps given other
         // items there
-        let added = AppsConfig.apps.filter { $0.scope != .system && AppsConfig.isShown($0.url) && !$0.inMainMenu
+        let added = AppsConfig.apps.filter { ($0.scope != .system || !$0.extensions.isEmpty) && AppsConfig.isShown($0.url) && !$0.inMainMenu
             && $0.applies(to: urls) && FileManager.default.fileExists(atPath: $0.path) }.map(\.url)
         for app in [defaultApp].compactMap({ $0 }) + workspace.urlsForApplications(toOpen: first) + added {
             let name = appName(app)

@@ -42,6 +42,9 @@ enum AppsConfig {
                 let isFolder = url.isBrowsableDirectory
                 switch scope {
                 case .system:
+                    // Extensions typed in say which files, whatever macOS offers it for (VS Code
+                    // for .rtf); none: the files macOS offers it for
+                    if !isFolder, !extensions.isEmpty { return extensions.contains(url.pathExtension.lowercased()) }
                     let identity = AppsConfig.identity(of: self.url)
                     guard NSWorkspace.shared.urlsForApplications(toOpen: url).contains(where: { AppsConfig.identity(of: $0) == identity }) else { return false }
                     if isFolder { return true }
