@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import AVFoundation
+import Quartz
 
 /// Regression scenarios for `scripts/run-scenario.sh <name>`.
 @MainActor
@@ -9,6 +10,7 @@ enum Scenarios {
         "undo": undo,
         "grouping": grouping,
         "preview": previewPane,
+        "device": devicePage,
         "propsedit": propertiesEditing,
         "commandoverflow": commandOverflow,
         "commandcustomize": commandCustomize,
@@ -83,6 +85,7 @@ enum Scenarios {
         "scrollperf": scrollPerf,
         "foldersontop": foldersOnTop,
         "clouddrive": cloudDrive,
+        "cloudclick": cloudClick,
         "foldersort": folderSort,
         "devicecontext": deviceContext,
     ]
@@ -393,6 +396,157 @@ enum Scenarios {
                 let texts = props()?.debugTexts ?? []
                 s.note("  «Подробно»: Просмотр \(texts.contains(L("Просмотр"))), Изображение \(texts.contains(L("Изображение")))  expect true, true (Содержимое only once Spotlight indexed it)")
                 props()?.window?.close()
+            }),
+        ])
+    }
+
+    /// An iPhone or iPad connected (cable or Wi‑Fi): in the sidebar, its page with the header
+    /// filled, «Файлы» listing apps and one app's files, «Фото» its DCIM folders. Reads only.
+    static func devicePage(_ s: Scenario) {
+        func page() -> DevicePageView? { s.find(DevicePageView.self, in: s.window?.window?.contentView) }
+        func snapshot(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        func shot(_ n: Int) {
+            if let window = s.window?.window { try? "\(window.windowNumber)".write(to: s.output.appendingPathComponent("tab-\(n)"), atomically: true, encoding: .utf8) }
+        }
+        func list(_ expect: String) {
+            guard let list = page()?.debugList else { return s.note("  no list  \(expect)") }
+            s.note("  message «\(list.debugMessage)», \(list.debugRows.count) rows  \(expect)")
+            list.debugRows.prefix(14).forEach { s.note("    \($0)") }
+        }
+        s.window?.window?.setContentSize(NSSize(width: 1100, height: 720))
+        s.run([
+            (4.0, "devices found", {
+                MobileDevices.shared.devices.forEach { s.note("  \($0.name) — \($0.modelName), \($0.version), wifi \($0.wifi), away \($0.away), remembered \($0.remembered)") }
+                if MobileDevices.shared.devices.isEmpty { s.note("  none  expect one (the iPhone)") }
+                let sidebar = s.findAll(NSTextField.self, in: s.window?.window?.contentView ?? NSView()).map(\.stringValue)
+                s.note("  sidebar has it: \(MobileDevices.shared.devices.allSatisfy { sidebar.contains($0.name) })  expect true")
+            }),
+            (0.2, "open its page (Основные)", {
+                guard let device = MobileDevices.shared.devices.first else { return }
+                s.window?.navigate(to: Places.deviceURL(device.udid))
+                page()?.debugSelectTab(0)
+            }),
+            (4.0, "", { s.note("  \(page()?.debugHeader ?? "no page")  expect name | model · iOS · battery · Wi‑Fi | Свободно … из …"); snapshot("general.png"); shot(0) }),
+            (0.2, "«Файлы»", { page()?.debugSelectTab(1) }),
+            (5.0, "", { list("expect the apps that share files"); snapshot("files.png") }),
+            (0.2, "open VLC", { page()?.debugList?.debugExpand("VLC") }),
+            (4.0, "", { list("expect VLC's files under it"); snapshot("files-open.png") }),
+            (0.2, "«Файлы» as folders", {
+                let toggle = s.findAll(NSSegmentedControl.self, in: s.window?.window?.contentView ?? NSView()).first { $0.segmentCount == 2 }
+                s.note("  view buttons enabled \(toggle?.isEnabled ?? false)  expect true")
+                page()?.debugSetFlat(true)
+            }),
+            (3.0, "", {
+                list("expect (icons) and the apps")
+                s.note("  url \(s.window?.selectedTab.url.absoluteString ?? "-")")
+                let bar = s.findAll(CommandBar.self, in: s.window?.window?.contentView ?? NSView()).first
+                s.note("  command bar hidden \(bar?.isHidden ?? true)  expect true")
+                shot(1)
+            }),
+            (0.2, "into VLC (as a double-click would)", {
+                guard let device = MobileDevices.shared.devices.first else { return }
+                s.window?.navigate(to: Places.deviceURL(device.udid, path: "/com.apple.Pages"))
+                guard let files = s.find(DeviceFilesView.self, in: s.window?.window?.contentView) else { return s.note("  no files view") }
+                var states: [String] = []
+                for n in 0..<40 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(n) * 0.05) {
+                        let state = "spin \(files.spinning) rows \(files.shown.count) hidden \(files.isHidden)"
+                        if states.last != state { states.append(state) }
+                        if n == 2 { shot(2) }
+                        if n == 39 { s.note("  states: \(states)  expect spin true first, then rows") }
+                    }
+                }
+            }),
+            (3.0, "", {
+                list("expect VLC's files")
+                s.note("  title «\(s.window?.selectedTab.title ?? "-")», can go up \(s.window?.selectedTab.canGoUp ?? false)  expect «Pages», true")
+            }),
+            (1.0, "up", { s.window?.goUp(nil) }),
+            (2.0, "", {
+                list("expect the apps again")
+                s.note("  url \(s.window?.selectedTab.url.absoluteString ?? "-"), back \(s.window?.selectedTab.canGoBack ?? false)")
+                page()?.debugSetFlat(false)
+            }),
+            (0.2, "«Фото»", { page()?.debugSelectTab(2) }),
+            (6.0, "", {
+                s.note("  \(page()?.debugPhotos.debugSummary ?? "-")  expect hundreds of photos, thumbnails coming"); snapshot("photos.png")
+                let toggle = s.findAll(NSSegmentedControl.self, in: s.window?.window?.contentView ?? NSView()).first { $0.segmentCount == 2 }
+                s.note("  view buttons enabled \(toggle?.isEnabled ?? true)  expect false (they act on «Файлы» only)")
+                toggle?.selectedSegment = 1
+                toggle?.sendAction(toggle?.action, to: toggle?.target)
+                s.note("  pressed the grid button: still «Фото» \(page()?.debugList == nil)  expect true")
+            }),
+            (0.5, "filters", {
+                s.note("  \(page()?.debugPhotos.debugFilters ?? "-")  expect counts, formats")
+                page()?.debugPhotos.debugFilter(2)
+            }),
+            (0.5, "Live Photo, select all", {
+                s.note("  \(page()?.debugPhotos.debugFilters ?? "-")  expect only live photos")
+                page()?.debugPhotos.debugSelectAll()
+                s.note("  \(page()?.debugPhotos.debugFilters ?? "-")  expect all selected, export (N)")
+                snapshot("live.png"); shot(3)
+            }),
+            (1.5, "back to all", { page()?.debugPhotos.debugFilter(0) }),
+            (3.0, "the window made big and small again (as zooming does)", {
+                guard let window = s.window?.window else { return }
+                var times: [String] = []
+                let steps: [NSSize] = (1...20).map { (n: Int) -> NSSize in NSSize(width: Double(1100 + 73 * n), height: Double(720 + 34 * n)) }
+                let back: [NSSize] = steps.reversed()
+                for size in steps + back + steps + back {
+                    let start = CACurrentMediaTime()
+                    window.setContentSize(size)
+                    window.layoutIfNeeded()
+                    window.displayIfNeeded()
+                    CATransaction.flush()
+                    times.append(String(format: "%.0f ms", (CACurrentMediaTime() - start) * 1000))
+                }
+                s.note("  \(times.joined(separator: " "))  expect most under 16 ms (a new column count: more)")
+            }),
+            (0.5, "clicks and a drag over the photos", {
+                guard let photos = page()?.debugPhotos else { return }
+                let grid = photos.debugGrid
+                guard let window = grid.window else { return }
+                @MainActor func event(_ type: NSEvent.EventType, _ index: Int, clicks: Int = 1) -> NSEvent? {
+                    NSEvent.mouseEvent(with: type, location: grid.convert(photos.debugCenter(index), to: nil), modifierFlags: [],
+                                       timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                       context: nil, eventNumber: 0, clickCount: clicks, pressure: 1)
+                }
+                @MainActor func click(_ index: Int) { s.click(grid, at: photos.debugCenter(index)) }
+                /// Down on `from`, moving over `path`, up: the moves and the up are queued first
+                @MainActor func drag(_ from: Int, _ path: [Int]) {
+                    for index in path { if let move = event(.leftMouseDragged, index) { NSApp.postEvent(move, atStart: false) } }
+                    if let up = event(.leftMouseUp, path.last ?? from) { NSApp.postEvent(up, atStart: false) }
+                    if let down = event(.leftMouseDown, from) { window.sendEvent(down) }
+                }
+                click(0); s.note("  click 0: \(photos.debugSelected)  expect [0]")
+                click(0); s.note("  click 0 again: \(photos.debugSelected)  expect []")
+                click(3); s.note("  click 3: \(photos.debugSelected)  expect [3]")
+                drag(0, [1, 2]); s.note("  drag 0→2: \(photos.debugSelected)  expect [0, 1, 2, 3]")
+                drag(3, [2, 1]); s.note("  drag 3→1 (3 marked: unmarks): \(photos.debugSelected)  expect [0]")
+                s.note("  status «\(photos.statusText)»")
+            }),
+            (3.0, "Space on the first photo (not cached)", {
+                s.note("  \(page()?.debugPhotos.debugSummary ?? "-")")
+                if let device = MobileDevices.shared.devices.first { try? FileManager.default.removeItem(at: DevicePreview.cacheFolder(device.udid).appendingPathComponent("Media")) }
+                page()?.debugPhotos.debugQuickLookFirst()
+                var states: [String] = []
+                for n in 0..<60 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(n) * 0.05) {
+                        let panel = QLPreviewPanel.sharedPreviewPanelExists() ? QLPreviewPanel.shared() : nil
+                        let state = "busy «\(page()?.debugPhotos.debugBusy ?? "")» panel \(panel?.isVisible ?? false)"
+                        if states.last != state { states.append(state) }
+                        if n == 59 { s.note("  states: \(states)  expect busy «Загрузка…» first, then the panel") }
+                    }
+                }
+            }),
+            (4.0, "", {
+                let panel = QLPreviewPanel.sharedPreviewPanelExists() ? QLPreviewPanel.shared() : nil
+                s.note("  panel visible \(panel?.isVisible ?? false), items \(panel?.dataSource?.numberOfPreviewItems(in: panel) ?? -1), item \((panel?.currentPreviewItem?.previewItemURL)??.lastPathComponent ?? "-")  expect true, 1, IMG_….HEIC")
+                panel?.orderOut(nil)
             }),
         ])
     }
@@ -766,6 +920,70 @@ enum Scenarios {
         ])
     }
 
+    /// A click on the cloud after a name (iCloud Drive, icons and list) starts the download: the
+    /// cloud loses its arrow, the sidebar's circle shows. Nothing is really downloaded (a stub).
+    static func cloudClick(_ s: Scenario) {
+        s.window?.window?.setFrame(NSRect(x: 100, y: 100, width: 1100, height: 700), display: true)
+        NSApp.activate(ignoringOtherApps: true)
+        s.window?.window?.makeKeyAndOrderFront(nil)
+        s.window?.navigate(to: CloudDrive.root)
+        var asked: [URL] = []
+        CloudProgress.shared.debugDownload = { asked.append($0) }
+        func picture(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name + ".png"))
+        }
+        func click(_ grid: FileCollectionView, _ point: NSPoint) {
+            guard let window = grid.window else { return }
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let event = NSEvent.mouseEvent(with: type, location: grid.convert(point, to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                if type == .leftMouseDown { grid.mouseDown(with: event) } else { grid.mouseUp(with: event) }
+            }
+        }
+        var clicked: FileGridItem?
+        s.run([
+            (1.0, "icons", { s.setViewMode(.largeIcons) }),
+            (2.0, "click a cloud", {
+                guard let grid = s.grid else { s.note("  (no grid)"); return }
+                let items = (0..<grid.numberOfItems(inSection: 0)).compactMap { grid.item(at: IndexPath(item: $0, section: 0)) as? FileGridItem }
+                guard let item = items.first(where: { $0.debugCloudBadge != nil }), let badge = item.debugCloudBadge else { s.note("  (no cloud shown)"); return }
+                clicked = item
+                let point = grid.convert(NSPoint(x: badge.rect.midX, y: badge.rect.midY), from: item.view)
+                s.note("  \(item.textField?.stringValue ?? "?"): badge \(badge.rect), caught by the item: \(grid.itemIndex(at: point) != nil)  expect true")
+                picture("icons-before")
+                click(grid, point)
+                s.note("  asked to download \(asked.map(\.lastPathComponent))  expect that file; selection \(grid.selectedIndexes.sorted())  expect []")
+            }),
+            (0.6, "", {
+                s.note("  its cloud now: \(clicked?.debugCloudBadge.map { "\($0.state)" } ?? "none")  expect downloading; total \(CloudProgress.shared.total ?? -1)  expect 0")
+                picture("icons-downloading")
+            }),
+            (0.2, "list", { s.setViewMode(.details) }),
+            (1.5, "click a cloud in the list", {
+                guard let table = s.table else { s.note("  (no table)"); return }
+                let buttons = (0..<table.numberOfRows).compactMap { row in
+                    (table.view(atColumn: 0, row: row, makeIfNecessary: true) as? NSTableCellView)?.subviews.compactMap { $0 as? CloudDownloadButton }.first
+                }
+                guard let button = buttons.first(where: { !$0.isHidden && $0.image?.name() != "icloud" && $0.toolTip != nil }),
+                      let window = table.window else { s.note("  (no cloud button)"); return }
+                let center = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil)
+                let hit = window.contentView?.hitTest(window.contentView?.superview?.convert(center, from: nil) ?? center)
+                s.note("  a click there reaches the cloud: \(hit === button)  expect true; \(button.frame.size)")
+                let before = asked.count
+                button.performClick(nil)
+                s.note("  asked to download: \(asked.count - before)  expect 1; still shown (plain): \(!button.isHidden)  expect true")
+            }),
+            (0.6, "", { picture("list-downloading") }),
+            (0.2, "done", {
+                for url in asked { CloudProgress.shared.debugSet(nil, for: url) }
+                CloudProgress.shared.debugDownload = nil
+            }),
+            (0.6, "", { picture("list-done") }),
+        ])
+    }
+
     /// iCloud's uploads: a bar on the file's icon (list and icons) and a circle by «iCloud Drive»
     /// in the sidebar — first with a made-up 40 %, then for real: a file written into iCloud Drive
     /// (and one in a folder there) is followed while it uploads, then deleted.
@@ -804,8 +1022,9 @@ enum Scenarios {
             (0.2, "done: bar gone", { CloudProgress.shared.debugSet(nil, for: file) }),
             (0.6, "", {
                 s.note("  active \(CloudProgress.shared.isActive)  expect false")
-                picture("icons-done")
+                picture("icons-done")  // a tick in the sidebar's circle
             }),
+            (2.5, "", { picture("icons-faded") }),  // the circle gone
             (0.2, "open a folder in iCloud Drive", {
                 try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 s.setViewMode(.details)

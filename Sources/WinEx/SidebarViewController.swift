@@ -85,6 +85,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         observers.add(SidebarConfig.didChange) { [weak self] in self?.rebuild() }
         observers.add(TagLibrary.didChange) { [weak self] in self?.rebuild() }
         observers.add(ServerShares.connectionsChanged) { [weak self] in self?.rebuild() }
+        observers.add(MobileDevices.didChange) { [weak self] in self?.rebuild() }
         rebuild()
     }
 
@@ -156,6 +157,15 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
             item.ejectable = !(values?.volumeIsRootFileSystem ?? false)
                 && (values?.volumeIsEjectable == true || values?.volumeIsRemovable == true)
             add(place, item)
+        }
+        // iPhones and iPads (cable or Wi‑Fi), after the disks as in Finder
+        if SidebarConfig.shows(.devices) {
+            MobileDevices.shared.start()
+            for device in MobileDevices.shared.devices {
+                let item = Item(title: device.name, url: Places.deviceURL(device.udid), symbol: device.symbol)
+                item.toolTip = device.modelName + (device.away ? " — " + L("не на связи") : device.wifi ? " — Wi‑Fi" : "")
+                add(.devices, item)
+            }
         }
         // Servers logged in to with nothing mounted yet: still there, as in Finder
         for server in ServerShares.connected where !servers.contains(where: { Places.sameServer($0.url, server) }) {
@@ -436,7 +446,7 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         case .places, nil:
             if item.place == .trash { add(L("Очистить Корзину…"), #selector(emptyTrash(_:))) }
             if let place = item.place {
-                add(place == .internalDisks || place == .externalDisks || place == .servers
+                add(place == .internalDisks || place == .externalDisks || place == .servers || place == .devices
                     ? L("Скрыть «%@»", menuName(place.title)) : L("Убрать из боковой панели"), #selector(removeClicked(_:)))
             }
         }

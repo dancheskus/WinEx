@@ -28,11 +28,11 @@ enum CloudDrive {
         }
     }
 
-    /// Finder's cloud after the name of a file that's in iCloud only (secondary text colour).
-    static func cloudBadge(font: NSFont) -> NSAttributedString {
-        let side = (font.pointSize * 1.05).rounded()
-        guard let symbol = NSImage(systemSymbolName: "icloud.and.arrow.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: side * 0.8, weight: .regular)) else { return NSAttributedString() }
+    /// Finder's cloud after the name of a file that's in iCloud only (secondary text colour): with
+    /// its arrow, or a plain cloud while the file is on its way down.
+    static func cloudBadge(font: NSFont, downloading: Bool = false) -> NSAttributedString {
+        guard let symbol = NSImage(systemSymbolName: downloading ? "icloud" : "icloud.and.arrow.down", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: font.pointSize, weight: .regular)) else { return NSAttributedString() }
         let size = symbol.size
         // Coloured as it's drawn (the label's colour is set for the name)
         let image = NSImage(size: size, flipped: false) { rect in
@@ -43,7 +43,10 @@ enum CloudDrive {
         }
         let attachment = NSTextAttachment()
         attachment.image = image
-        attachment.bounds = NSRect(x: 0, y: (font.capHeight - size.height) / 2, width: size.width, height: size.height)
+        // Centred on the capitals, but never below the descenders (the line's bottom cuts it off there)
+        // nor above the ascenders (the line would grow and its name sit lower than the others')
+        let y = min(max((font.capHeight - size.height) / 2, font.descender + 1), font.ascender - size.height)
+        attachment.bounds = NSRect(x: 0, y: y, width: size.width, height: size.height)
         // A no-break space: the cloud stays with the name's last word (never alone on a line)
         let badge = NSMutableAttributedString(string: "\u{00A0}", attributes: [.font: font])
         badge.append(NSAttributedString(attachment: attachment))
@@ -77,9 +80,14 @@ final class CloudProgress {
 
     private final class Transfer {
         let progress: Progress
+        let isDownload: Bool
         var observation: NSKeyValueObservation?
-        init(_ progress: Progress) { self.progress = progress }
+        init(_ progress: Progress, isDownload: Bool) { self.progress = progress; self.isDownload = isDownload }
     }
+
+    /// Files kept only in iCloud that came down lately: their cloud goes before their folder's
+    /// listing is read again (and says so).
+    private var arrived: Set<String> = []
 
     /// By the file's path with symlinks resolved (a file of Desktop & Documents in iCloud is
     /// published under iCloud Drive and shown under the home folder).
@@ -159,7 +167,7 @@ final class CloudProgress {
             guard let url = info[.fileURLKey] as? URL, kind == .uploading || kind == .downloading,
                   info[.init("BRProgressIsCreatedByCloudDocsKey")] != nil || url.path.hasPrefix(rootPath) else { return nil }
             let key = url.resolvingSymlinksInPath().path
-            Task { @MainActor in CloudProgress.shared.add(progress, key: key) }
+            Task { @MainActor in CloudProgress.shared.add(progress, key: key, isDownload: kind == .downloading) }
             return { Task { @MainActor in CloudProgress.shared.remove(progress, key: key) } }
         }
         subscriptions[path] = (1, token)
@@ -176,8 +184,8 @@ final class CloudProgress {
         }
     }
 
-    private func add(_ progress: Progress, key: String) {
-        let transfer = Transfer(progress)
+    private func add(_ progress: Progress, key: String, isDownload: Bool) {
+        let transfer = Transfer(progress, isDownload: isDownload)
         transfer.observation = progress.observe(\.fractionCompleted) { _, _ in
             Task { @MainActor in CloudProgress.shared.post() }
         }
@@ -186,8 +194,12 @@ final class CloudProgress {
     }
 
     private func remove(_ progress: Progress, key: String) {
-        guard transfers[key]?.progress === progress else { return }
+        guard let transfer = transfers[key], transfer.progress === progress else { return }
         transfers[key] = nil
+        if transfer.isDownload, Self.isDownloaded(URL(fileURLWithPath: key)) {
+            arrived.insert(key)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [self] in arrived.remove(key) }
+        }
         post()
     }
 
@@ -201,6 +213,56 @@ final class CloudProgress {
     }
 
     var isActive: Bool { !transfers.isEmpty }
+
+    /// Brings a file kept only in iCloud down to this Mac (a click on its cloud, as in Finder). The
+    /// sidebar's circle counts it at once: iCloud publishes the download's progress a moment later
+    /// (or not at all for a small file) — until then, or until the file is here, it's at zero.
+    func download(_ url: URL) {
+        let key = url.resolvingSymlinksInPath().path
+        guard transfers[key] == nil else { return }
+        #if DEBUG
+        if let debugDownload { debugDownload(url); add(Progress(totalUnitCount: 0), key: key, isDownload: true); return }
+        #endif
+        do { try FileManager.default.startDownloadingUbiquitousItem(at: url) } catch { NSSound.beep(); return }
+        let waiting = Progress(totalUnitCount: 0)
+        add(waiting, key: key, isDownload: true)
+        awaitDownload(url, key: key, waiting: waiting, until: Date().addingTimeInterval(120))
+    }
+
+    private func awaitDownload(_ url: URL, key: String, waiting: Progress, until: Date) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
+            // iCloud's own progress took its place (or it's gone)
+            guard transfers[key]?.progress === waiting else { return }
+            if !Self.isDownloaded(url) && Date() < until {
+                awaitDownload(url, key: key, waiting: waiting, until: until)
+            } else {
+                remove(waiting, key: key)
+            }
+        }
+    }
+
+    private static func isDownloaded(_ url: URL) -> Bool {
+        var fresh = url
+        fresh.removeAllCachedResourceValues()
+        return (try? fresh.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus != .notDownloaded
+    }
+
+    enum CloudState { case none, inCloud, downloading }
+
+    /// The cloud a file listed as kept only in iCloud (`cloudOnly`) shows now: with its arrow,
+    /// plain while it comes down, none once it's here.
+    func cloudState(for url: URL, cloudOnly: Bool) -> CloudState {
+        guard cloudOnly else { return .none }
+        let key = url.resolvingSymlinksInPath().path
+        if transfers[key]?.isDownload == true { return .downloading }
+        return arrived.contains(key) ? .none : .inCloud
+    }
+
+    /// Whether the file is being uploaded (not brought down).
+    func isUploading(_ url: URL) -> Bool {
+        guard !transfers.isEmpty else { return false }
+        return transfers[url.resolvingSymlinksInPath().path]?.isDownload == false
+    }
 
     /// How far the file's upload or download is (nil when it isn't being moved).
     func fraction(for url: URL) -> Double? {
@@ -221,8 +283,11 @@ final class CloudProgress {
     /// For scenarios: a transfer that isn't iCloud's.
     func debugSet(_ progress: Progress?, for url: URL) {
         let key = url.resolvingSymlinksInPath().path
-        if let progress { add(progress, key: key) } else if let old = transfers[key] { remove(old.progress, key: key) }
+        if let progress { add(progress, key: key, isDownload: false) } else if let old = transfers[key] { remove(old.progress, key: key) }
     }
+
+    /// For scenarios: what a click on a cloud would download (nothing is brought down).
+    var debugDownload: ((URL) -> Void)?
     #endif
 }
 
@@ -233,6 +298,8 @@ final class CloudProgressBar: NSView {
     var url: URL? {
         didSet { if url != oldValue { update() } }
     }
+    /// Lists show only uploads here: a download shows as the plain cloud after the name.
+    var uploadsOnly = false
     private var fraction: Double?
     private var observer: NSObjectProtocol?
 
@@ -249,7 +316,7 @@ final class CloudProgressBar: NSView {
     deinit { observer.map(NotificationCenter.default.removeObserver) }
 
     private func update() {
-        let fraction = url.flatMap { CloudProgress.shared.fraction(for: $0) }
+        let fraction = url.flatMap { !uploadsOnly || CloudProgress.shared.isUploading($0) ? CloudProgress.shared.fraction(for: $0) : nil }
         // Shown: placed by the icon's layout (which skips it while hidden)
         if isHidden != (fraction == nil) {
             isHidden = fraction == nil
@@ -274,9 +341,12 @@ final class CloudProgressBar: NSView {
     }
 }
 
-/// Finder's circle by «iCloud Drive» in the sidebar while anything uploads or downloads.
+/// Finder's circle by «iCloud Drive» in the sidebar while anything uploads or downloads; when all
+/// is done, a tick in it for a moment, then it fades away.
 final class CloudProgressPie: NSView {
     private var fraction: Double?
+    private var isDone = false
+    private var fade: DispatchWorkItem?
     private var observer: NSObjectProtocol?
 
     override init(frame: NSRect) {
@@ -284,7 +354,8 @@ final class CloudProgressPie: NSView {
         observer = NotificationCenter.default.addObserver(forName: CloudProgress.changed, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.update() }
         }
-        update()
+        fraction = CloudProgress.shared.total
+        isHidden = fraction == nil
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -294,14 +365,45 @@ final class CloudProgressPie: NSView {
     override var intrinsicContentSize: NSSize { NSSize(width: 18, height: 18) }  // Finder's size
 
     private func update() {
-        fraction = CloudProgress.shared.total
-        isHidden = fraction == nil
-        toolTip = fraction.map { "iCloud Drive: \(Int(($0 * 100).rounded())) %" }
+        let total = CloudProgress.shared.total
+        if let total {
+            fade?.cancel()
+            fade = nil
+            isDone = false
+            alphaValue = 1
+            isHidden = false
+            toolTip = "iCloud Drive: \(Int((total * 100).rounded())) %"
+        } else if fraction != nil {
+            finish()
+        }
+        fraction = total
         needsDisplay = true
     }
 
+    /// The tick, then fading to nothing.
+    private func finish() {
+        isDone = true
+        toolTip = nil
+        let work = DispatchWorkItem { [weak self] in
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.8
+                self?.animator().alphaValue = 0
+            }, completionHandler: {
+                MainActor.assumeIsolated {
+                    guard let self, self.isDone else { return }
+                    self.isHidden = true
+                    self.isDone = false
+                    self.alphaValue = 1
+                }
+            })
+        }
+        fade?.cancel()
+        fade = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        guard let fraction else { return }
+        guard fraction != nil || isDone else { return }
         let side = min(bounds.width, bounds.height) - 1
         let circle = NSRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         let color = NSColor.secondaryLabelColor
@@ -309,6 +411,18 @@ final class CloudProgressPie: NSView {
         let ring = NSBezierPath(ovalIn: circle)
         ring.lineWidth = 1.4
         ring.stroke()
+        if isDone {
+            let tick = NSBezierPath()
+            tick.move(to: NSPoint(x: circle.minX + side * 0.29, y: circle.minY + side * 0.50))
+            tick.line(to: NSPoint(x: circle.minX + side * 0.44, y: circle.minY + side * 0.34))
+            tick.line(to: NSPoint(x: circle.minX + side * 0.71, y: circle.minY + side * 0.66))
+            tick.lineWidth = 1.4
+            tick.lineCapStyle = .round
+            tick.lineJoinStyle = .round
+            tick.stroke()
+            return
+        }
+        guard let fraction else { return }
         // The done part as a pie from twelve o'clock, clockwise
         let center = NSPoint(x: circle.midX, y: circle.midY)
         let pie = NSBezierPath()
@@ -317,5 +431,57 @@ final class CloudProgressPie: NSView {
         pie.close()
         color.setFill()
         pie.fill()
+    }
+}
+
+/// Finder's cloud after the name of a file kept only in iCloud (list views): a click brings the
+/// file down. Hidden while it's on its way.
+final class CloudDownloadButton: NSButton {
+    static let cellIdentifier = NSUserInterfaceItemIdentifier("cloudOnly")
+
+    private var url: URL?
+    private var isCloudOnly = false
+    private var observer: NSObjectProtocol?
+
+    init() {
+        super.init(frame: .zero)
+        image = NSImage(systemSymbolName: "icloud.and.arrow.down", accessibilityDescription: L("Только в iCloud"))
+        symbolConfiguration = .init(pointSize: 14, weight: .regular)
+        contentTintColor = .secondaryLabelColor
+        isBordered = false
+        imagePosition = .imageOnly
+        setButtonType(.momentaryChange)
+        toolTip = L("Только в iCloud")
+        target = self
+        action = #selector(download)
+        isHidden = true
+        observer = NotificationCenter.default.addObserver(forName: CloudProgress.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.update() }
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    deinit { observer.map(NotificationCenter.default.removeObserver) }
+
+    func show(_ url: URL, cloudOnly: Bool) {
+        self.url = url
+        isCloudOnly = cloudOnly
+        update()
+    }
+
+    private func update() {
+        let state = url.map { CloudProgress.shared.cloudState(for: $0, cloudOnly: isCloudOnly) } ?? .none
+        isHidden = state == .none
+        guard state != .none else { return }
+        let downloading = state == .downloading
+        image = NSImage(systemSymbolName: downloading ? "icloud" : "icloud.and.arrow.down", accessibilityDescription: L("Только в iCloud"))
+        toolTip = downloading ? nil : L("Только в iCloud")
+    }
+
+    @objc private func download() {
+        guard let url, CloudProgress.shared.cloudState(for: url, cloudOnly: isCloudOnly) == .inCloud else { return }
+        CloudProgress.shared.download(url)
+        update()
     }
 }

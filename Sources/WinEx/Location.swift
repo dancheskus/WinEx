@@ -14,6 +14,9 @@ enum Location: Equatable {
     case computer
     case recents
     case shared
+    /// An iPhone or iPad (by its UDID): its page, or (path «/<app id>/<folders…>») a folder of an
+    /// app's Documents.
+    case device(String, path: String)
     case search(SearchRequest)
 
     /// Tag locations use this URL scheme: `x-winex-tag://tag/<name>`.
@@ -30,6 +33,9 @@ enum Location: Equatable {
             self = .recents
         } else if url.scheme == Places.sharedURL.scheme {
             self = .shared
+        } else if url.scheme == Places.deviceScheme {
+            let path = url.path
+            self = .device(url.host ?? "", path: path == "/" ? "" : path)
         } else if let request = SearchRequest(url: url) {
             self = .search(request)
         } else if url.scheme == Self.tagScheme {
@@ -51,6 +57,7 @@ enum Location: Equatable {
         case .computer: Places.computerURL
         case .recents: Places.recentsURL
         case .shared: Places.sharedURL
+        case .device(let udid, let path): Places.deviceURL(udid, path: path)
         case .search(let request): request.url
         }
     }
@@ -62,6 +69,7 @@ enum Location: Equatable {
         case (.trash, .trash), (.network, .network), (.computer, .computer),
              (.recents, .recents), (.shared, .shared): true
         case let (.search(x), .search(y)): x == y
+        case let (.device(x, p), .device(y, q)): x == y && p == q
         case let (.tag(x), .tag(y)): x == y
         case let (.server(x), .server(y)): x.scheme == y.scheme && Places.sameServer(x, y)
         default: false
@@ -81,7 +89,7 @@ enum Location: Equatable {
         switch self {
         case .folder(let url): url
         case .trash: Places.trashURL
-        case .tag, .network, .server, .computer, .recents, .shared, .search: nil
+        case .tag, .network, .server, .computer, .recents, .shared, .device, .search: nil
         }
     }
 
@@ -96,6 +104,13 @@ enum Location: Equatable {
         case .computer: L("Этот Mac")
         case .recents: L("Недавние")
         case .shared: L("Общий доступ")
+        case .device(let udid, let path):
+            MainActor.assumeIsolated {
+                let parts = path.split(separator: "/").map(String.init)
+                if parts.count > 1, let last = parts.last { return last }
+                if let id = parts.first { return DeviceFilesView.appNames[udid]?[id] ?? id }
+                return MobileDevices.shared.device(udid)?.name ?? "iPhone"
+            }
         case .search(let request): L("Поиск «%@»", request.text)
         }
     }
@@ -109,6 +124,7 @@ enum Location: Equatable {
         case .computer: L("Этот Mac")
         case .recents: L("Недавние")
         case .shared: L("Общий доступ")
+        case .device: title
         case .search(let request):
             L("Результаты поиска «%@» ", request.text) + (request.wholeMac ? L("на всём Mac") : L("в «%@»", request.folder?.displayName ?? ""))
         case .folder, .trash: url.path
@@ -119,7 +135,7 @@ enum Location: Equatable {
     var isBrowsable: Bool {
         switch self {
         case .folder(let url): url.isBrowsableDirectory
-        case .trash, .tag, .network, .server, .computer, .recents, .shared, .search: true
+        case .trash, .tag, .network, .server, .computer, .recents, .shared, .device, .search: true
         }
     }
 
@@ -141,6 +157,9 @@ enum Location: Equatable {
         case .computer: NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
         case .recents: NSImage(systemSymbolName: "clock", accessibilityDescription: nil)
         case .shared: NSImage(systemSymbolName: "person.2", accessibilityDescription: nil)
+        case .device(let udid, let path):
+            path.isEmpty ? NSImage(systemSymbolName: MobileDevices.shared.device(udid)?.symbol ?? "iphone", accessibilityDescription: nil)
+                : NSWorkspace.shared.icon(for: .folder)
         case .search: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         }
     }

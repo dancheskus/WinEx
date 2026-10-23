@@ -49,6 +49,16 @@ final class BreadcrumbBar: NSView {
             return (symbol("clock"), Places.recentsURL, [Crumb(title: L("Недавние"), url: Places.recentsURL, folder: nil)])
         case .shared:
             return (symbol("person.2"), Places.sharedURL, [Crumb(title: L("Общий доступ"), url: Places.sharedURL, folder: nil)])
+        case .device(let udid, let path):
+            // «iPhone › VLC › folder › …»
+            let device = MainActor.assumeIsolated { MobileDevices.shared.device(udid) }
+            var crumbs = [Crumb(title: device?.name ?? "iPhone", url: Places.deviceURL(udid), folder: nil)]
+            var sub = ""
+            for part in path.split(separator: "/").map(String.init) {
+                sub += "/" + part
+                crumbs.append(Crumb(title: Location.device(udid, path: sub).title, url: Places.deviceURL(udid, path: sub), folder: nil))
+            }
+            return (symbol(device?.symbol ?? "iphone"), Places.deviceURL(udid), crumbs)
         case .trash:
             return (symbol("trash"), Places.trashURL, [Crumb(title: L("Корзина"), url: Places.trashURL, folder: nil)])
         case .tag(let name):

@@ -363,9 +363,7 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         windowObservers.add(FileClipboard.didChange) { [weak self] in self?.updateCommandBar() }
         windowObservers.add(.commandBarSettingChanged) { [weak self] in
             guard let self else { return }
-            commandBar.isHidden = !Settings.showCommandBar
-            commandBarHeight.constant = Settings.showCommandBar ? CommandBar.height : 0
-            viewCapsule?.isHidden = Settings.showCommandBar
+            updateCommandBarShown()
         }
     }
 
@@ -411,6 +409,17 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         case .selectNone: return fileList.hasSelection
         default: return true
         }
+    }
+
+    /// The command bar as set in Settings, but not over a device's page (its commands are for
+    /// folders on the Mac); «Просмотреть» in the toolbar when the bar is off.
+    private func updateCommandBarShown() {
+        let onDevice: Bool
+        if case .device = Location(selectedTab.url) { onDevice = true } else { onDevice = false }
+        let shown = Settings.showCommandBar && !onDevice
+        commandBar.isHidden = !shown
+        commandBarHeight.constant = shown ? CommandBar.height : 0
+        viewCapsule?.isHidden = Settings.showCommandBar || onDevice
     }
 
     /// What the commands can act on right now.
@@ -579,8 +588,15 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         for item in viewModeButton.menu?.items.dropFirst() ?? [] where item.action == #selector(selectViewMode(_:)) {
             item.state = item.tag == mode.rawValue ? .on : .off
         }
-        viewModeToggle.selectedSegment = mode == .details ? 0 : 1
+        viewModeToggle.selectedSegment = (fileList.deviceFilesAsIcons ?? (mode != .details)) ? 1 : 0
+        updateViewModeToggleEnabled()
         if mode != .details { lastIconMode = mode }
+    }
+
+    /// Off on a device's «Основные» and «Фото»: they have one look.
+    private func updateViewModeToggleEnabled() {
+        let enabled = !fileList.deviceTabWithoutViews
+        if viewModeToggle.isEnabled != enabled { viewModeToggle.isEnabled = enabled }
     }
 
     @objc func selectViewMode(_ sender: Any?) {
@@ -594,6 +610,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     /// The grid button switches to icons of the size used last (it doesn't pick a size).
     @objc private func viewModeToggleChanged(_ sender: NSSegmentedControl) {
+        // A device's page: its files as the tree or as folders' icons
+        if fileList.deviceFilesAsIcons != nil { return fileList.setDeviceFilesAsIcons(sender.selectedSegment == 1) }
         fileList.viewMode = sender.selectedSegment == 0 ? .details : lastIconMode
     }
 
@@ -623,6 +641,8 @@ final class ExplorerWindowController: NSWindowController, NSWindowDelegate, NSTe
         updateSearchFold()
         fileList.load(tab.url, select: tab.pendingSelection)
         tab.pendingSelection = []
+        updateCommandBarShown()
+        updateViewModeControls()
         backButton.isEnabled = tab.canGoBack
         forwardButton.isEnabled = tab.canGoForward
         upButton.isEnabled = tab.canGoUp

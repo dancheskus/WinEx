@@ -14,6 +14,16 @@ enum Places {
     static let recentsURL = URL(string: "x-winex-recents://recents")!
     /// «Общий доступ»: iCloud Drive items shared with others or with you, like Finder's Shared.
     static let sharedURL = URL(string: "x-winex-shared://shared")!
+    /// An iPhone or iPad: its page (`x-winex-device://<UDID>`).
+    static let deviceScheme = "x-winex-device"
+
+    static func deviceURL(_ udid: String, path: String = "") -> URL {
+        var components = URLComponents()
+        components.scheme = deviceScheme
+        components.host = udid
+        components.path = path
+        return components.url ?? computerURL
+    }
 
     /// smb:// / afp:// server addresses (items of the "Сеть" location).
     static func isServer(_ url: URL) -> Bool { ["smb", "afp", "nfs", "ftp"].contains(url.scheme ?? "") }

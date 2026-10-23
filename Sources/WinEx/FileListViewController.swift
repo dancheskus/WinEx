@@ -28,6 +28,24 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private let tableScrollView = NSScrollView()
     /// "Этот Mac": drives instead of files.
     private let drivesView = DrivesView()
+    /// An iPhone's or iPad's page.
+    private lazy var devicePage: DevicePageView = {
+        let page = DevicePageView()
+        page.isHidden = true
+        page.onOpen = { [weak self] url in
+            guard let self else { return }
+            delegate?.fileList(self, open: url, in: .current)
+        }
+        page.onStatus = { [weak self] text in
+            guard let self, !page.isHidden else { return }
+            delegate?.fileList(self, didUpdateStatus: text)
+        }
+        page.onTabShown = { [weak self] in
+            guard let self, !page.isHidden else { return }
+            delegate?.fileList(self, didChangeViewMode: viewMode)
+        }
+        return page
+    }()
     /// "Эта папка пуста", "Ничего не найдено", no access to the Trash…
     private let emptyState = EmptyStateView()
     /// Finder's bar above the Trash ("Очистить") and a server ("Подключен: …", "Отключить").
@@ -112,7 +130,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             placeBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             placeBarHeight,
         ])
-        for scrollView in [tableScrollView, gridScrollView, drivesView, emptyState] as [NSView] {
+        for scrollView in [tableScrollView, gridScrollView, drivesView, devicePage, emptyState] as [NSView] {
             scrollView.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(scrollView)
             NSLayoutConstraint.activate([
@@ -285,8 +303,8 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         let hadFocus = previous.map { focusView(for: $0) === view.window?.firstResponder } ?? false
 
         let isDetails = viewMode == .details
-        tableScrollView.isHidden = !isDetails || !drivesView.isHidden
-        gridScrollView.isHidden = isDetails || !drivesView.isHidden
+        tableScrollView.isHidden = !isDetails || !drivesView.isHidden || !devicePage.isHidden
+        gridScrollView.isHidden = isDetails || !drivesView.isHidden || !devicePage.isHidden
         if isDetails {
             tableView.reloadData()
         } else {
@@ -387,6 +405,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         stopSearch()
         searchNote = nil
         showDrives(false)
+        showDevice(nil)
         loader.cancel()
         reloadCompletions = []
         let location = Location(url)
@@ -414,6 +433,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         case .computer:
             startSearch(nil)
             showDrives(true)
+            return
+        case .device(let udid, let path):
+            startSearch(nil)
+            showDevice(udid, path: path)
             return
         case .recents:
             // Like Finder's Recents: the last opened first (until another order is picked here)
@@ -730,6 +753,25 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                                   foldersOnTop: foldersOnTop, group: groupBy)
     }
 
+    /// Showing an iPhone's or iPad's page: its «Файлы» as icons or as the tree (nil: not a device).
+    var deviceFilesAsIcons: Bool? { devicePage.isHidden ? nil : devicePage.filesAsIcons }
+
+    func setDeviceFilesAsIcons(_ flat: Bool) { devicePage.setFilesAsIcons(flat) }
+
+    /// The device's page is on a tab the view buttons don't act on («Основные», «Фото»).
+    var deviceTabWithoutViews: Bool { !devicePage.isHidden && !devicePage.showsFiles }
+
+    /// A device's page in place of the files (nil: hidden again).
+    private func showDevice(_ udid: String?, path: String = "") {
+        guard udid != nil || !devicePage.isHidden else { return }
+        devicePage.isHidden = udid == nil
+        tableScrollView.isHidden = udid != nil || viewMode != .details || !drivesView.isHidden
+        gridScrollView.isHidden = udid != nil || viewMode == .details || !drivesView.isHidden
+        guard let udid else { return }
+        emptyState.isHidden = true
+        devicePage.show(udid, path: path)
+    }
+
     private func showDrives(_ show: Bool) {
         drivesView.isHidden = !show
         tableScrollView.isHidden = show || viewMode != .details
@@ -792,7 +834,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// A message instead of an empty list: why it's empty and what to do about it.
     private func updateEmptyState() {
         updatePlaceBar()
-        guard items.isEmpty, drivesView.isHidden else { return emptyState.isHidden = true }
+        guard items.isEmpty, drivesView.isHidden, devicePage.isHidden else { return emptyState.isHidden = true }
         if location == .trash, errorMessage != nil {
             emptyState.show(L("Нет доступа к Корзине"),
                             detail: L("macOS показывает Корзину только программам с «Полным доступом к диску». Включите WinEx в настройках и нажмите «Закрыть и открыть снова»."),
@@ -834,7 +876,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     }
 
     private func updateStatus() {
-        guard drivesView.isHidden else { return }  // "Этот Mac" keeps its own status
+        guard drivesView.isHidden, devicePage.isHidden else { return }  // "Этот Mac" keeps its own status
         updateEmptyState()
         var status = "\(items.count) \(plural(items.count, L("элемент"), L("элемента"), L("элементов")))"
         if search != nil, case .search = location {
@@ -1584,7 +1626,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             cell.imageView?.alphaValue = FileClipboard.shared.isCut(item.url) ? Self.cutAlpha : 1
             cell.textField?.stringValue = item.name
             (cell.subviews.first { $0.identifier == CloudProgressBar.cellIdentifier } as? CloudProgressBar)?.url = item.url
-            cell.subviews.first { $0.identifier == Self.cloudOnlyIdentifier }?.isHidden = !item.isCloudOnly
+            (cell.subviews.first { $0.identifier == CloudDownloadButton.cellIdentifier } as? CloudDownloadButton)?.show(item.url, cloudOnly: item.isCloudOnly)
         case "folder":
             cell.textField?.stringValue = cellText(column, item)
             cell.textField?.toolTip = item.url.deletingLastPathComponent().path
@@ -1690,8 +1732,6 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         FileColumn.savedLayout = layout
     }
 
-    private static let cloudOnlyIdentifier = NSUserInterfaceItemIdentifier("cloudOnly")
-
     private func makeCell(identifier: String) -> NSTableCellView {
         let cell = NSTableCellView()
         cell.identifier = .init(identifier)
@@ -1709,6 +1749,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
             // iCloud's upload / download of the file
             let cloud = CloudProgressBar()
             cloud.identifier = CloudProgressBar.cellIdentifier
+            cloud.uploadsOnly = true
             cloud.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(cloud)
             // Under the name (the icon is too small for it)
@@ -1718,13 +1759,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 cloud.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -1),
                 cloud.heightAnchor.constraint(equalToConstant: 4),
             ])
-            // Finder's cloud for a file in iCloud only, at the name column's end
-            let cloudOnly = NSImageView(image: NSImage(systemSymbolName: "icloud.and.arrow.down", accessibilityDescription: L("Только в iCloud")) ?? NSImage())
-            cloudOnly.identifier = Self.cloudOnlyIdentifier
-            cloudOnly.contentTintColor = .secondaryLabelColor
-            cloudOnly.symbolConfiguration = .init(pointSize: 11, weight: .regular)
+            // Finder's cloud for a file in iCloud only, at the name column's end (a click downloads it)
+            let cloudOnly = CloudDownloadButton()
+            cloudOnly.identifier = CloudDownloadButton.cellIdentifier
             cloudOnly.translatesAutoresizingMaskIntoConstraints = false
-            cloudOnly.isHidden = true
             cell.addSubview(cloudOnly)
             NSLayoutConstraint.activate([
                 cloudOnly.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),

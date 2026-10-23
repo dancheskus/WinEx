@@ -18,7 +18,10 @@ final class ExplorerTab {
     var title: String { location.title }
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
-    var canGoUp: Bool { (url.isFileURL && url.path != "/") || Places.isServer(url) }
+    var canGoUp: Bool {
+        if case .device(_, let path) = location { return !path.isEmpty }
+        return (url.isFileURL && url.path != "/") || Places.isServer(url)
+    }
 
     func navigate(to newURL: URL) {
         let target = Self.normalized(newURL)
@@ -65,6 +68,10 @@ final class ExplorerTab {
     /// Up from a share's top folder is its server's list of shares; up from a server, "Сеть".
     private static func parent(of url: URL) -> URL {
         if Places.isServer(url) { return Places.networkURL }
+        // A device's folder: the one above, up to the device's page
+        if case .device(let udid, let path) = Location(url) {
+            return Places.deviceURL(udid, path: (path as NSString).deletingLastPathComponent == "/" ? "" : (path as NSString).deletingLastPathComponent)
+        }
         if (try? url.resourceValues(forKeys: [.isVolumeKey]))?.isVolume == true, let server = Places.serverURL(ofVolume: url) {
             return server
         }

@@ -163,8 +163,15 @@ final class CommandBar: NSView, NSDraggingSource {
             }
             return shown + (shown.isEmpty ? [] : [moreDivider]) + [moreButton]
         }
+        // Each view is measured once: a fitting size asks the layout engine (slow as a window is resized)
+        var widths: [ObjectIdentifier: CGFloat] = [:]
         func width(_ views: [NSView]) -> CGFloat {
-            views.reduce(0) { $0 + $1.fittingSize.width } + stack.spacing * CGFloat(max(views.count - 1, 0))
+            views.reduce(0) { total, view in
+                if let width = widths[ObjectIdentifier(view)] { return total + width }
+                let width = view.fittingSize.width
+                widths[ObjectIdentifier(view)] = width
+                return total + width
+            } + stack.spacing * CGFloat(max(views.count - 1, 0))
         }
         if !isEditing {
             for button in itemViews.reversed() where button is CommandButton && width(shownViews()) > available {

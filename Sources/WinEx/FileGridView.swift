@@ -234,6 +234,14 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
     private var videoURL: URL?
     private let playButton = VideoPlayButton()
     private var playing: InlineVideoView?
+    /// A file kept only in iCloud: the cloud after its name (its width) downloads it on a click;
+    /// plain while the file comes down, gone once it's here.
+    private var cloudURL: URL?
+    private var cloudState = CloudProgress.CloudState.none
+    private var cloudBadgeWidth: CGFloat = 0
+    /// The name without the cloud.
+    private var plainLabel = NSAttributedString()
+    private var cloudObserver: NSObjectProtocol?
     /// The file the item info line is for (it arrives later; the item may show another file by then).
     private var infoURL: URL?
     /// A Finder-styled folder (a disk image's window): its icon size and a text colour for its background.
@@ -257,7 +265,12 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         textField = nameField
         view.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
                                             owner: self, userInfo: nil))
+        cloudObserver = NotificationCenter.default.addObserver(forName: CloudProgress.changed, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateCloudBadge() }
+        }
     }
+
+    deinit { cloudObserver.map(NotificationCenter.default.removeObserver) }
 
     override func mouseEntered(with event: NSEvent) {
         isHovered = true
@@ -312,6 +325,52 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         }
         updatePlayButton()
         return true
+    }
+
+    /// A click in the item at `point` (its coordinates): true when it was on the cloud after the
+    /// name — the file starts downloading (the cloud loses its arrow, the bar on the icon moves).
+    func handleCloudClick(at point: NSPoint) -> Bool {
+        guard let cloudURL, cloudState != .none, let badge = cloudBadgeRect(), badge.insetBy(dx: -4, dy: -3).contains(point) else { return false }
+        if cloudState == .inCloud {
+            CloudProgress.shared.download(cloudURL)
+            updateCloudBadge()
+        }
+        return true
+    }
+
+    /// The name with the cloud as the file is now (only when it changed, unless `force`).
+    private func updateCloudBadge(force: Bool = false) {
+        let state = cloudURL.map { CloudProgress.shared.cloudState(for: $0, cloudOnly: true) } ?? .none
+        guard force || state != cloudState else { return }
+        cloudState = state
+        let label = NSMutableAttributedString(attributedString: plainLabel)
+        if state != .none {
+            let badge = CloudDrive.cloudBadge(font: nameField.font ?? .systemFont(ofSize: 12), downloading: state == .downloading)
+            cloudBadgeWidth = ceil(badge.size().width)
+            label.append(badge)
+        }
+        self.label = label
+        if !itemView.isRenaming { nameField.attributedStringValue = label }
+        applyLabelColor()
+    }
+
+    #if DEBUG
+    /// For scenarios: where the cloud is (nil without one) and how it looks.
+    var debugCloudBadge: (rect: NSRect, state: CloudProgress.CloudState)? {
+        guard cloudURL != nil, cloudState != .none, let rect = cloudBadgeRect() else { return nil }
+        return (rect, cloudState)
+    }
+    #endif
+
+    /// Where the cloud is drawn: at the end of the name's last line.
+    private func cloudBadgeRect() -> NSRect? {
+        if mode.isHorizontalItem {
+            let width = min(ceil(nameField.attributedStringValue.size().width) + 2, nameField.bounds.width)
+            let field = nameField.frame
+            return NSRect(x: field.minX + width - cloudBadgeWidth, y: field.minY, width: cloudBadgeWidth, height: field.height)
+        }
+        guard let line = itemView.lineRects.last else { return nil }
+        return NSRect(x: line.maxX - cloudBadgeWidth, y: line.minY, width: cloudBadgeWidth, height: line.height)
     }
 
     private func stopVideo() {
@@ -395,14 +454,13 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         let dots = FileTags.dots(for: file.tags, attributes: attributes)
         let label = NSMutableAttributedString(attributedString: dots)
         label.append(NSAttributedString(string: file.name, attributes: attributes))
-        if file.isCloudOnly { label.append(CloudDrive.cloudBadge(font: nameField.font ?? .systemFont(ofSize: 12))) }
-        self.label = label
+        plainLabel = label
+        cloudURL = file.isCloudOnly ? file.url : nil
         tagDotsLength = dots.length
         itemView.isHorizontal = mode.isHorizontalItem
         itemView.labelFont = nameField.font ?? .systemFont(ofSize: 12)
-        nameField.attributedStringValue = label
         nameField.isHidden = !mode.isHorizontalItem
-        applyLabelColor()
+        updateCloudBadge(force: true)
         detailField.isHidden = mode != .tiles
         detailField.stringValue = [file.typeDescription, file.sizeDescription].compactMap { $0 }.joined(separator: "\n")
         // Videos and sounds: the play button
@@ -599,6 +657,16 @@ final class GridItemView: NSView {
             return true
         }
         return (image, frame)
+    }
+
+    /// Where each line of the name is drawn (icon views).
+    var lineRects: [NSRect] {
+        guard !isHorizontal, let top = labelTop else { return [] }
+        let lineHeight = ceil(labelFont.ascender - labelFont.descender + labelFont.leading)
+        return labelLines.enumerated().map { n, line in
+            let width = min(ceil(line.size().width), bounds.width - 4)
+            return NSRect(x: bounds.midX - width / 2, y: top - lineHeight * CGFloat(n + 1), width: width, height: lineHeight)
+        }
     }
 
     func catches(_ point: NSPoint) -> Bool {
@@ -800,6 +868,12 @@ final class FileCollectionView: NSCollectionView {
         // The play button over a video's preview: plays / pauses it, nothing else
         if let index = itemIndex(at: point), let item = item(at: groups.indexPath(for: index)) as? FileGridItem,
            item.handlePlayClick(at: item.view.convert(point, from: self)) {
+            return
+        }
+        // The cloud after a name: downloads the file, nothing else
+        if event.clickCount == 1, modifiers.isEmpty, let index = itemIndex(at: point),
+           let item = item(at: groups.indexPath(for: index)) as? FileGridItem,
+           item.handleCloudClick(at: item.view.convert(point, from: self)) {
             return
         }
         guard let index = itemIndex(at: point) else {
