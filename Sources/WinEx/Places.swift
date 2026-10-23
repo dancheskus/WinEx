@@ -2,6 +2,7 @@ import AppKit
 import DiskArbitration
 import Network
 import NetFS
+import SystemConfiguration
 
 /// Sidebar "Места" that aren't plain folders: the network, the Trash, AirDrop.
 enum Places {
@@ -391,8 +392,10 @@ final class NetworkBrowser {
         for type in ["_smb._tcp", "_afpovertcp._tcp"] {
             let browser = NWBrowser(for: .bonjour(type: type, domain: nil), using: .tcp)
             browser.browseResultsChangedHandler = { [weak self] results, _ in
+                // This Mac advertises itself when File Sharing is on; Finder leaves it out
+                let ownName = SCDynamicStoreCopyComputerName(nil, nil) as String?
                 let names = Set(results.compactMap { result -> String? in
-                    if case let .service(name, _, _, _) = result.endpoint { return name }
+                    if case let .service(name, _, _, _) = result.endpoint, name != ownName { return name }
                     return nil
                 })
                 DispatchQueue.main.async { self?.update(type: type, names: names) }
