@@ -55,8 +55,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         #endif
         // Tags already on files join the sidebar's list (one quick Spotlight query)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { TagLibrary.discover() }
-        // Back from a restart (a new language): the same windows as before
-        let restored = restoreSession()
+        // Back from a restart (a new language, an update): the same windows as before
+        var restored = restoreSession()
+        // Just updated: what the new version brings (or that it didn't install). Updated by a
+        // version that saved no windows for it: the ones it had open (written down as it ran)
+        if Updater.shared.tellWhatsNewIfUpdated(), !restored {
+            let windows = AppDefaults.store.array(forKey: Self.liveSessionKey) as? [[String: Any]] ?? []
+            restoreWindows(windows)
+            restored = !windows.isEmpty
+        }
         #if DEBUG
         if !Scenario.isRequested { offerWindowsAfterCrash() }
         #else
@@ -83,9 +90,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Updater.shared.restart()
     }
 
-    func saveSession(settingsOpen: Bool) {
-        AppDefaults.store.set(["windows": openWindowsList(), "settings": settingsOpen] as [String: Any], forKey: Self.sessionKey)
+    func saveSession(settingsOpen: Bool, settingsTab: SettingsWindowController.Tab = .general) {
+        AppDefaults.store.set(["windows": openWindowsList(), "settings": settingsOpen, "settingsTab": settingsTab.rawValue] as [String: Any],
+                              forKey: Self.sessionKey)
     }
+
+    /// Whether Settings is open now (an update asked for from «Обновления» comes back to it).
+    var settingsOpen: Bool { settingsController?.window?.isVisible == true }
 
     /// The folder windows open now: their tabs, current tab and frames.
     private func openWindowsList() -> [[String: Any]] {
@@ -101,7 +112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let session = AppDefaults.store.dictionary(forKey: Self.sessionKey) else { return false }
         AppDefaults.store.removeObject(forKey: Self.sessionKey)
         restoreWindows(session["windows"] as? [[String: Any]] ?? [])
-        if session["settings"] as? Bool == true { showSettings(tab: .general) }
+        if session["settings"] as? Bool == true {
+            showSettings(tab: (session["settingsTab"] as? Int).flatMap(SettingsWindowController.Tab.init(rawValue:)) ?? .general)
+        }
         return true
     }
 

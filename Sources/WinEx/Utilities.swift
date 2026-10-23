@@ -14,7 +14,10 @@ enum AppDefaults {
     static let store: UserDefaults = {
         #if DEBUG
         if Scenario.isRequested, let scenarioStore = UserDefaults(suiteName: "dev.winex.WinEx.scenario") {
-            scenarioStore.removePersistentDomain(forName: "dev.winex.WinEx.scenario")
+            // (Not the copy an update started: it goes on with what the run before it left)
+            if ProcessInfo.processInfo.environment["WINEX_SCENARIO"] != "updated" {
+                scenarioStore.removePersistentDomain(forName: "dev.winex.WinEx.scenario")
+            }
             return scenarioStore
         }
         #endif

@@ -155,7 +155,7 @@ final class Updater {
                     tell(L("Обновление не установлено"), L("Новая версия подписана другим сертификатом — это может быть подделка. Скачайте WinEx вручную со страницы релизов."))
                     return
                 }
-                relaunch(replacing: target, with: app)
+                relaunch(replacing: target, with: app, release: release)
             } catch {
                 indicator.close()
                 tell(L("Не удалось загрузить обновление"), error.localizedDescription)
@@ -206,8 +206,9 @@ final class Updater {
         return SecStaticCodeCheckValidity(candidate, flags, requirement) == errSecSuccess
     }
 
-    /// Quits, swaps the bundle once this process is gone, starts the new version.
-    private func relaunch(replacing target: URL, with app: URL) {
+    /// Quits, swaps the bundle once this process is gone, starts the new version — with the same
+    /// windows, and a word on what it brings.
+    private func relaunch(replacing target: URL, with app: URL, release: Release) {
         let pid = ProcessInfo.processInfo.processIdentifier
         let old = target.path, backup = target.path + ".old", new = app.path
         let marker = FinderReplacement.updateMarker(for: pid)
@@ -228,8 +229,99 @@ final class Updater {
             tell(L("Не удалось обновить WinEx"), error.localizedDescription)
             return
         }
+        AppDelegate.shared.saveSession(settingsOpen: AppDelegate.shared.settingsOpen, settingsTab: .updates)
+        AppDefaults.store.set(["from": currentVersion, "to": release.version, "notes": release.body ?? "",
+                               "page": release.html_url?.absoluteString ?? ""], forKey: Self.updateNoticeKey)
         isRelaunching = true
         NSApp.terminate(nil)
+    }
+
+    // MARK: After an update
+
+    /// Written before quitting for an update; the new version reads it once at launch.
+    private static let updateNoticeKey = "justUpdated"
+
+    #if DEBUG
+    /// Scenario runs: what the window would have said (no dialog).
+    private(set) var debugUpdateNotice: String?
+    #endif
+
+    /// The version that ran last time (releases only): a newer one now means it was updated, even
+    /// by a version that didn't leave word (before 0.9.22) or by hand.
+    private static let lastRunKey = "lastRunVersion"
+
+    /// Started by an update: says it's done — the version, what it was, what's new (the release
+    /// notes, as in the offer), a link to the release page. If the swap failed and the old version
+    /// came back, says that instead. True when it was updated without word from the version before
+    /// (its windows weren't saved for this: the caller opens the ones it had).
+    @discardableResult
+    func tellWhatsNewIfUpdated() -> Bool {
+        let store = AppDefaults.store
+        var isRelease = !isDevBuild
+        #if DEBUG
+        if Scenario.isRequested { isRelease = true }
+        #endif
+        let last = store.string(forKey: Self.lastRunKey)
+        if isRelease { store.set(currentVersion, forKey: Self.lastRunKey) }
+        if let notice = store.dictionary(forKey: Self.updateNoticeKey) {
+            store.removeObject(forKey: Self.updateNoticeKey)
+            let to = notice["to"] as? String ?? currentVersion
+            tellUpdated(from: notice["from"] as? String ?? "", notes: notice["notes"] as? String ?? "",
+                        page: (notice["page"] as? String).flatMap(URL.init(string:)),
+                        failedVersion: Self.isVersion(to, newerThan: currentVersion) ? to : nil)
+            return false
+        }
+        guard isRelease, let last, Self.isVersion(currentVersion, newerThan: last) else { return false }
+        // No word left: this version's notes from its release page
+        Task {
+            let release = await releaseNotes(of: currentVersion)
+            tellUpdated(from: last, notes: release?.body ?? "", page: release?.html_url, failedVersion: nil)
+        }
+        return true
+    }
+
+    /// The release of `version` from GitHub (nil when it can't be had: offline, no such release).
+    private func releaseNotes(of version: String) async -> Release? {
+        #if DEBUG
+        if let feed = ProcessInfo.processInfo.environment["WINEX_UPDATE_FEED"] {
+            return (try? Data(contentsOf: URL(fileURLWithPath: feed))).flatMap { try? JSONDecoder().decode(Release.self, from: $0) }
+        }
+        if Scenario.isRequested { return nil }
+        #endif
+        guard let url = URL(string: "https://api.github.com/repos/\(Self.repository)/releases/tags/v\(version)") else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("WinEx/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return try? JSONDecoder().decode(Release.self, from: data)
+    }
+
+    private func tellUpdated(from: String, notes markdown: String, page: URL?, failedVersion: String?) {
+        let page = page.flatMap { $0.scheme == nil ? nil : $0 } ?? URL(string: "https://github.com/\(Self.repository)/releases")
+        let alert = NSAlert()
+        if let failedVersion {
+            alert.messageText = L("Не удалось обновить WinEx")
+            alert.informativeText = L("Версия %@ не установилась, работает %@. Её можно скачать со страницы релизов.", failedVersion, currentVersion)
+        } else {
+            alert.messageText = L("WinEx обновлён до версии %@", currentVersion)
+            let notes = ReleaseNotes.styled(markdown)
+            if notes.length > 0 {
+                alert.informativeText = L("Была версия %@. Что нового:", from)
+                alert.accessoryView = ReleaseNotes.view(notes)
+            } else {
+                alert.informativeText = L("Была версия %@.", from)
+            }
+        }
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: failedVersion == nil ? L("Все изменения…") : L("Страница релизов…"))
+        #if DEBUG
+        if Scenario.isRequested { debugUpdateNotice = alert.messageText + " | " + alert.informativeText; return }
+        #endif
+        // (Once the windows have come back: the note goes over them)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            NSApp.activate()
+            if alert.runModal() == .alertSecondButtonReturn, let page { NSWorkspace.shared.open(page) }
+        }
     }
 
     /// Quits and starts again (a new language takes effect); Finder isn't brought back meanwhile.

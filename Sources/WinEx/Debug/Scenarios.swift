@@ -80,6 +80,7 @@ enum Scenarios {
         "desktopvideo": desktopVideo,
         "selfupdate": selfUpdate,
         "updated": updated,
+        "quietupdate": quietUpdate,
         "nas": nas,
         "bonjour": bonjour,
         "releasenotes": releaseNotes,
@@ -3802,15 +3803,35 @@ enum Scenarios {
     /// Run by scripts/check-self-update.sh on a copy of the app: updates itself from a local feed.
     static func selfUpdate(_ s: Scenario) {
         s.note("  running \(Updater.shared.currentVersion) from \(Bundle.main.bundlePath)")
+        // A second window with two tabs: both must come back after the update
+        let second = AppDelegate.shared.openWindow(with: [ExplorerTab(url: s.sandbox), ExplorerTab(url: FileManager.default.temporaryDirectory)])
+        second.selectTab(at: 1)
+        s.note("  windows before: \(AppDelegate.shared.windowControllers.map { $0.tabs.count })")
         Updater.shared.check(userInitiated: true)
         // The update quits this process; if it doesn't within 20 s, say so
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { s.note("  (still running — no update happened)"); s.run([]) }
     }
 
+    /// Updated by a version that left no word (before 0.9.22): the version alone tells it was.
+    static func quietUpdate(_ s: Scenario) {
+        AppDefaults.store.set("0.0.1", forKey: "lastRunVersion")  // (scenario builds are 0.3.0)
+        let updated = Updater.shared.tellWhatsNewIfUpdated()
+        s.note("  updated: \(updated)  expect true")
+        s.note("  again: \(Updater.shared.tellWhatsNewIfUpdated())  expect false (told once)")
+        s.run([
+            (0.5, "told", { s.note("  \(Updater.shared.debugUpdateNotice ?? "nothing")  expect «обновлён до версии», «Была версия 0.0.1»") }),
+        ])
+    }
+
     /// The relaunched copy after "selfupdate": reports its version and quits.
     static func updated(_ s: Scenario) {
         s.note("  after the update: \(Updater.shared.currentVersion) from \(Bundle.main.bundlePath)")
-        s.run([])
+        s.run([
+            (1.0, "back", {
+                s.note("  windows after: \(AppDelegate.shared.windowControllers.map { $0.tabs.count })  expect as before")
+                s.note("  told: \(Updater.shared.debugUpdateNotice ?? "nothing")  expect «обновлён до версии 99.0.0»")
+            }),
+        ])
     }
 
     /// Opens Settings and shows each tab in turn, waiting for an outside `screencapture -l` of the
