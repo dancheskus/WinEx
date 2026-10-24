@@ -83,6 +83,14 @@ enum FileUndo {
         register(L("Переименование"), undo: { move([(new, old)]) }, redo: { move([(old, new)]) })
     }
 
+    /// «Переименовать N объектов»: one step for all of them, in two passes (names may be swapped).
+    static func recordBatchRename(_ pairs: [(from: URL, to: URL)]) {
+        guard !pairs.isEmpty else { return }
+        let back = pairs.map { (from: $0.to, to: $0.from) }
+        register(L("Переименование"), undo: { perform { try BatchRename.perform(back) } },
+                 redo: { perform { try BatchRename.perform(pairs) } })
+    }
+
     /// Cut & paste or drag: files went from `from` to `to`.
     static func recordMove(_ pairs: [(from: URL, to: URL)]) {
         guard !pairs.isEmpty else { return }

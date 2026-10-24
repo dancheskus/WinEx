@@ -1810,7 +1810,21 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
 
     @objc func renameSelected(_ sender: Any?) {
         guard renameField == nil else { return }   // F2 again while renaming: keeps renaming
-        if let i = selection.sorted().first(where: { !isVolume($0) }) { beginRename(i) }
+        let files = selection.sorted().filter { !isVolume($0) }
+        guard files.count > 1 else {
+            if let i = files.first { beginRename(i) }
+            return
+        }
+        // Several: «Переименовать N объектов»; they keep their places on the desktop
+        BatchRenameWindowController.show(for: files.map { BatchRename.Item(url: items[$0].url, isFolder: items[$0].isFolder) }) { [weak self] renamed in
+            guard let self else { return }
+            let here = desktopURL.standardizedFileURL.path
+            layout.renamePositions(Dictionary(renamed.filter { $0.from.deletingLastPathComponent().standardizedFileURL.path == here }
+                .map { ($0.from.lastPathComponent, $0.to.lastPathComponent) }, uniquingKeysWith: { first, _ in first }))
+            reload()
+            let names = Set(renamed.map(\.to.lastPathComponent))
+            selection = Set(items.indices.filter { names.contains(self.name(of: $0)) })
+        }
     }
 
     @objc private func openWallpaperSettings(_ sender: Any?) {

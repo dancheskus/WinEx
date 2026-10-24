@@ -8,6 +8,7 @@ import Quartz
 enum Scenarios {
     static let all: [String: (Scenario) -> Void] = [
         "undo": undo,
+        "batchrename": batchRename,
         "grouping": grouping,
         "preview": previewPane,
         "device": devicePage,
@@ -4863,6 +4864,87 @@ enum Scenarios {
     }
 
     /// ⌘Z / ⇧⌘Z for rename, trash, move, new folder, tags; ⌘Z in a text field undoes typing.
+    /// «Переименовать N объектов»: preview, conflicts, renaming, one ⌘Z for all; pictures of the window.
+    static func batchRename(_ s: Scenario) {
+        let base = s.makeFiles(["IMG_1.jpg", "IMG_2.jpg", "IMG_3.jpg", "заметка.txt", "Отпуск 1.jpg"])
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        func sheet() -> BatchRenameWindowController? { BatchRenameWindowController.debugLast }
+        // scripts/capture-window.sh batchrename 2: the window with a conflict, then ready
+        func picture(_ n: Int) {
+            if let number = sheet()?.window?.windowNumber {
+                try? "\(number)".write(to: s.output.appendingPathComponent("tab-\(n)"), atomically: true, encoding: .utf8)
+            }
+        }
+        func undo() { s.key("z", code: 6, modifiers: .command, viaMenu: true); FileUndo.waitForFileWork() }
+        s.run([
+            (0.8, "select the three IMG_, F2", {
+                guard let table = s.table else { return s.note("  (no table)") }
+                s.window?.window?.makeFirstResponder(table)
+                let rows = (0..<table.numberOfRows).filter {
+                    ((table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue ?? "").hasPrefix("IMG_")
+                }
+                table.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+                s.send("renameSelected:")
+            }),
+            (0.5, "", { s.note("  window: \(sheet()?.window?.title ?? "none")  expect Переименовать 3 объекта; editing \(s.editingText)") }),
+            (0.2, "IMG_ → Фото ", {
+                sheet()?.debugSet(find: "img_", replace: "Фото ")
+                s.note("  \(sheet()?.debugNewNames ?? [])  \(sheet()?.debugState ?? "")  expect Фото 1…3, 3 of 3")
+            }),
+            (0.2, "«Отпуск» + numbers at the end: Отпуск 1 is taken", {
+                sheet()?.debugSet(newName: "Отпуск", numbering: 2)
+                s.note("  \(sheet()?.debugNewNames ?? [])  \(sheet()?.debugState ?? "")  expect a conflict, button off")
+                picture(0)
+            }),
+            (1.0, "numbers from 2", {
+                sheet()?.debugSet(newName: "Отпуск", numbering: 2, start: 2)
+                s.note("  \(sheet()?.debugNewNames ?? [])  \(sheet()?.debugState ?? "")  expect Отпуск 2…4, button on")
+                picture(1)
+            }),
+            (1.0, "rename", { sheet()?.debugRename() }),
+            (0.8, "", { s.note("  \(s.files())  expect Отпуск 1…4 .jpg; window open: \(sheet()?.window?.isVisible == true)  expect false") }),
+            (0.2, "", { s.note("  selected: \(s.selectedNames.sorted())  expect the three") }),
+            (0.2, "⌘Z", { undo(); s.note("  \(s.files())  expect IMG_1…3 back") }),
+            (0.5, "F2 again: opens empty", {
+                guard let table = s.table else { return s.note("  (no table)") }
+                s.window?.window?.makeFirstResponder(table)
+                let rows = (0..<table.numberOfRows).filter {
+                    ((table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? NSTableCellView)?.textField?.stringValue ?? "").hasPrefix("IMG_")
+                }
+                table.selectRowIndexes(IndexSet(rows), byExtendingSelection: false)
+                s.send("renameSelected:")
+            }),
+            (0.5, "", {
+                s.note("  \(sheet()?.debugState ?? "")  expect Пока имена не меняются, button off")
+                s.note("  menu \(sheet()?.debugPresetMenu ?? [])  expect Как в прошлый раз, Сохранить (off)")
+                sheet()?.debugApplyLast()
+                s.note("  last: \(sheet()?.debugNewNames ?? [])  expect Отпуск 2…4")
+                s.note("  digits kept: \(BatchRenameWindowController.lastRules?.digits ?? -1)  expect 1 (Авто made one digit)")
+            }),
+            (0.2, "saved as «Фото», reset, applied", {
+                sheet()?.debugSet(prefix: "Проверочный ", numbering: 1, separator: 2, textCase: 2)
+                sheet()?.debugSavePreset("Фото")
+                s.note("  \(sheet()?.debugNewNames ?? [])  expect 1-ПРОВЕРОЧНЫЙ IMG_1… (the case of the added text too)")
+                sheet()?.debugReset()
+                s.note("  reset: \(sheet()?.debugState ?? "")  expect Пока имена не меняются")
+                s.note("  menu \(sheet()?.debugPresetMenu ?? [])  expect Фото, —, Как в прошлый раз, —, Сохранить как шаблон (off)")
+                sheet()?.debugApplyPreset("Фото")
+                s.note("  menu \(sheet()?.debugPresetMenu ?? [])  expect ✓Фото … Сохранить изменения в «Фото» (off), Переименовать, Удалить")
+            }),
+            (0.2, "old numbers removed, numbered at the start", {
+                sheet()?.debugSet(numbering: 1, removeNumbers: true)
+                s.note("  \(sheet()?.debugNewNames ?? [])  \(sheet()?.debugState ?? "")  expect 1 IMG.jpg, 2 IMG.jpg, 3 IMG.jpg")
+            }),
+            (0.2, "old numbers removed, no new ones: the same names", {
+                sheet()?.debugSet(removeNumbers: true)
+                s.note("  \(sheet()?.debugState ?? "")  expect 3 can't — names repeat, turn on numbering (whole, one line under the list)")
+                picture(2)
+            }),
+            (1.0, "closed", { sheet()?.window?.close() }),
+        ])
+    }
+
     static func undo(_ s: Scenario) {
         let base = s.makeFiles(["a.txt", "b.txt", "dir/"])
         s.window?.navigate(to: base)

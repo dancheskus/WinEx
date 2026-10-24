@@ -533,8 +533,16 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     /// An item to select once the list is reloaded (the renamed file: the reload that shows its
     /// new name can be postponed until the name field has let go).
     private var pendingSelectionName: String?
+    /// The same for several items renamed together (their paths).
+    private var pendingSelection: Set<String> = []
 
     private func selectPendingItem() {
+        if !pendingSelection.isEmpty {
+            let indexes = IndexSet(items.indices.filter { pendingSelection.contains(items[$0].url.standardizedFileURL.path) })
+            guard let first = indexes.first else { return }
+            pendingSelection = []
+            return setSelection(indexes, scrollTo: first)
+        }
         guard let name = pendingSelectionName,
               let index = items.firstIndex(where: { $0.url.lastPathComponent == name }) else { return }
         pendingSelectionName = nil
@@ -1077,6 +1085,14 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     @objc func renameSelected(_ sender: Any?) {
         // F2 again while renaming: keeps renaming (it only starts it)
         guard !InlineRename.isEditing(in: view.window), let index = targetRows.first else { return }
+        // Several: «Переименовать N объектов»
+        guard targetRows.count == 1 else {
+            BatchRenameWindowController.show(for: targetRows.map { BatchRename.Item(url: items[$0].url, isFolder: items[$0].isFolder) }) { [weak self] renamed in
+                self?.pendingSelection = Set(renamed.map(\.to.standardizedFileURL.path))
+                self?.reload()
+            }
+            return
+        }
         beginRename(at: index)
     }
 

@@ -249,14 +249,21 @@ final class DesktopLayout {
     #endif
 
     func renamePosition(from oldName: String, to newName: String) {
+        renamePositions([oldName: newName])
+    }
+
+    /// Several renamed at once (old name → new): all moved together, so swapped names keep theirs.
+    func renamePositions(_ renames: [String: String]) {
+        guard !renames.isEmpty else { return }
         stored.fences = stored.fences?.map { fence in
             var fence = fence
-            fence.members = fence.members.map { $0 == oldName ? newName : $0 }
+            fence.members = fence.members.map { renames[$0] ?? $0 }
             return fence
         }
-        stored.positions[newName] = stored.positions.removeValue(forKey: oldName)
-        let screen = stored.screens?.removeValue(forKey: oldName)
-        stored.screens?[newName] = screen
+        stored.positions = Dictionary(stored.positions.map { (renames[$0.key] ?? $0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
+        stored.screens = stored.screens.map { screens in
+            Dictionary(screens.map { (renames[$0.key] ?? $0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
+        }
         save()
     }
 
