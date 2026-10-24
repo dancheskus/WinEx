@@ -40,15 +40,23 @@ enum FileUndo {
     private static let target = Target()
 
     /// Registers `undo` (and, through it, `redo`) under a menu name ("Отменить «Переименование»").
-    private static func register(_ name: String, undo: @escaping @MainActor () -> Void, redo: @escaping @MainActor () -> Void) {
-        manager.registerUndo(withTarget: target) { _ in
+    /// `owner`: a step of its own that can be taken back out of the history (see `lastTrash`).
+    private static func register(_ name: String, owner: Target? = nil,
+                                 undo: @escaping @MainActor () -> Void, redo: @escaping @MainActor () -> Void) {
+        lastTrash = nil
+        let owner = owner ?? target
+        manager.registerUndo(withTarget: owner) { _ in
             MainActor.assumeIsolated {
                 undo()
-                register(name, undo: redo, redo: undo)
+                register(name, owner: owner, undo: redo, redo: undo)
             }
         }
         manager.setActionName(name)
     }
+
+    /// The last step, when it's a move to the Trash: what's trashed right after it as part of the
+    /// same thing (an app's files after the app) joins it — one ⌘Z for both.
+    private static var lastTrash: (owner: Target, moved: [URL: URL])?
 
     /// File work of undo / redo runs here, in order: a move across volumes or a copy can take long.
     nonisolated private static let queue = DispatchQueue(label: "dev.winex.undo", qos: .userInitiated)
@@ -70,10 +78,33 @@ enum FileUndo {
         queue.sync {}
     }
 
-    /// Moves files; on failure shows the error and stops.
+    /// Moves files — apps first, each on its own: one that can't move (another app's protected
+    /// folder) doesn't hold back the rest; root's ones are moved with the administrator's password;
+    /// those that still didn't are named at the end.
     private static func move(_ pairs: [(from: URL, to: URL)]) {
-        perform {
-            for pair in pairs { try FileManager.default.moveItem(at: pair.from, to: pair.to) }
+        let ordered = pairs.filter { $0.to.pathExtension == "app" } + pairs.filter { $0.to.pathExtension != "app" }
+        queue.async {
+            var failed: [(name: String, error: Error)] = []
+            var forbidden: [(from: URL, to: URL)] = []
+            for pair in ordered {
+                do { try FileManager.default.moveItem(at: pair.from, to: pair.to) } catch {
+                    if Administrator.isPermissionError(error) { forbidden.append(pair) } else { failed.append((pair.to.lastPathComponent, error)) }
+                }
+            }
+            // Root's items (an App Store app): with the administrator's password
+            if !forbidden.isEmpty, !Administrator.move(forbidden) {
+                let error = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+                failed += forbidden.filter { FileManager.default.fileExists(atPath: $0.from.path) }.map { ($0.to.lastPathComponent, error) }
+            }
+            guard let first = failed.first else { return }
+            let names = failed.map(\.name).joined(separator: ", ")
+            let detail = (first.error as NSError).localizedDescription
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = failed.count == 1 ? L("Не удалось вернуть «%@»", names) : L("Не удалось вернуть: %@", names)
+                alert.informativeText = detail
+                alert.runModal()
+            }
         }
     }
 
@@ -110,10 +141,19 @@ enum FileUndo {
     }
 
     /// Trashed items (original → where it is in the Trash): undo puts them back.
-    static func recordTrash(_ moved: [URL: URL]) {
+    /// `joining`: items trashed just before as the same thing; if that's still the last step, the
+    /// two become one.
+    static func recordTrash(_ moved: [URL: URL], joining earlier: [URL: URL]? = nil) {
         guard !moved.isEmpty else { return }
-        let pairs = moved.map { (from: $0.key, to: $0.value) }
-        register(L("Перемещение в Корзину"), undo: { move(pairs.map { ($0.to, $0.from) }) }, redo: { move(pairs) })
+        var all = moved
+        if let earlier, let last = lastTrash, !earlier.isEmpty, earlier.allSatisfy({ last.moved[$0.key] == $0.value }) {
+            manager.removeAllActions(withTarget: last.owner)
+            all.merge(last.moved) { new, _ in new }
+        }
+        let pairs = all.map { (from: $0.key, to: $0.value) }
+        let owner = Target()
+        register(L("Перемещение в Корзину"), owner: owner, undo: { move(pairs.map { ($0.to, $0.from) }) }, redo: { move(pairs) })
+        lastTrash = (owner, all)
     }
 
     /// A new folder / file: undo sends it to the Trash; redo brings it back.
@@ -145,6 +185,7 @@ enum FileUndo {
         return urls.compactMap { url in
             var result: NSURL?
             do { try FileManager.default.trashItem(at: url, resultingItemURL: &result) } catch { NSAlert(error: error).runModal() }
+            if let trashed = result as URL? { Places.rememberTrashed([(url, trashed)]) }
             return result as URL?
         }
     }

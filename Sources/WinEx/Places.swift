@@ -54,15 +54,58 @@ enum Places {
         return result
     }
 
-    /// Moves items back to where they were deleted from. Returns the ones that couldn't be restored.
+    /// Where WinEx's own trashed items came from (path in the Trash → original path): the Trash
+    /// keeps that only for what Finder put there, not for `FileManager.trashItem`.
+    private static let trashedFromKey = "TrashedFrom"
+
+    static func rememberTrashed(_ pairs: [(from: URL, to: URL)]) {
+        guard !pairs.isEmpty else { return }
+        var known = AppDefaults.store.dictionary(forKey: trashedFromKey) as? [String: String] ?? [:]
+        // What's no longer in the Trash is forgotten
+        known = known.filter { FileManager.default.fileExists(atPath: $0.key) }
+        for pair in pairs { known[pair.to.standardizedFileURL.path] = pair.from.standardizedFileURL.path }
+        AppDefaults.store.set(known, forKey: trashedFromKey)
+    }
+
+    /// An app's files put in the Trash with it (app's path in the Trash → theirs): «Вернуть» on the
+    /// app brings them back too.
+    private static let trashedTogetherKey = "TrashedTogether"
+
+    static func rememberTogether(app: URL, files: [URL]) {
+        guard !files.isEmpty else { return }
+        var groups = AppDefaults.store.dictionary(forKey: trashedTogetherKey) as? [String: [String]] ?? [:]
+        groups = groups.filter { FileManager.default.fileExists(atPath: $0.key) }
+        let key = app.standardizedFileURL.path
+        groups[key] = (groups[key] ?? []) + files.map(\.standardizedFileURL.path)
+        AppDefaults.store.set(groups, forKey: trashedTogetherKey)
+    }
+
+    /// The files trashed with `url` that are still in the Trash.
+    static func trashedTogether(with url: URL) -> [URL] {
+        let groups = AppDefaults.store.dictionary(forKey: trashedTogetherKey) as? [String: [String]] ?? [:]
+        return (groups[url.standardizedFileURL.path] ?? []).filter { FileManager.default.fileExists(atPath: $0) }.map { URL(fileURLWithPath: $0) }
+    }
+
+    static func trashedFrom(_ url: URL) -> URL? {
+        (AppDefaults.store.dictionary(forKey: trashedFromKey) as? [String: String])?[url.standardizedFileURL.path]
+            .map { URL(fileURLWithPath: $0) }
+    }
+
+    /// Moves items back to where they were deleted from. Returns the ones that couldn't be restored:
+    /// `unknown` — where from isn't known; `failed` — it couldn't move (no password given…).
     @discardableResult
-    static func putBack(_ urls: [URL]) -> [URL] {
-        let locations = putBackLocations()
+    static func putBack(_ urls: [URL]) -> (unknown: [URL], failed: [URL]) {
+        // An app comes back with its files
+        var urls = urls
+        for url in urls { urls += trashedTogether(with: url).filter { !urls.contains($0) } }
+        let finder = putBackLocations()
         var failed: [URL] = []
         var moved: [(from: URL, to: URL)] = []
+        var forbidden: [(from: URL, to: URL)] = []
+        var unknown: [URL] = []
         defer { MainActor.assumeIsolated { FileUndo.recordMove(moved) } }
         for url in urls {
-            guard let original = locations[url.lastPathComponent] else { failed.append(url); continue }
+            guard let original = trashedFrom(url) ?? finder[url.lastPathComponent] else { unknown.append(url); continue }
             let folder = original.deletingLastPathComponent()
             let destination = FileManager.default.fileExists(atPath: original.path)
                 ? FileOps.uniqueDestination(for: original.lastPathComponent, in: folder) : original
@@ -71,10 +114,16 @@ enum Places {
                 try FileManager.default.moveItem(at: url, to: destination)
                 moved.append((url, destination))
             } catch {
-                failed.append(url)
+                if Administrator.isPermissionError(error) { forbidden.append((url, destination)) } else { failed.append(url) }
             }
         }
-        return failed
+        // Root's items (an App Store app): with the administrator's password
+        if Administrator.move(forbidden) {
+            moved += forbidden
+        } else {
+            failed += forbidden.map(\.from)
+        }
+        return (unknown, failed)
     }
 
     /// "Очистить корзину" / "Удалить навсегда", after confirmation.

@@ -126,4 +126,32 @@ struct FileOperationTests {
         operation.run()
         #expect(contents(dir).isEmpty && operation.progress.doneItems == 3 && operation.progress.fraction == 1)
     }
+
+    @Test func rootsItemsAskForThePasswordOnceForAll() throws {
+        let locked = tempFolder()
+        let a = make(locked, "a.app"), b = make(locked, "b.app")
+        // (Nothing can leave a folder the user may not change: as with an App Store app)
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+            try? fm.removeItem(at: locked)
+        }
+        for declined in [false, true] {
+            let operation = FileOperation(kind: .trash, sources: [a, b])
+            var asked: [[String]] = []
+            var errors = 0
+            operation.trashAsAdministrator = { urls in
+                asked.append(urls.map(\.lastPathComponent))
+                return declined ? ([:], true) : ([a: URL(fileURLWithPath: "/tmp/trash/a.app")], false)
+            }
+            operation.onError = { _, _ in errors += 1; return .skip }
+            var finished: FileOperation.Result?
+            operation.onFinish = { finished = $0 }
+            operation.run()
+            #expect(asked == [["a.app", "b.app"]])
+            // Moved: a; b failed — said so, unless the password was declined
+            #expect(finished?.done.map(\.from) == (declined ? [] : [a]))
+            #expect(errors == (declined ? 0 : 1))
+        }
+    }
 }

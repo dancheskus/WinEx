@@ -9,6 +9,7 @@ enum Scenarios {
     static let all: [String: (Scenario) -> Void] = [
         "undo": undo,
         "batchrename": batchRename,
+        "uninstall": uninstall,
         "grouping": grouping,
         "preview": previewPane,
         "device": devicePage,
@@ -4860,6 +4861,112 @@ enum Scenarios {
                 }
                 windows.forEach { $0.orderOut(nil) }
             }),
+        ])
+    }
+
+    /// «Удалить приложение…»: a made-up app and its files in a made-up Library — found by ID (and by
+    /// name, unchecked), moved to the Trash together, one ⌘Z; then Delete on the app offers its files.
+    /// scripts/capture-window.sh uninstall 2 photographs both windows.
+    static func uninstall(_ s: Scenario) {
+        let id = "dev.winex.scenario.Fake"
+        let base = s.makeFiles(["Fake.app/Contents/", "notes.txt"], in: "Apps")
+        let info: [String: Any] = ["CFBundleIdentifier": id, "CFBundleName": "Fake", "CFBundlePackageType": "APPL"]
+        (info as NSDictionary).write(to: base.appendingPathComponent("Fake.app/Contents/Info.plist"), atomically: true)
+        let library = s.makeFiles(["Caches/\(id)/", "Application Support/Fake/", "Saved Application State/\(id).savedState/"], in: "Library")
+        s.makeFiles(["\(id).plist", "dev.winex.other.plist"], in: "Library/Preferences")
+        s.makeFiles(["cache.db"], in: "Library/Caches/\(id)")
+        UninstallWindowController.debugLibraries = (library, nil)
+        let app = base.appendingPathComponent("Fake.app")
+        func window() -> UninstallWindowController? { UninstallWindowController.debugLast }
+        func picture(_ n: Int) {
+            if let number = window()?.window?.windowNumber {
+                try? "\(number)".write(to: s.output.appendingPathComponent("tab-\(n)"), atomically: true, encoding: .utf8)
+            }
+        }
+        func undo() { s.key("z", code: 6, modifiers: .command, viaMenu: true); FileUndo.waitForFileWork() }
+        var trashedApp: URL?
+        func libraryFiles() -> [String] {
+            ["Preferences", "Caches", "Application Support", "Saved Application State"].flatMap { place in
+                s.files(in: library.appendingPathComponent(place)).map { "\(place)/\($0)" }
+            }
+        }
+        s.window?.navigate(to: base)
+        s.setViewMode(.details)
+        s.run([
+            (0.8, "the menu", {
+                s.note("  app: \(UninstallWindowController.menuItem(for: [app])?.title ?? "none")  expect Удалить приложение…")
+                s.note("  text file: \(UninstallWindowController.menuItem(for: [base.appendingPathComponent("notes.txt")])?.title ?? "none")  expect none")
+                s.note("  two items: \(UninstallWindowController.menuItem(for: [app, app])?.title ?? "none")  expect none")
+            }),
+            (0.1, "Удалить приложение…", { UninstallWindowController.uninstall(app) }),
+            (1.0, "", {
+                s.note("  window: \(window()?.window?.title ?? "none")  expect Удалить «Fake»; searching \(window()?.debugSearching == true)")
+                for row in window()?.debugRows ?? [] { s.note("    \(row)") }
+                s.note("  expect [x] Fake.app, [x] the plist, cache, savedState; [ ] Fake (по названию); not dev.winex.other")
+                s.note("  \(window()?.debugState ?? "")")
+                picture(0)
+            }),
+            (1.0, "check «Fake» too, remove", {
+                window()?.debugToggle("Fake")
+                s.note("  \(window()?.debugState ?? "")")
+                window()?.debugRemove()
+            }),
+            (1.5, "", {
+                s.note("  folder: \(s.files(in: base))  expect notes.txt only")
+                s.note("  library: \(libraryFiles())  expect Preferences/dev.winex.other.plist only")
+                s.note("  window open: \(window()?.window?.isVisible == true)  expect false")
+            }),
+            (0.2, "⌘Z", {
+                undo()
+                s.note("  folder: \(s.files(in: base))  expect Fake.app back")
+                s.note("  library: \(libraryFiles().count) files  expect 5")
+            }),
+            (0.5, "Delete on the app: its files are offered", {
+                s.window?.window?.makeFirstResponder(s.table)
+                s.select("Fake.app")
+                s.send("moveToTrash:")
+            }),
+            (1.5, "", {
+                s.note("  folder: \(s.files(in: base))  expect notes.txt only")
+                s.note("  window: \(window()?.window?.title ?? "none")  expect Файлы приложения «Fake»")
+                for row in window()?.debugRows ?? [] { s.note("    \(row)") }
+                s.note("  \(window()?.debugState ?? "")")
+                picture(1)
+            }),
+            (1.0, "remove", { window()?.debugRemove() }),
+            (1.5, "", {
+                s.note("  library: \(libraryFiles())  expect Application Support/Fake, Preferences/dev.winex.other.plist")
+                undo()
+                s.note("  after one ⌘Z: folder \(s.files(in: base)), library \(libraryFiles().count) files  expect Fake.app, 5")
+                s.note("  undo left: \(FileUndo.manager.canUndo ? FileUndo.manager.undoActionName : "-")  expect - (the first uninstall was undone already)")
+                UninstallWindowController.debugLibraries = nil
+            }),
+            (0.5, "trash notes.txt, then «Вернуть» from the Trash", {
+                FileOperations.start(.trash, [base.appendingPathComponent("notes.txt")]) { result in
+                    let trashed = result.done.map(\.to)
+                    s.note("  remembered: \(trashed.map { Places.trashedFrom($0)?.lastPathComponent ?? "-" })  expect notes.txt")
+                    let back = Places.putBack(trashed)
+                    s.note("  put back: unknown \(back.unknown.count), failed \(back.failed.count); folder \(s.files(in: base))  expect 0, 0, notes.txt there")
+                }
+            }),
+            (1.0, "Delete on the app again, its files too", {
+                UninstallWindowController.debugLibraries = (library, nil)
+                s.window?.window?.makeFirstResponder(s.table)
+                s.select("Fake.app")
+                s.send("moveToTrash:")
+            }),
+            (1.5, "", {
+                trashedApp = window()?.debugTrashedApp
+                window()?.debugRemove()
+            }),
+            (1.5, "«Вернуть» on the app in the Trash", {
+                guard let trashed = trashedApp else { return s.note("  (no trashed app)") }
+                s.note("  before: folder \(s.files(in: base)), library \(libraryFiles().count) files  expect notes.txt, 2")
+                let back = Places.putBack([trashed])
+                s.note("  put back: unknown \(back.unknown.count), failed \(back.failed.count); folder \(s.files(in: base)), library \(libraryFiles().count) files  expect 0, 0, Fake.app, 5")
+                UninstallWindowController.debugLibraries = nil
+            }),
+            (0.5, "", {}),
         ])
     }
 

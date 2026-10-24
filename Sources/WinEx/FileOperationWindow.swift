@@ -5,7 +5,10 @@ import AppKit
 /// than a moment, and a "Replace or skip files" dialog when names clash.
 @MainActor
 enum FileOperations {
-    static func start(_ kind: FileOperation.Kind, _ urls: [URL], to destination: URL? = nil) {
+    /// `then`: what got done, once it's over. `joiningUndo`: items trashed just before as the same
+    /// thing — one ⌘Z for both (an app and then its files).
+    static func start(_ kind: FileOperation.Kind, _ urls: [URL], to destination: URL? = nil,
+                      joiningUndo: [URL: URL]? = nil, then: ((FileOperation.Result) -> Void)? = nil) {
         let urls = urls.filter { (try? $0.checkResourceIsReachable()) == true }
         guard !urls.isEmpty else { return }
         let operation = FileOperation(kind: kind, sources: urls, destination: destination)
@@ -27,10 +30,25 @@ enum FileOperations {
                 answer(alert.runModal() == .alertFirstButtonReturn ? .skip : .cancel)
             }
         }
+        operation.trashAsAdministrator = { urls in
+            // Only into the user's own Trash (on the home disk), under free names
+            let trash = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash", isDirectory: true)
+            func volume(_ url: URL) -> NSObject? { (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject }
+            guard let home = volume(trash) else { return ([:], false) }
+            let movable = urls.filter { volume($0)?.isEqual(home) == true }
+            guard !movable.isEmpty else { return ([:], false) }
+            let (script, targets) = AppUninstall.adminScript(moving: movable, to: trash)
+            let run = Administrator.runTellingCancel(script)
+            var moved: [URL: URL] = [:]
+            for pair in targets where FileManager.default.fileExists(atPath: pair.to.path) && !FileManager.default.fileExists(atPath: pair.from.path) {
+                moved[pair.from] = pair.to
+            }
+            return (moved, run.cancelled)
+        }
         operation.onFinish = { result in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    recordUndo(kind, result)
+                    recordUndo(kind, result, joining: joiningUndo)
                     // The system's sounds, once something was actually done
                     if !result.done.isEmpty {
                         switch kind {
@@ -41,6 +59,7 @@ enum FileOperations {
                         }
                     }
                     progress.finish(panel)
+                    then?(result)
                 }
             }
         }
@@ -67,11 +86,13 @@ enum FileOperations {
     private final class Box<T>: @unchecked Sendable { var value: T? }
 
     /// One undo step for everything that got done (also when the rest was cancelled).
-    private static func recordUndo(_ kind: FileOperation.Kind, _ result: FileOperation.Result) {
+    private static func recordUndo(_ kind: FileOperation.Kind, _ result: FileOperation.Result, joining: [URL: URL]?) {
         switch kind {
         case .copy: FileUndo.recordCopy(result.done)
         case .move: FileUndo.recordMove(result.done)
-        case .trash: FileUndo.recordTrash(Dictionary(result.done.map { ($0.from, $0.to) }, uniquingKeysWith: { a, _ in a }))
+        case .trash:
+            Places.rememberTrashed(result.done)
+            FileUndo.recordTrash(Dictionary(result.done.map { ($0.from, $0.to) }, uniquingKeysWith: { a, _ in a }), joining: joining)
         case .delete: break
         }
     }

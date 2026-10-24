@@ -1249,11 +1249,12 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     // MARK: - Trash, sharing
 
     @objc private func putBackFromTrash(_ sender: Any?) {
-        let failed = Places.putBack(targetURLs)
-        if !failed.isEmpty {
+        let result = Places.putBack(targetURLs)
+        for (urls, reason) in [(result.unknown, L("Для этих объектов не сохранилось исходное расположение.")),
+                               (result.failed, L("Их не удалось переместить на прежнее место."))] where !urls.isEmpty {
             let alert = NSAlert()
-            alert.messageText = L("Не удалось вернуть: %@", failed.map(\.lastPathComponent).joined(separator: ", "))
-            alert.informativeText = L("Для этих объектов не сохранилось исходное расположение.")
+            alert.messageText = L("Не удалось вернуть: %@", urls.map(\.lastPathComponent).joined(separator: ", "))
+            alert.informativeText = reason
             alert.runModal()
         }
     }

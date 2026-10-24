@@ -45,6 +45,10 @@ final class FileOperation: @unchecked Sendable {
     var decideConflicts: (([Conflict]) -> [URL: Resolution]?)?
     /// Asked on a failure; nil hook: skip.
     var onError: ((Error, URL) -> ErrorAction)?
+    /// Moving to the Trash wasn't allowed (an App Store app is root's): moves those with the
+    /// administrator's password — asked once for all of them — and returns where each went
+    /// (missing: not moved) and whether the password was declined.
+    var trashAsAdministrator: (([URL]) -> (moved: [URL: URL], declined: Bool))?
     /// Replaced items go to the Trash (off in tests: they'd land in the user's Trash).
     var trashReplacedItems = true
     /// Called on the worker thread when everything is done (or cancelled).
@@ -301,19 +305,37 @@ final class FileOperation: @unchecked Sendable {
             $0.byBytes = false
             $0.phase = .working
         }
+        // Root's items (an App Store app) wait to the end: one password for all of them
+        var forbidden: [(url: URL, error: Error)] = []
         for url in items {
             guard shouldContinue() else { return }
             update { $0.currentName = url.lastPathComponent }
             do {
                 if kind == .trash {
                     var trashed: NSURL?
-                    try fm.trashItem(at: url, resultingItemURL: &trashed)
+                    do {
+                        try fm.trashItem(at: url, resultingItemURL: &trashed)
+                    } catch where Administrator.isPermissionError(error) && trashAsAdministrator != nil {
+                        forbidden.append((url, error))
+                        continue
+                    }
                     if let trashed = trashed as URL? { lock.withLock { result.done.append((url, trashed)) } }
                 } else {
                     try fm.removeItem(at: url)
                     lock.withLock { result.done.append((url, url)) }
                 }
             } catch {
+                if ask(error, url) == .cancel { cancel(); return }
+            }
+            update { $0.doneItems += 1 }
+        }
+        guard !forbidden.isEmpty, let trashAsAdministrator, shouldContinue() else { return }
+        let outcome = trashAsAdministrator(forbidden.map(\.url))
+        for (url, error) in forbidden {
+            if let trashed = outcome.moved[url] {
+                lock.withLock { result.done.append((url, trashed)) }
+            } else if !outcome.declined {
+                // (Declining the password is an answer already: nothing more is asked)
                 if ask(error, url) == .cancel { cancel(); return }
             }
             update { $0.doneItems += 1 }

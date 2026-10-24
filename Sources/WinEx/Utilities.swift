@@ -452,7 +452,13 @@ enum FileOps {
         let (trashable, noTrash) = urls.reduce(into: ([URL](), [URL]())) { result, url in
             if hasTrash(for: url) { result.0.append(url) } else { result.1.append(url) }
         }
-        if !trashable.isEmpty { FileOperations.start(.trash, trashable) }
+        if !trashable.isEmpty {
+            // An app put in the Trash: offer what it left in the Libraries too
+            let apps = trashable.compactMap(AppUninstall.app(at:))
+            FileOperations.start(.trash, trashable, then: apps.isEmpty ? nil : { result in
+                UninstallWindowController.offerLeftovers(of: apps, trashed: Dictionary(result.done.map { ($0.from, $0.to) }, uniquingKeysWith: { a, _ in a }))
+            })
+        }
         guard !noTrash.isEmpty else { return }
         let alert = NSAlert()
         alert.messageText = noTrash.count == 1
@@ -623,5 +629,45 @@ final class TagChangeWatcher {
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
+    }
+}
+
+/// What only the administrator may do (an App Store app is root's: it goes to the Trash, but
+/// moving it back into Applications takes the password), asked for once per call.
+enum Administrator {
+    static func isPermissionError(_ error: Error) -> Bool {
+        let error = error as NSError
+        if error.domain == NSCocoaErrorDomain, [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(error.code) { return true }
+        if error.domain == NSPOSIXErrorDomain, [Int(EACCES), Int(EPERM)].contains(error.code) { return true }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? Error { return isPermissionError(underlying) }
+        return false
+    }
+
+    /// Runs `shell` as root after the password; false if it failed or the password wasn't given.
+    /// Blocks until then.
+    static func run(_ shell: String) -> Bool { runTellingCancel(shell).ok }
+
+    /// `cancelled`: the password wasn't given.
+    static func runTellingCancel(_ shell: String) -> (ok: Bool, cancelled: Bool) {
+        let escaped = shell.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let process = Process()
+        let errors = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "do shell script \"\(escaped)\" with administrator privileges"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = errors
+        do { try process.run() } catch { return (false, false) }
+        let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        // (osascript: «User canceled. (-128)»)
+        return (process.terminationStatus == 0, message.contains("(-128)"))
+    }
+
+    static func quoted(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
+    /// Moves each item as root (never over an existing one).
+    static func move(_ pairs: [(from: URL, to: URL)]) -> Bool {
+        guard !pairs.isEmpty else { return true }
+        return run(pairs.map { "mv -n \(quoted($0.from.path)) \(quoted($0.to.path))" }.joined(separator: " && "))
     }
 }

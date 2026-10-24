@@ -90,6 +90,7 @@ enum FileContextMenu {
             add(L("Настроить папку…"), #selector(FileMenuActions.customizeFolder(_:)))
         }
         menu.addItem(.separator())
+        if let uninstall = UninstallWindowController.menuItem(for: urls) { menu.addItem(uninstall) }
         add(L("Свойства"), #selector(FileMenuActions.showProperties(_:)))
         MenuStyle.decorate(menu)
     }
