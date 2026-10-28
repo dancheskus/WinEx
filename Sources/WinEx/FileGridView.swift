@@ -222,7 +222,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         return field
     }()
     private let detailField = NSTextField(labelWithString: "")
-    /// iCloud's upload / download of the file, on its icon
+    /// iCloud's upload / download of the file (or a browser's download), on its icon
     private let cloudBar = CloudProgressBar()
     private var mode: ViewMode = .mediumIcons
     private var isFolder = false
@@ -513,9 +513,7 @@ final class FileGridItem: NSCollectionViewItem, NSTextFieldDelegate {
         // finding the picture's visible part reads its pixels
         if !cloudBar.isHidden {
             let picture = iconView.image.map { DesktopView.visibleRect(of: $0, in: DesktopView.aspectFit($0.size, in: iconView.frame), flipped: false) } ?? iconView.frame
-            let height: CGFloat = icon >= 48 ? 6 : 4
-            let width = max(picture.width * 0.8, 12)
-            cloudBar.frame = NSRect(x: (picture.midX - width / 2).rounded(), y: (picture.minY + (icon >= 48 ? 4 : 1)).rounded(), width: width.rounded(), height: height)
+            cloudBar.frame = CloudProgressBar.frame(onPicture: picture, iconSide: icon, flipped: false)
         }
         updateSelectionShapes()
         applyLabelColor()
@@ -946,10 +944,12 @@ final class FileCollectionView: NSCollectionView {
 
     override func draggingSession(_ session: NSDraggingSession,
                                   sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? [.copy, .move, .link, .generic, .delete] : [.copy, .move, .link, .generic]
+        // Out of WinEx: everything, as Finder offers (the Dock keeps a folder dropped on it, the Trash takes it)
+        context == .outsideApplication ? .every : [.copy, .move, .link, .generic]
     }
 
     override func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        DockStacks.dragEnded(session, at: screenPoint, operation: operation)
         // Dropped on the Trash in the Dock
         if operation == .delete {
             FileOps.trash(session.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])

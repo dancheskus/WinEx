@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Network
 import UniformTypeIdentifiers
 import os
 
@@ -51,6 +52,10 @@ final class MobileDevices {
     /// When each device left usbmuxd; dropped from the list a while after.
     private var awaySince: [String: Date] = [:]
     private var pruneTimer: Timer?
+    /// Wi‑Fi addresses of the devices advertising themselves on the network now (asleep ones
+    /// too: Finder shows these and wakes them up); nil — can't be told (browsing not allowed).
+    private var nearby: Set<String>? = []
+    private var browser: NWBrowser?
     private static let awayGrace: TimeInterval = 120
 
     /// Everything that talks to devices, one thing at a time (a device answers one request per connection).
@@ -67,6 +72,34 @@ final class MobileDevices {
         guard !started else { return }
         started = true
         listen()
+        browseNearby()
+    }
+
+    /// Devices Finder can wake over Wi‑Fi are listed while they advertise themselves, as Finder does
+    /// (one with a wake-up token that's elsewhere isn't).
+    private func browseNearby() {
+        let browser = NWBrowser(for: .bonjour(type: "_apple-mobdev2._tcp", domain: nil), using: .tcp)
+        browser.browseResultsChangedHandler = { results, _ in
+            let addresses = Set(results.compactMap { result -> String? in
+                guard case let .service(name, _, _, _) = result.endpoint else { return nil }
+                return name.split(separator: "@").first.map { $0.lowercased() }
+            })
+            DispatchQueue.main.async {
+                guard MobileDevices.shared.nearby != addresses else { return }
+                MobileDevices.shared.nearby = addresses
+                MobileDevices.shared.refresh()
+            }
+        }
+        browser.stateUpdateHandler = { state in
+            guard case .failed = state else { return }
+            DispatchQueue.main.async {
+                Self.log.info("nearby: browsing failed")
+                MobileDevices.shared.nearby = nil
+                MobileDevices.shared.refresh()
+            }
+        }
+        browser.start(queue: .main)
+        self.browser = browser
     }
 
     private func listen() {
@@ -83,12 +116,14 @@ final class MobileDevices {
     private var refreshing = false
     private var refreshAgain = false
 
-    /// Reads the list again; new devices are asked their name, model and version.
+    /// Reads the list again; every device on the network is asked its name and version (renamed or
+    /// updated since: an update restarts it, a phone over Wi‑Fi is back within `awayGrace`).
     func refresh() {
         guard !refreshing else { return refreshAgain = true }
         refreshing = true
         let known = Dictionary(devices.map { ($0.udid, $0) }, uniquingKeysWith: { a, _ in a })
         let names = Self.knownNames
+        let nearby = nearby
         Self.queue.async {
             let listed: [MobileDeviceLink.Device]
             do { listed = try MobileDeviceLink.devices() } catch {
@@ -100,6 +135,11 @@ final class MobileDevices {
                 if var device = known[entry.udid], !device.remembered {
                     device.wifi = entry.wifi
                     device.away = false
+                    // Not answering this time: as it was
+                    if let lockdown = try? MobileDeviceLink.Lockdown(entry) {
+                        if let name = (try? lockdown.value("DeviceName")) as? String { device.name = name }
+                        if let version = (try? lockdown.value("ProductVersion")) as? String { device.version = version }
+                    }
                     present.append(device)
                     continue
                 }
@@ -126,6 +166,10 @@ final class MobileDevices {
             }
             // The ones Finder shows over Wi‑Fi while they're asleep or away
             let remembered = Self.finderWiFiDevices.filter { udid in !present.contains { $0.udid == udid } }
+                .filter { udid in
+                    guard let nearby, let address = MobileDeviceLink.wifiAddress(udid: udid) else { return true }
+                    return nearby.contains(address)
+                }
                 .compactMap { Self.rememberedDevice($0, names: names) }
             DispatchQueue.main.async { self.apply(present, remembered: remembered) }
         }
@@ -139,6 +183,9 @@ final class MobileDevices {
         var names = Self.knownNames
         for device in present { names[device.udid] = device.name }
         if names != Self.knownNames { AppDefaults.store.set(names, forKey: Self.namesKey) }
+        var versions = Self.knownVersions
+        for device in present where !device.remembered && !device.version.isEmpty { versions[device.udid] = device.version }
+        if versions != Self.knownVersions { AppDefaults.store.set(versions, forKey: Self.versionsKey) }
         for device in devices where !device.remembered && !present.contains(where: { $0.udid == device.udid }) {
             let since = awaySince[device.udid] ?? now
             awaySince[device.udid] = since
@@ -172,10 +219,16 @@ final class MobileDevices {
     }
 
     private static let namesKey = "deviceNames"
+    nonisolated private static let versionsKey = "deviceVersions"
 
     /// Device names WinEx has seen, by UDID.
     private static var knownNames: [String: String] {
         AppDefaults.store.dictionary(forKey: namesKey) as? [String: String] ?? [:]
+    }
+
+    /// The versions WinEx saw last, by UDID (Finder's are only as new as its own last look).
+    nonisolated private static var knownVersions: [String: String] {
+        AppDefaults.store.dictionary(forKey: versionsKey) as? [String: String] ?? [:]
     }
 
     /// Devices Finder lists over Wi‑Fi («Показывать этот iPhone при подключении к Wi‑Fi»): it keeps
@@ -196,8 +249,10 @@ final class MobileDevices {
         let info = (seen?[key] ?? seen?[udid]) as? [String: Any]
         let productType = info?["Product Type"] as? String ?? ""
         guard info != nil || names[udid] != nil else { return nil }
-        var device = Device(udid: udid, name: "", productType: productType,
-                            version: info?["Firmware Version String"] as? String ?? "",
+        // The newer of Finder's and WinEx's (a device isn't put back to an older one)
+        let version = [info?["Firmware Version String"] as? String, knownVersions[udid]].compactMap { $0 }
+            .max { $0.compare($1, options: .numeric) == .orderedAscending } ?? ""
+        var device = Device(udid: udid, name: "", productType: productType, version: version,
                             deviceClass: info?["Device Class"] as? String ?? "iPhone", wifi: true)
         device.name = names[udid] ?? device.modelName
         device.away = true
@@ -216,6 +271,9 @@ final class MobileDevices {
     // MARK: - Details
 
     struct Details {
+        var name: String?
+        var version: String?
+        /// As Finder counts it: the data and system parts (not the chips' size).
         var capacity: Int64?
         var free: Int64?
         var battery: Int?
@@ -230,14 +288,38 @@ final class MobileDevices {
         let lockdown = try MobileDeviceLink.Lockdown(link(udid))
         try lockdown.startSession()
         var details = Details()
-        details.capacity = (try? lockdown.value("TotalDiskCapacity", domain: "com.apple.disk_usage")) as? Int64
-        details.free = (try? lockdown.value("AmountDataAvailable", domain: "com.apple.disk_usage")) as? Int64
+        details.name = (try? lockdown.value("DeviceName")) as? String
+        details.version = (try? lockdown.value("ProductVersion")) as? String
+        let usage = (try? lockdown.value(domain: "com.apple.disk_usage")) as? [String: Any] ?? [:]
+        if let data = usage["TotalDataCapacity"] as? Int64 {
+            details.capacity = data + (usage["TotalSystemCapacity"] as? Int64 ?? 0)
+        } else {
+            details.capacity = usage["TotalDiskCapacity"] as? Int64
+        }
+        details.free = usage["AmountDataAvailable"] as? Int64
         details.battery = (try? lockdown.value("BatteryCurrentCapacity", domain: "com.apple.mobile.battery")) as? Int
         details.charging = (try? lockdown.value("BatteryIsCharging", domain: "com.apple.mobile.battery")) as? Bool
         details.serial = (try? lockdown.value("SerialNumber")) as? String
         details.phoneNumber = (try? lockdown.value("PhoneNumber")) as? String
         details.build = (try? lockdown.value("BuildVersion")) as? String
         return details
+    }
+
+    /// What the device's page read just now (name, version): the list and the sidebar follow.
+    func learnDetails(_ details: Details, for udid: String) {
+        guard let index = devices.firstIndex(where: { $0.udid == udid }), !devices[index].remembered else { return }
+        var device = devices[index]
+        if let name = details.name, !name.isEmpty { device.name = name }
+        if let version = details.version, !version.isEmpty { device.version = version }
+        guard device != devices[index] else { return }
+        devices[index] = device
+        var names = Self.knownNames, versions = Self.knownVersions
+        names[udid] = device.name
+        versions[udid] = device.version
+        AppDefaults.store.set(names, forKey: Self.namesKey)
+        AppDefaults.store.set(versions, forKey: Self.versionsKey)
+        devices.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 
     // MARK: - Open in Finder
@@ -359,5 +441,16 @@ final class MobileDevices {
             return isDevice ? texts.first.map { [($0, element)] } ?? [] : []
         }
         return (attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? []).flatMap { deviceRows(in: $0, depth: depth + 1) }
+    }
+}
+
+// MARK: - Scenarios
+
+extension MobileDevices {
+    nonisolated static func debugDiskUsage(_ udid: String) throws -> String {
+        let lockdown = try MobileDeviceLink.Lockdown(link(udid))
+        try lockdown.startSession()
+        let usage = try lockdown.value(domain: "com.apple.disk_usage") as? [String: Any] ?? [:]
+        return usage.keys.sorted().map { "\($0)=\(usage[$0] ?? "")" }.joined(separator: " ")
     }
 }

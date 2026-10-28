@@ -101,7 +101,7 @@ struct FileOperationTests {
         try fm.createDirectory(at: folder.appendingPathComponent("inner"), withIntermediateDirectories: true)
         let operation = FileOperation(kind: .copy, sources: [folder], destination: folder.appendingPathComponent("inner"))
         var errors = 0
-        operation.onError = { _, _ in errors += 1; return .skip }
+        operation.onError = { _, _, _ in errors += 1; return .skip }
         operation.run()
         #expect(errors == 1 && contents(folder.appendingPathComponent("inner")).isEmpty)
     }
@@ -144,7 +144,7 @@ struct FileOperationTests {
                 asked.append(urls.map(\.lastPathComponent))
                 return declined ? ([:], true) : ([a: URL(fileURLWithPath: "/tmp/trash/a.app")], false)
             }
-            operation.onError = { _, _ in errors += 1; return .skip }
+            operation.onError = { _, _, _ in errors += 1; return .skip }
             var finished: FileOperation.Result?
             operation.onFinish = { finished = $0 }
             operation.run()

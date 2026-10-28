@@ -15,7 +15,9 @@ final class FileOperation: @unchecked Sendable {
         let existing: URL
     }
 
-    enum ErrorAction: Sendable { case skip, cancel }
+    /// `deleteNow`: it wouldn't go to the Trash (no room for it, a disk without one) — deleted
+    /// outright, as Finder offers.
+    enum ErrorAction: Sendable { case skip, cancel, deleteNow }
 
     enum Phase: Sendable { case counting, waiting, working, finished }
 
@@ -43,8 +45,8 @@ final class FileOperation: @unchecked Sendable {
 
     /// Asked once when names clash; returns a resolution per source (missing: skip).
     var decideConflicts: (([Conflict]) -> [URL: Resolution]?)?
-    /// Asked on a failure; nil hook: skip.
-    var onError: ((Error, URL) -> ErrorAction)?
+    /// Asked on a failure (`canDeleteNow`: it's the move to the Trash that failed); nil hook: skip.
+    var onError: ((_ error: Error, _ url: URL, _ canDeleteNow: Bool) -> ErrorAction)?
     /// Moving to the Trash wasn't allowed (an App Store app is root's): moves those with the
     /// administrator's password — asked once for all of them — and returns where each went
     /// (missing: not moved) and whether the password was declined.
@@ -57,6 +59,8 @@ final class FileOperation: @unchecked Sendable {
     struct Result: Sendable {
         /// Copied / moved: source → destination. Trashed: original → where it is in the Trash.
         var done: [(from: URL, to: URL)] = []
+        /// Deleted outright instead of going to the Trash (no ⌘Z for them).
+        var deleted: [URL] = []
         var cancelled = false
     }
 
@@ -325,7 +329,17 @@ final class FileOperation: @unchecked Sendable {
                     lock.withLock { result.done.append((url, url)) }
                 }
             } catch {
-                if ask(error, url) == .cancel { cancel(); return }
+                switch ask(error, url, canDeleteNow: kind == .trash) {
+                case .cancel: cancel(); return
+                case .deleteNow:
+                    do {
+                        try fm.removeItem(at: url)
+                        lock.withLock { result.deleted.append(url) }
+                    } catch {
+                        if ask(error, url) == .cancel { cancel(); return }
+                    }
+                case .skip: break
+                }
             }
             update { $0.doneItems += 1 }
         }
@@ -344,8 +358,9 @@ final class FileOperation: @unchecked Sendable {
 
     // MARK: - Helpers
 
-    private func ask(_ error: Error, _ url: URL) -> ErrorAction {
-        onError?(error, url) ?? .skip
+    private func ask(_ error: Error, _ url: URL, canDeleteNow: Bool = false) -> ErrorAction {
+        let action = onError?(error, url, canDeleteNow) ?? .skip
+        return action == .deleteNow && !canDeleteNow ? .skip : action
     }
 
     private static func onSameVolume(_ a: URL, _ b: URL) -> Bool {

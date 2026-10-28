@@ -420,6 +420,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
             }
         }
         observers.add(FileClipboard.didChange) { [weak self] in self?.needsDisplay = true }
+        observers.add(CloudProgress.changed) { [weak self] in self?.needsDisplay = true }
         observers.add(.fileTagsChanged) { [weak self] in self?.reload() }
         observers.add(FenceStyle.didChange) { [weak self] in
             self?.fenceViews.values.forEach { $0.styleChanged() }
@@ -1045,6 +1046,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
         let image = image(for: i)
         let imageRect = Self.aspectFit(image.size, in: iconRect)
         image.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: alpha, respectFlipped: true, hints: nil)
+        // iCloud's upload / download or a browser's download: Finder's bar at the picture's bottom
+        if let fraction = CloudProgress.shared.fraction(for: item.url) {
+            let picture = Self.visibleRect(of: image, in: imageRect)
+            CloudProgressBar.draw(fraction, in: CloudProgressBar.frame(onPicture: picture, iconSide: iconRect.height, flipped: true))
+        }
         if !isRenaming {
             for (line, rect) in zip(lines, lineRects) {
                 line.draw(in: rect.insetBy(dx: -2, dy: 0))
@@ -1321,10 +1327,12 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     // MARK: - Dragging source
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? [.copy, .move, .link, .generic, .delete] : [.copy, .move, .link, .generic]
+        // Out of WinEx: everything, as Finder offers (the Dock keeps a folder dropped on it, the Trash takes it)
+        context == .outsideApplication ? .every : [.copy, .move, .link, .generic]
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        DockStacks.dragEnded(session, at: screenPoint, operation: operation)
         // Dropped on the Trash in the Dock: files go to the Trash, volumes are ejected (like Finder)
         if operation == .delete { removeItems(draggedNames.compactMap(index(named:))) }
         draggedNames = []

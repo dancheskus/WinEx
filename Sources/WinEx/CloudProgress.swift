@@ -67,7 +67,8 @@ enum CloudDrive {
 
 /// iCloud Drive's uploads and downloads as Finder shows them: iCloud publishes a progress per file
 /// (NSProgress file progress); WinEx follows them for a circle by «iCloud Drive» in the sidebar and
-/// a bar on the file's icon.
+/// a bar on the file's icon. A browser's download (Safari's «.download», Chrome's «.crdownload»,
+/// Firefox's «.part») is published the same way: it gets the bar too, but isn't iCloud's.
 @MainActor
 final class CloudProgress {
     static let shared = CloudProgress()
@@ -81,8 +82,10 @@ final class CloudProgress {
     private final class Transfer {
         let progress: Progress
         let isDownload: Bool
+        /// iCloud's (not a browser's): counted by the sidebar's circle, a download clears the cloud.
+        let isCloud: Bool
         var observation: NSKeyValueObservation?
-        init(_ progress: Progress, isDownload: Bool) { self.progress = progress; self.isDownload = isDownload }
+        init(_ progress: Progress, isDownload: Bool, isCloud: Bool) { self.progress = progress; self.isDownload = isDownload; self.isCloud = isCloud }
     }
 
     /// Files kept only in iCloud that came down lately: their cloud goes before their folder's
@@ -164,10 +167,12 @@ final class CloudProgress {
         let token = Progress.addSubscriber(forFileURL: folder) { progress in
             let info = progress.userInfo
             let kind = info[.fileOperationKindKey] as? Progress.FileOperationKind
-            guard let url = info[.fileURLKey] as? URL, kind == .uploading || kind == .downloading,
-                  info[.init("BRProgressIsCreatedByCloudDocsKey")] != nil || url.path.hasPrefix(rootPath) else { return nil }
+            guard let url = info[.fileURLKey] as? URL, kind == .uploading || kind == .downloading else { return nil }
+            let isCloud = info[.init("BRProgressIsCreatedByCloudDocsKey")] != nil || url.path.hasPrefix(rootPath)
+            // Uploads are iCloud's only; any other app's download (a browser's) shows its bar
+            guard isCloud || kind == .downloading else { return nil }
             let key = url.resolvingSymlinksInPath().path
-            Task { @MainActor in CloudProgress.shared.add(progress, key: key, isDownload: kind == .downloading) }
+            Task { @MainActor in CloudProgress.shared.add(progress, key: key, isDownload: kind == .downloading, isCloud: isCloud) }
             return { Task { @MainActor in CloudProgress.shared.remove(progress, key: key) } }
         }
         subscriptions[path] = (1, token)
@@ -184,8 +189,8 @@ final class CloudProgress {
         }
     }
 
-    private func add(_ progress: Progress, key: String, isDownload: Bool) {
-        let transfer = Transfer(progress, isDownload: isDownload)
+    private func add(_ progress: Progress, key: String, isDownload: Bool, isCloud: Bool = true) {
+        let transfer = Transfer(progress, isDownload: isDownload, isCloud: isCloud)
         transfer.observation = progress.observe(\.fractionCompleted) { _, _ in
             Task { @MainActor in CloudProgress.shared.post() }
         }
@@ -196,7 +201,7 @@ final class CloudProgress {
     private func remove(_ progress: Progress, key: String) {
         guard let transfer = transfers[key], transfer.progress === progress else { return }
         transfers[key] = nil
-        if transfer.isDownload, Self.isDownloaded(URL(fileURLWithPath: key)) {
+        if transfer.isDownload, transfer.isCloud, Self.isDownloaded(URL(fileURLWithPath: key)) {
             arrived.insert(key)
             DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [self] in arrived.remove(key) }
         }
@@ -212,7 +217,7 @@ final class CloudProgress {
         }
     }
 
-    var isActive: Bool { !transfers.isEmpty }
+    var isActive: Bool { transfers.values.contains { $0.isCloud } }
 
     /// Brings a file kept only in iCloud down to this Mac (a click on its cloud, as in Finder). The
     /// sidebar's circle counts it at once: iCloud publishes the download's progress a moment later
@@ -254,14 +259,15 @@ final class CloudProgress {
     func cloudState(for url: URL, cloudOnly: Bool) -> CloudState {
         guard cloudOnly else { return .none }
         let key = url.resolvingSymlinksInPath().path
-        if transfers[key]?.isDownload == true { return .downloading }
+        if let transfer = transfers[key], transfer.isDownload, transfer.isCloud { return .downloading }
         return arrived.contains(key) ? .none : .inCloud
     }
 
-    /// Whether the file is being uploaded (not brought down).
-    func isUploading(_ url: URL) -> Bool {
-        guard !transfers.isEmpty else { return false }
-        return transfers[url.resolvingSymlinksInPath().path]?.isDownload == false
+    /// Whether the file's bar shows in lists too: an upload or a browser's download (iCloud's
+    /// download shows as the plain cloud after the name there).
+    func showsBarInLists(_ url: URL) -> Bool {
+        guard !transfers.isEmpty, let transfer = transfers[url.resolvingSymlinksInPath().path] else { return false }
+        return !transfer.isDownload || !transfer.isCloud
     }
 
     /// How far the file's upload or download is (nil when it isn't being moved).
@@ -270,20 +276,20 @@ final class CloudProgress {
         return transfers[url.resolvingSymlinksInPath().path]?.progress.fractionCompleted
     }
 
-    /// All transfers together, by bytes (nil when nothing is moving).
+    /// All of iCloud's transfers together, by bytes (nil when nothing is moving).
     var total: Double? {
-        guard !transfers.isEmpty else { return nil }
-        let progresses = transfers.values.map(\.progress)
+        let progresses = transfers.values.filter(\.isCloud).map(\.progress)
+        guard !progresses.isEmpty else { return nil }
         let total = progresses.reduce(Int64(0)) { $0 + max($1.totalUnitCount, 0) }
         guard total > 0 else { return progresses.map(\.fractionCompleted).reduce(0, +) / Double(progresses.count) }
         return Double(progresses.reduce(Int64(0)) { $0 + max($1.completedUnitCount, 0) }) / Double(total)
     }
 
     #if DEBUG
-    /// For scenarios: a transfer that isn't iCloud's.
-    func debugSet(_ progress: Progress?, for url: URL) {
+    /// For scenarios: a transfer that isn't iCloud's (an upload, or a browser's download).
+    func debugSet(_ progress: Progress?, for url: URL, browserDownload: Bool = false) {
         let key = url.resolvingSymlinksInPath().path
-        if let progress { add(progress, key: key, isDownload: false) } else if let old = transfers[key] { remove(old.progress, key: key) }
+        if let progress { add(progress, key: key, isDownload: browserDownload, isCloud: !browserDownload) } else if let old = transfers[key] { remove(old.progress, key: key) }
     }
 
     /// For scenarios: what a click on a cloud would download (nothing is brought down).
@@ -291,14 +297,15 @@ final class CloudProgress {
     #endif
 }
 
-/// A thin bar on a file's icon while iCloud moves the file; hidden otherwise.
+/// A thin bar on a file's icon while iCloud moves the file or a browser downloads it; hidden otherwise.
 final class CloudProgressBar: NSView {
     static let cellIdentifier = NSUserInterfaceItemIdentifier("cloudProgress")
 
     var url: URL? {
         didSet { if url != oldValue { update() } }
     }
-    /// Lists show only uploads here: a download shows as the plain cloud after the name.
+    /// Lists show only uploads and browsers' downloads here: iCloud's download shows as the plain
+    /// cloud after the name.
     var uploadsOnly = false
     private var fraction: Double?
     private var observer: NSObjectProtocol?
@@ -316,7 +323,7 @@ final class CloudProgressBar: NSView {
     deinit { observer.map(NotificationCenter.default.removeObserver) }
 
     private func update() {
-        let fraction = url.flatMap { !uploadsOnly || CloudProgress.shared.isUploading($0) ? CloudProgress.shared.fraction(for: $0) : nil }
+        let fraction = url.flatMap { !uploadsOnly || CloudProgress.shared.showsBarInLists($0) ? CloudProgress.shared.fraction(for: $0) : nil }
         // Shown: placed by the icon's layout (which skips it while hidden)
         if isHidden != (fraction == nil) {
             isHidden = fraction == nil
@@ -329,15 +336,29 @@ final class CloudProgressBar: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let fraction else { return }
-        let radius = bounds.height / 2
+        Self.draw(fraction, in: bounds)
+    }
+
+    /// The bar itself (the desktop draws its icons, and their bars, itself).
+    static func draw(_ fraction: Double, in rect: NSRect) {
+        let radius = rect.height / 2
         // Visible on a white document and on a dark folder alike
         NSColor.gray.withAlphaComponent(0.45).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-        let inner = bounds.insetBy(dx: 1, dy: 1)
+        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+        let inner = rect.insetBy(dx: 1, dy: 1)
         var done = inner
         done.size.width = max(inner.height, inner.width * min(max(fraction, 0), 1))
         NSColor.controlAccentColor.setFill()
         NSBezierPath(roundedRect: done, xRadius: inner.height / 2, yRadius: inner.height / 2).fill()
+    }
+
+    /// Where the bar goes on an icon whose picture shows in `picture` (y up when `flipped` is false).
+    static func frame(onPicture picture: NSRect, iconSide icon: CGFloat, flipped: Bool) -> NSRect {
+        let height: CGFloat = icon >= 48 ? 6 : 4
+        let width = max(picture.width * 0.8, 12)
+        let inset: CGFloat = icon >= 48 ? 4 : 1
+        let y = flipped ? picture.maxY - inset - height : picture.minY + inset
+        return NSRect(x: (picture.midX - width / 2).rounded(), y: y.rounded(), width: width.rounded(), height: height)
     }
 }
 

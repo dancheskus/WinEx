@@ -170,6 +170,16 @@ enum MobileDeviceLink {
         return PairRecord(hostID: hostID, systemBUID: buid, certificate: certificate, privateKey: key)
     }
 
+    /// The device's Wi‑Fi address as it was paired («90:4c:c5:cd:0a:03»): the name it advertises
+    /// itself by over Wi‑Fi (`_apple-mobdev2._tcp`, «<address>@…»).
+    static func wifiAddress(udid: String) -> String? {
+        guard let (_, reply) = try? mux(["MessageType": "ReadPairRecord", "PairRecordID": udid]),
+              let data = reply["PairRecordData"] as? Data,
+              let record = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else { return nil }
+        return (record["WiFiMACAddress"] as? String)?.lowercased()
+    }
+
     /// A connection to a port on the device.
     static func connect(_ device: Device, port: UInt16) throws -> Socket {
         let (socket, reply) = try mux(["MessageType": "Connect", "DeviceID": device.id, "PortNumber": Int(port.bigEndian)])

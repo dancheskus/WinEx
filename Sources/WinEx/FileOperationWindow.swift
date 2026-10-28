@@ -20,14 +20,24 @@ enum FileOperations {
                 ConflictWindowController.ask(title: panel.headline, conflicts: conflicts, near: progress.window, answer: answer)
             }
         }
-        operation.onError = { error, url in
+        operation.onError = { error, url, canDeleteNow in
             waitForMain { answer in
                 let alert = NSAlert()
                 alert.messageText = L("Не удалось обработать «%@»", url.lastPathComponent)
                 alert.informativeText = error.localizedDescription
                 alert.addButton(withTitle: L("Пропустить"))
                 alert.addButton(withTitle: L("Отмена"))
-                answer(alert.runModal() == .alertFirstButtonReturn ? .skip : .cancel)
+                // Not into the Trash (no room for it on a full disk…): deleted now, as Finder offers
+                if canDeleteNow {
+                    let delete = alert.addButton(withTitle: L("Удалить немедленно"))
+                    delete.hasDestructiveAction = true
+                    alert.informativeText += "\n\n" + L("Если удалить объект немедленно, его нельзя будет восстановить.")
+                }
+                switch alert.runModal() {
+                case .alertFirstButtonReturn: answer(.skip)
+                case .alertThirdButtonReturn: answer(.deleteNow)
+                default: answer(.cancel)
+                }
             }
         }
         operation.trashAsAdministrator = { urls in
@@ -50,6 +60,7 @@ enum FileOperations {
                 MainActor.assumeIsolated {
                     recordUndo(kind, result, joining: joiningUndo)
                     // The system's sounds, once something was actually done
+                    if !result.deleted.isEmpty, result.done.isEmpty { FileSounds.play(.delete) }
                     if !result.done.isEmpty {
                         switch kind {
                         case .copy: FileSounds.play(.copy)

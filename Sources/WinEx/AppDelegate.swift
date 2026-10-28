@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         setupStatusItem()
         DeviceImport.register()
         CloudProgress.shared.start()
+        DockStacks.start()
         // Logging out / restarting / shutting down (sent before the apps are asked to quit)
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willPowerOffNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.sessionEnding = true }

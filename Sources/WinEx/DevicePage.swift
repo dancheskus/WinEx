@@ -28,7 +28,11 @@ final class DevicePageView: NSView {
     private let files = DeviceFilesView()
     private let photos = DevicePhotosView()
     private var details: MobileDevices.Details?
-    private var generation = 0
+    /// Battery and storage read again while the page is shown (they change under it).
+    private var detailsTimer: Timer?
+    private var readingDetails = false
+    /// The device was on the network at the last look (back from away: read again at once).
+    private var wasPresent = false
     private var shownTabs: Set<Int> = []
     private let observers = Observers()
 
@@ -56,6 +60,7 @@ final class DevicePageView: NSView {
         tabs.selectedSegment = min(max(AppDefaults.store.integer(forKey: Self.tabKey), 0), 2)
         // «Файлы» as a tree (the window's table button) or as folders' icons (its icons button)
         files.setFlat(AppDefaults.store.bool(forKey: Self.flatKey))
+        files.onDeviceChanged = { [weak self] in self?.readDetails() }
         files.onEnter = { [weak self] place in
             guard let self, let udid else { return }
             onOpen?(Places.deviceURL(udid, path: place))
@@ -123,7 +128,27 @@ final class DevicePageView: NSView {
             onStatus?(text)
         }
         // Renamed, gone to sleep, back: the header follows
-        observers.add(MobileDevices.didChange) { [weak self] in self?.updateHeader() }
+        observers.add(MobileDevices.didChange) { [weak self] in
+            guard let self else { return }
+            updateHeader()
+            let present = device.map { !$0.away } ?? false
+            if present, !wasPresent { readDetails() }
+            wasPresent = present
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        detailsTimer?.invalidate()
+        detailsTimer = nil
+        guard window != nil else { return }
+        detailsTimer = .scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, !self.isHiddenOrHasHiddenAncestor, self.window?.isVisible == true,
+                      self.device?.away == false else { return }
+                self.readDetails()
+            }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -139,11 +164,12 @@ final class DevicePageView: NSView {
             tabs.selectedSegment = 1
             if !files.flat { files.setFlat(true) }
         }
-        generation += 1
         if changed {
             details = Self.detailsSeen[udid]
             shownTabs = []
+            readingDetails = false
         }
+        wasPresent = device.map { !$0.away } ?? false
         updateHeader()
         readDetails()
         showTab()
@@ -191,16 +217,18 @@ final class DevicePageView: NSView {
     }
 
     private func readDetails() {
-        guard let udid else { return }
-        let generation = generation
+        guard let udid, !readingDetails else { return }
+        readingDetails = true
         MobileDevices.queue.async {
             let result = Result { try MobileDevices.details(udid) }
             DispatchQueue.main.async {
-                guard self.generation == generation else { return }
+                guard self.udid == udid else { return }
+                self.readingDetails = false
                 switch result {
                 case .success(let details):
                     self.details = details
                     Self.detailsSeen[udid] = details
+                    MobileDevices.shared.learnDetails(details, for: udid)
                 case .failure(let error):
                     MobileDevices.log.info("details: \(String(describing: error), privacy: .public)")
                 }

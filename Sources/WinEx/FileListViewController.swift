@@ -217,7 +217,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         tableView.target = self
         tableView.doubleAction = #selector(doubleClicked(_:))
         tableView.menu = menu
-        tableView.setDraggingSourceOperationMask([.copy, .move, .link, .generic, .delete], forLocal: false)
+        tableView.setDraggingSourceOperationMask(.every, forLocal: false)  // as Finder (the Dock keeps a folder dropped on it)
         tableView.setDraggingSourceOperationMask([.copy, .move, .link, .generic], forLocal: true)
         tableView.registerForDraggedTypes(FileDrop.types)
         tableView.onOpen = { [weak self] in self?.openSelected(nil) }
@@ -1629,6 +1629,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
 
     func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
                    endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        DockStacks.dragEnded(session, at: screenPoint, operation: operation)
         // Dropped on the Trash in the Dock
         if operation == .delete {
             FileOps.trash(session.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])

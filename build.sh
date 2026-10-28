@@ -11,6 +11,9 @@ APP="${APP:-build/WinEx.app}"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp ".build/$CONFIG/WinEx" "$APP/Contents/MacOS/WinEx"
+# The Dock stacks' app (WinEx copies it into each stack it puts in the Dock)
+mkdir -p "$APP/Contents/Helpers"
+cp ".build/$CONFIG/WinExStack" "$APP/Contents/Helpers/WinExStack"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # Releases (GitHub Actions) pass the version from the tag; local builds are marked "dev" and
 # don't look for updates on their own
@@ -38,12 +41,15 @@ SIGNING_KEYCHAIN="$HOME/.winex-signing/signing.keychain-db"
 if [ -f "$SIGNING_KEYCHAIN" ]; then
   # Its own keychain with a known password: no login-password prompts (scripts/setup-signing.sh)
   security unlock-keychain -p "$(cat "$HOME/.winex-signing/keychain-password")" "$SIGNING_KEYCHAIN"
+  codesign --force --sign "$IDENTITY" --keychain "$SIGNING_KEYCHAIN" "$APP/Contents/Helpers/WinExStack" >/dev/null
   codesign --force --sign "$IDENTITY" --keychain "$SIGNING_KEYCHAIN" "$APP" >/dev/null
 elif security find-certificate -c "$IDENTITY" >/dev/null 2>&1; then
   # CI: the workflow's temporary keychain
+  codesign --force --sign "$IDENTITY" "$APP/Contents/Helpers/WinExStack" >/dev/null
   codesign --force --sign "$IDENTITY" "$APP" >/dev/null
 else
   echo "(ad-hoc signature: run scripts/setup-signing.sh once to keep permissions across builds)"
+  codesign --force --sign - "$APP/Contents/Helpers/WinExStack" >/dev/null
   codesign --force --sign - "$APP" >/dev/null
 fi
 

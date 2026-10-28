@@ -10,6 +10,12 @@ let package = Package(
             path: "Sources/WinEx",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The app WinEx puts in the Dock for each folder stack (copied into its bundles)
+        .executableTarget(
+            name: "WinExStack",
+            path: "Sources/WinExStack",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "WinExTests",
             dependencies: ["WinEx"],

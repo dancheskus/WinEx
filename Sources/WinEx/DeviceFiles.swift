@@ -198,6 +198,8 @@ final class DeviceFilesView: NSScrollView, NSOutlineViewDataSource, NSOutlineVie
     var onStatus: ((String) -> Void)?
     /// A folder entered (flat mode): its place, «/<app id>/<folders…>» under the app's Documents.
     var onEnter: ((String) -> Void)?
+    /// Something copied to the device or deleted from it (its free space changed).
+    var onDeviceChanged: (() -> Void)?
     /// Apps' names by id, for the window's path.
     static var appNames: [String: [String: String]] = [:]
     /// One folder at a time instead of the tree.
@@ -730,6 +732,7 @@ final class DeviceFilesView: NSScrollView, NSOutlineViewDataSource, NSOutlineVie
                 }
                 DispatchQueue.main.async {
                     if let failure { self?.report(failure) }
+                    self?.onDeviceChanged?()
                     for parent in Set(nodes.compactMap { $0.parent.map(ObjectIdentifier.init) }) {
                         if let node = nodes.first(where: { $0.parent.map(ObjectIdentifier.init) == parent })?.parent { self?.refresh(node) }
                     }
@@ -755,6 +758,7 @@ final class DeviceFilesView: NSScrollView, NSOutlineViewDataSource, NSOutlineVie
             DispatchQueue.main.async {
                 self.setBusy(nil)
                 if case .failure(let error) = result { self.report(error) }
+                self.onDeviceChanged?()
                 self.refresh(folder)
                 self.outline.expandItem(folder)
             }

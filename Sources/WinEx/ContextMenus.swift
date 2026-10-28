@@ -68,6 +68,7 @@ enum FileContextMenu {
             add(L("Открыть в новом окне"), #selector(FileMenuActions.openInNewWindow(_:)))
         }
         if let terminal = TerminalLauncher.menuItem(for: urls) { menu.addItem(terminal) }
+        if let dock = DockStacks.menuItem(for: urls) { menu.addItem(dock) }
         menu.addItem(.separator())
         add(L("Копировать путь"), #selector(FileMenuActions.copyPath(_:)))
         add(L("Дублировать"), #selector(FileMenuActions.duplicate(_:)))
@@ -594,8 +595,14 @@ enum FileDrop {
 
     /// What dropping into `directory` would do: move within a volume, copy across volumes or with ⌥,
     /// nothing when the files are already there or a folder would go into itself.
+    /// A place dragged from the sidebar: dropped into a folder it's an alias there, never moved.
+    static let sidebarPlace = NSPasteboard.PasteboardType("dev.winex.sidebar-place")
+
     static func operation(for info: NSDraggingInfo, into directory: URL) -> NSDragOperation {
         let urls = urls(info)
+        if info.draggingPasteboard.types?.contains(sidebarPlace) == true {
+            return info.draggingSourceOperationMask.contains(.link) && !urls.isEmpty ? .link : []
+        }
         guard !urls.isEmpty else {
             // Nothing there yet: it's written here (a copy, whatever the app offers)
             return hasNewFiles(info) && info.draggingSourceOperationMask != [] ? .copy : []
@@ -633,7 +640,7 @@ enum FileDrop {
         return true
     }
 
-    private static func sameVolume(_ a: URL, _ b: URL) -> Bool {
+    static func sameVolume(_ a: URL, _ b: URL) -> Bool {
         let volumeA = (try? a.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject
         let volumeB = (try? b.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject
         guard let volumeA, let volumeB else { return true }

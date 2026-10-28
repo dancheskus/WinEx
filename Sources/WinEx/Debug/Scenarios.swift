@@ -89,6 +89,8 @@ enum Scenarios {
         "releasenotes": releaseNotes,
         "deviceimport": deviceImport,
         "cloudprogress": cloudProgress,
+        "browserdownload": browserDownload,
+        "dockstack": dockStack,
         "devicemenu": deviceMenu,
         "scrollperf": scrollPerf,
         "foldersontop": foldersOnTop,
@@ -432,6 +434,12 @@ enum Scenarios {
                 if MobileDevices.shared.devices.isEmpty { s.note("  none  expect one (the iPhone)") }
                 let sidebar = s.findAll(NSTextField.self, in: s.window?.window?.contentView ?? NSView()).map(\.stringValue)
                 s.note("  sidebar has it: \(MobileDevices.shared.devices.allSatisfy { sidebar.contains($0.name) })  expect true")
+                if let device = MobileDevices.shared.devices.first(where: { !$0.away }) {
+                    MobileDevices.queue.async {
+                        let usage = try? MobileDevices.debugDiskUsage(device.udid)
+                        DispatchQueue.main.async { s.note("  disk_usage: \(usage ?? "-")") }
+                    }
+                }
             }),
             (0.2, "open its page (Основные)", {
                 guard let device = MobileDevices.shared.devices.first else { return }
@@ -989,6 +997,186 @@ enum Scenarios {
                 CloudProgress.shared.debugDownload = nil
             }),
             (0.6, "", { picture("list-done") }),
+        ])
+    }
+
+    /// A WinEx stack in the Dock (never the user's Dock: its list is left alone in scenarios): a
+    /// fan for a few items, a grid for many, the list's menu; then the whole way from a click —
+    /// the stack's app made and started, «clicked» again (LaunchServices' reopen, as the Dock's
+    /// click), WinEx shows the stack; files «dropped» on it are moved into the folder.
+    static func dockStack(_ s: Scenario) {
+        let few = s.makeFiles(["Отчёт.pdf", "Не подтвержден 491184.crdownload", "packing-list-backup-2026-09-20.json", "stock.bin", "Фото/", "notes.txt"], in: "few")
+        let many = s.makeFiles((1...34).map { "Файл с довольно длинным именем \($0).txt" } + ["Папка/"], in: "many")
+        s.makeFiles(["inside.txt"], in: "many/Папка")
+        let dropped = s.makeFiles(["dropped.txt"], in: "elsewhere").appendingPathComponent("dropped.txt")
+        let screen = NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let anchor = StackAnchor.at(NSPoint(x: screen.midX + 200, y: screen.minY + 20))
+        var fewStack = DockStack(id: "scenariofew", path: few.path)
+        fewStack.sort = .name
+        let manyStack = DockStack(id: "scenariomany", path: many.path)
+        DockStacks.all = [fewStack, manyStack]
+        let download = Progress(totalUnitCount: 100)
+        download.completedUnitCount = 55
+        func picture(_ name: String) {
+            guard let panel = DockStackPanel.current, let view = panel.contentView,
+                  let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return s.note("  no stack shown for \(name)") }
+            if name != "fan-opening" { (view as? StackFanView)?.debugFinish() }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            // On a dark backdrop (the blur behind a grid isn't in the picture)
+            let image = NSImage(size: view.bounds.size, flipped: false) { rect in
+                NSColor(white: 0.18, alpha: 1).setFill()
+                rect.fill()
+                rep.draw(in: rect)
+                return true
+            }
+            guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return }
+            try? bitmap.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name + ".png"))
+        }
+        s.run([
+            (0.5, "fan: six items", {
+                CloudProgress.shared.debugSet(download, for: few.appendingPathComponent("Не подтвержден 491184.crdownload"), browserDownload: true)
+                DockStackPanel.show(fewStack, folder: few, anchor: anchor)
+            }),
+            (0.8, "", {
+                let fan = DockStackPanel.current?.contentView as? StackFanView
+                s.note("  fan \(fan != nil), rows \(fan?.entries.map(\.title) ?? [])  expect true, by name + «Открыть в WinEx» last")
+                s.note("  on screen \(DockStackPanel.current?.isVisible == true), above the Dock \((DockStackPanel.current?.frame.minY ?? 0) >= anchor.point.y - 13)  expect true, true")
+                picture("fan")
+            }),
+            (0.05, "mid-way", {
+                (DockStackPanel.current?.contentView as? StackFanView)?.debugFinish(at: 0.45)
+                picture("fan-opening")
+            }),
+            (0.2, "the same tile again: closes", { DockStacks.handle(id: fewStack.id, action: "show", at: NSPoint(x: anchor.point.x, y: screen.minY + 20), paths: []) }),
+            (0.4, "", {
+                s.note("  open \(DockStackPanel.current != nil), window gone after closing \(NSApp.windows.contains { $0 is DockStackPanel && $0.isVisible } == false)  expect false, true")
+            }),
+            (0.2, "a fan of 35: what fits", {
+                var fan = manyStack
+                fan.view = .fan
+                DockStackPanel.show(fan, folder: many, anchor: anchor)
+            }),
+            (0.6, "", {
+                let panel = DockStackPanel.current
+                let fan = panel?.contentView as? StackFanView
+                s.note("  rows \(fan?.entries.count ?? 0) (capacity \(DockStackPanel.fanCapacity(anchor))), last «\(fan?.entries.last?.title ?? "")», top \(Int(panel?.frame.maxY ?? 0)) ≤ \(Int(anchor.visible.maxY))")
+                s.note("  the top row's outline inside the window \(fan.map { $0.bounds.height > 0 } ?? false)")
+                picture("fan-many")
+                panel?.dismiss()
+            }),
+            (0.2, "grid: 35 items", { DockStackPanel.show(manyStack, folder: many, anchor: anchor) }),
+            (0.8, "", {
+                let grid = DockStackPanel.current?.contentView as? StackGridView
+                s.note("  grid \(grid != nil), items \(grid?.document.entries.count ?? 0)  expect true, 36")
+                picture("grid")
+            }),
+            (0.2, "into «Папка»", {
+                if let folder = (DockStackPanel.current?.contentView as? StackGridView)?.document.entries.first(where: { $0.item?.isFolder == true })?.item?.url {
+                    DockStackPanel.current?.navigate(to: folder)
+                }
+            }),
+            (0.6, "", {
+                let grid = DockStackPanel.current?.contentView as? StackGridView
+                s.note("  inside: \(grid?.document.entries.map(\.title) ?? [])  expect inside.txt + open")
+                picture("grid-inside")
+                DockStackPanel.current?.goBack()
+            }),
+            (0.4, "", {
+                s.note("  back: \((DockStackPanel.current?.contentView as? StackGridView)?.document.entries.count ?? 0)  expect 36")
+                DockStackPanel.current?.dismiss()
+            }),
+            (0.2, "tile pictures: stack, folder, the open tile's arrow", {
+                func save(_ image: NSImage, _ name: String) {
+                    guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else { return }
+                    try? bitmap.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name + ".png"))
+                }
+                var asStack = fewStack, asFolder = fewStack
+                asStack.display = .stack
+                asFolder.display = .folder
+                DockStacks.pictures(for: asStack) { pictures in
+                    s.note("  stack pictures \(pictures.count)  expect 3")
+                    save(DockStacks.icon(for: asStack, pictures: pictures), "tile-stack")
+                }
+                DockStacks.pictures(for: asFolder) { pictures in save(DockStacks.icon(for: asFolder, pictures: pictures), "tile-folder") }
+                save(DockTileArrow.picture(side: 128), "tile-open")
+            }),
+            (1.5, "", {}),
+            (0.4, "the stack's app: made, started", {
+                do {
+                    try DockStacks.makeBundle(for: fewStack)
+                    let app = DockStacks.bundleURL(for: fewStack)
+                    let plist = app.flatMap { NSDictionary(contentsOf: $0.appendingPathComponent("Contents/Info.plist")) }
+                    s.note("  app \(app?.lastPathComponent ?? "none"), id \(plist?["CFBundleIdentifier"] ?? ""), icon \(app.map { FileManager.default.fileExists(atPath: $0.appendingPathComponent("Contents/Resources/icon.icns").path) } ?? false)")
+                    if let app { try? FileManager.default.copyItem(at: app.appendingPathComponent("Contents/Resources/icon.icns"), to: s.output.appendingPathComponent("icon.icns")) }
+                    if let icns = app.flatMap({ NSImage(contentsOf: $0.appendingPathComponent("Contents/Resources/icon.icns")) }),
+                       let tiff = icns.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) {
+                        try? bitmap.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent("icon.png"))
+                    }
+                } catch { s.note("  makeBundle failed: \(error)") }
+                DockStacks.launchInBackground(fewStack)
+            }),
+            (2.0, "", {
+                s.note("  running \(!NSRunningApplication.runningApplications(withBundleIdentifier: DockStacks.bundleID(for: fewStack)).isEmpty), no stack yet \(DockStackPanel.current == nil)  expect true, true")
+            }),
+            (0.2, "clicked (reopen)", {
+                guard let app = DockStacks.bundleURL(for: fewStack) else { return }
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = false
+                NSWorkspace.shared.openApplication(at: app, configuration: configuration)
+            }),
+            (1.5, "", {
+                s.note("  shown \(DockStackPanel.current?.stack.id ?? "none")  expect scenariofew")
+                DockStackPanel.current?.dismiss()
+            }),
+            (0.3, "a file dropped on the tile", {
+                guard let app = DockStacks.bundleURL(for: fewStack) else { return }
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = false
+                NSWorkspace.shared.open([dropped], withApplicationAt: app, configuration: configuration)
+            }),
+            (2.0, "", {
+                s.note("  moved in \(FileManager.default.fileExists(atPath: few.appendingPathComponent("dropped.txt").path)), stack shown \(DockStackPanel.current != nil)  expect true, false")
+                for running in NSRunningApplication.runningApplications(withBundleIdentifier: DockStacks.bundleID(for: fewStack)) { running.terminate() }
+                try? FileManager.default.removeItem(at: DockStacks.bundlesRoot)
+                CloudProgress.shared.debugSet(nil, for: few.appendingPathComponent("Не подтвержден 491184.crdownload"))
+            }),
+        ])
+    }
+
+    /// A browser's download (Chrome's «.crdownload»): it publishes the file's progress as a
+    /// download outside iCloud; the file gets the bar in the list and in icons, the sidebar's
+    /// iCloud circle stays away; unpublished, the bar is gone.
+    static func browserDownload(_ s: Scenario) {
+        let base = s.makeFiles(["a.txt", "Не подтвержден 491184.crdownload"])
+        let file = base.appendingPathComponent("Не подтвержден 491184.crdownload")
+        s.window?.navigate(to: base)
+        s.window?.window?.setFrame(NSRect(x: 150, y: 200, width: 900, height: 500), display: true)
+        func picture(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name + ".png"))
+        }
+        let progress = Progress(totalUnitCount: 100)
+        progress.kind = .file
+        progress.fileOperationKind = .downloading
+        progress.fileURL = file
+        progress.completedUnitCount = 30
+        s.run([
+            (1.2, "published at 30 %", { s.setViewMode(.details); progress.publish() }),
+            (1.0, "", {
+                s.note("  fraction \(CloudProgress.shared.fraction(for: file) ?? -1), in lists \(CloudProgress.shared.showsBarInLists(file)), iCloud total \(CloudProgress.shared.total ?? -1), active \(CloudProgress.shared.isActive)  expect 0.3, true, -1, false")
+                picture("list")
+            }),
+            (0.2, "70 %, big icons", { progress.completedUnitCount = 70; s.setViewMode(.largeIcons) }),
+            (1.0, "", {
+                s.note("  fraction \(CloudProgress.shared.fraction(for: file) ?? -1)  expect 0.7")
+                picture("icons")
+            }),
+            (0.2, "finished", { progress.unpublish() }),
+            (1.0, "", {
+                s.note("  fraction \(CloudProgress.shared.fraction(for: file) ?? -1)  expect -1")
+                picture("icons-done")
+            }),
         ])
     }
 

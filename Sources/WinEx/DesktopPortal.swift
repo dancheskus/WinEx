@@ -301,10 +301,12 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? [.copy, .move, .link, .generic, .delete] : [.copy, .move, .link, .generic]
+        // Out of WinEx: everything, as Finder offers (the Dock keeps a folder dropped on it, the Trash takes it)
+        context == .outsideApplication ? .every : [.copy, .move, .link, .generic]
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        DockStacks.dragEnded(session, at: screenPoint, operation: operation)
         if operation == .delete { FileOps.trash(selectedURLs) }
     }
 

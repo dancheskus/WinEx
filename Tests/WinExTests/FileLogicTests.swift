@@ -194,7 +194,8 @@ struct ContextMenuTests {
         #expect(menu.items.first?.view != nil && !titles.contains("Вырезать"))
         #expect(menu.items.first { $0.title.contains("Свойства") }?.title.hasSuffix("\t⌘I") == true)
         #expect(menu.items.first { $0.title.contains("Дублировать") }?.attributedTitle?.containsAttachments == true)
-        for item in menu.items where item.action != nil && item.submenu == nil {
+        // («Добавить в Dock» is the stacks' own, whoever shows the menu)
+        for item in menu.items where item.action != nil && item.submenu == nil && item.target !== StackOptions.shared {
             #expect(item.target === target, "«\(item.title)»")
         }
         let desktop = NSMenu()

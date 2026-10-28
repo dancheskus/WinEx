@@ -84,6 +84,7 @@
 	<array>
 		<string>_smb._tcp</string>
 		<string>_afpovertcp._tcp</string>
+		<string>_apple-mobdev2._tcp</string>
 	</array>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>WinEx показывает содержимое рабочего стола.</string>

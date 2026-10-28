@@ -120,6 +120,12 @@ enum Settings {
         set { defaults.set(newValue, forKey: "searchWholeMac") }
     }
 
+    /// A folder dragged from WinEx onto the Dock becomes a WinEx stack, not Finder's (on by default).
+    static var dockStacksForNewFolders: Bool {
+        get { defaults.object(forKey: "dockStacksForNewFolders") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "dockStacksForNewFolders") }
+    }
+
     /// Search inside files too (on by default, like Finder), not only names.
     static var searchContents: Bool {
         get { defaults.object(forKey: "searchContents") as? Bool ?? true }

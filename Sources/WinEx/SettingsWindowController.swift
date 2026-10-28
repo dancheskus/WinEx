@@ -168,6 +168,9 @@ final class SettingsWindowController: NSWindowController {
             .gap,
             .row(L("Кнопка в Finder:"), finderButtonRow),
             .row(nil, SettingsForm.hint(L("Стопки в Dock и некоторые программы открывают папки только в Finder. WinEx добавит на панель инструментов Finder кнопку «Открыть в WinEx»: нажатие закроет окно Finder и откроет ту же папку в WinEx, с выделенными файлами. При первом нажатии macOS спросит разрешение управлять Finder."))),
+            .gap,
+            .row(L("Папки в Dock:"), DockStacksSettingsView()),
+            .row(nil, SettingsForm.hint(L("Стопки WinEx в Dock: нажатие показывает папку веером, сеткой или списком, как стопки Finder, а «Открыть в WinEx» и папки из неё открываются в WinEx. На значке WinEx — значок папки. Файлы, брошенные на стопку, переносятся в папку. Вид и сортировка — правой кнопкой в открытой стопке."))),
         ])
     }
 

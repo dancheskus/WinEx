@@ -55,6 +55,9 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         outlineView.delegate = self
         outlineView.registerForDraggedTypes([.fileURL, Self.favoriteType])
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
+        // Out of WinEx (into the Dock, onto a Finder window): the place itself, never moved or
+        // trashed — the Dock keeps it, Finder makes an alias
+        outlineView.setDraggingSourceOperationMask([.copy, .link, .generic], forLocal: false)
         outlineView.draggingDestinationFeedbackStyle = .sourceList
         let menu = NSMenu()
         menu.delegate = self
@@ -364,12 +367,24 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
         sections.first { $0.items.contains { $0 === item } }
     }
 
-    /// Favourites are dragged to reorder them.
+    /// Favourites are dragged to reorder them; any place with a folder can be dragged out (into
+    /// the Dock, as from Finder's sidebar).
     func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
-        guard let item = item as? Item, section(of: item)?.kind == .favorites else { return nil }
+        guard let item = item as? Item else { return nil }
+        let isFavorite = section(of: item)?.kind == .favorites
+        let isFolder = item.url.isFileURL && FileManager.default.fileExists(atPath: item.url.path)
+        guard isFavorite || isFolder else { return nil }
         let pasteboardItem = NSPasteboardItem()
-        pasteboardItem.setString(SidebarConfig.key(item.url), forType: Self.favoriteType)
+        if isFavorite { pasteboardItem.setString(SidebarConfig.key(item.url), forType: Self.favoriteType) }
+        if isFolder {
+            pasteboardItem.setString(item.url.absoluteString, forType: .fileURL)
+            pasteboardItem.setString("", forType: FileDrop.sidebarPlace)
+        }
         return pasteboardItem
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        DockStacks.dragEnded(session, at: screenPoint, operation: operation)
     }
 
     func outlineView(_ outlineView: NSOutlineView, validateDrop info: any NSDraggingInfo,
@@ -396,6 +411,8 @@ final class SidebarViewController: NSViewController, NSOutlineViewDataSource, NS
 
     private func operation(dropping info: any NSDraggingInfo, urls: [URL], on target: Item) -> NSDragOperation {
         if target.tagColor != nil { return .copy }  // gets the tag
+        // A place of the sidebar itself is never thrown away by a drag
+        if Places.isTrash(target.url), info.draggingPasteboard.types?.contains(FileDrop.sidebarPlace) == true { return [] }
         if Places.isTrash(target.url) {
             return urls.contains(where: { Places.isTrash($0.deletingLastPathComponent()) }) ? [] : .move
         }
