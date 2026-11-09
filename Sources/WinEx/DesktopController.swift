@@ -1144,7 +1144,7 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
     }
 
     private func thumbnailKey(_ item: FileItem) -> String {
-        "\(Int(iconSide))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.url.path)"
+        "\(Int(iconSide))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.isLocked ? "L|" : "")\(item.url.path)"
     }
 
     /// Previews for pictures, PDFs, documents… like Finder's "Show icon preview"; icons for folders and apps.
@@ -1160,11 +1160,11 @@ final class DesktopView: NSView, NSDraggingSource, NSTextFieldDelegate, NSMenuIt
                                                        scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
             // Finder's look: documents as rounded pages, pictures as rounded cards
             request.iconMode = true
-            let isAlias = item.aliasTarget != nil
+            let isAlias = item.aliasTarget != nil, isLocked = item.isLocked
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
                 guard let image = representation?.nsImage else { return }
                 DispatchQueue.main.async {
-                    self?.thumbnails[key] = isAlias ? AliasIcon.badged(image) : image
+                    self?.thumbnails[key] = LockBadge.preview(image, alias: isAlias, locked: isLocked)
                     self?.needsDisplay = true
                 }
             }

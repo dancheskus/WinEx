@@ -235,7 +235,7 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
     }
 
     private func thumbnailKey(_ item: FileItem) -> String {
-        "\(Int(iconSide))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.url.path)"
+        "\(Int(iconSide))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.isLocked ? "L|" : "")\(item.url.path)"
     }
 
     private func image(for index: Int) -> NSImage {
@@ -248,11 +248,11 @@ private final class PortalGrid: NSView, NSDraggingSource, FileMenuActions, NSMen
             let request = QLThumbnailGenerator.Request(fileAt: AliasIcon.previewSource(item), size: CGSize(width: iconSide, height: iconSide),
                                                        scale: window?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
             request.iconMode = true
-            let isAlias = item.aliasTarget != nil
+            let isAlias = item.aliasTarget != nil, isLocked = item.isLocked
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
                 guard let image = representation?.nsImage else { return }
                 DispatchQueue.main.async {
-                    self?.thumbnails[key] = isAlias ? AliasIcon.badged(image) : image
+                    self?.thumbnails[key] = LockBadge.preview(image, alias: isAlias, locked: isLocked)
                     self?.needsDisplay = true
                 }
             }

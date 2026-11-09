@@ -1905,9 +1905,9 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
     private func loadIcon(_ file: FileItem) {
         let path = file.url.path
         guard loadingIcons.insert(path).inserted else { return }
-        let url = file.url, isFolder = file.isFolder, alias = file.aliasTarget, tagged = !file.tagNames.isEmpty
+        let url = file.url, isFolder = file.isFolder, alias = file.aliasTarget, locked = file.isLocked, tagged = !file.tagNames.isEmpty
         Self.iconQueue.addOperation { [weak self] in
-            let icon = FileItem.makeIcon(url: url, isFolder: isFolder, aliasTarget: alias, tags: tagged ? FileTags.tags(of: url) : [])
+            let icon = FileItem.makeIcon(url: url, isFolder: isFolder, aliasTarget: alias, isLocked: locked, tags: tagged ? FileTags.tags(of: url) : [])
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.loadingIcons.remove(path)
@@ -1915,7 +1915,7 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
                 let item = self.items[index]
                 item.icon = icon
                 // (A preview may have come first: it stays)
-                let key = "\(Int(self.viewMode.iconSize))|\(path)" as NSString
+                let key = self.thumbnailKey(item, side: self.viewMode.iconSize)
                 guard self.thumbnails.object(forKey: key) == nil else { return }
                 if self.viewMode == .details {
                     let row = self.groups.row(for: index)
@@ -1929,12 +1929,17 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         }
     }
 
+    /// (Locked and not: two previews, so locking or unlocking it shows at once.)
+    private func thumbnailKey(_ file: FileItem, side: CGFloat) -> NSString {
+        "\(Int(side))|\(file.isLocked ? "L|" : "")\(file.url.path)" as NSString
+    }
+
     private func image(for file: FileItem) -> NSImage {
         // Small icons: previews too, as in Finder's lists — for pictures, videos and PDFs
         guard !file.isFolder, !AliasIcon.isContainer(file),
               viewMode.usesThumbnails || Self.hasSmallPreview(AliasIcon.previewSource(file)) else { return quickIcon(file) }
         let side = viewMode.iconSize
-        let key = "\(Int(side))|\(file.url.path)" as NSString
+        let key = thumbnailKey(file, side: side)
         if let cached = thumbnails.object(forKey: key) { return cached }
         guard !requestedThumbnails.contains(key) else { return quickIcon(file) }
         requestedThumbnails.insert(key)
@@ -1945,10 +1950,10 @@ final class FileListViewController: NSViewController, NSTableViewDataSource, NST
         // Finder's look: documents as rounded pages, pictures as rounded cards
         request.iconMode = true
         let path = file.url.path
-        let isAlias = file.aliasTarget != nil
+        let isAlias = file.aliasTarget != nil, isLocked = file.isLocked
         QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
             guard let shown = representation?.nsImage else { return }
-            let image = isAlias ? AliasIcon.badged(shown) : shown
+            let image = LockBadge.preview(shown, alias: isAlias, locked: isLocked)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.thumbnails.setObject(image, forKey: key)

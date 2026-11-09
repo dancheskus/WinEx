@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Where WinEx keeps its settings. Debug scenarios get their own, emptied store, so a test run
 /// can never change the user's settings (or switch Finder replacement on).
@@ -162,6 +163,7 @@ final class FileItem {
         .isDirectoryKey, .isPackageKey, .contentModificationDateKey,
         .localizedTypeDescriptionKey, .fileSizeKey, .localizedNameKey, .tagNamesKey,
         .creationDateKey, .addedToDirectoryDateKey, .isAliasFileKey, .isSymbolicLinkKey, .hasHiddenExtensionKey,
+        .isUserImmutableKey,
     ]
 
     let url: URL
@@ -181,6 +183,9 @@ final class FileItem {
     let hidesExtension: Bool
     /// In iCloud only, not on this Mac (Finder's cloud next to the name): opening downloads it.
     let isCloudOnly: Bool
+    /// Locked («Только чтение» in Properties; a FAT disk's read-only files, as on a micro:bit):
+    /// Finder's lock on its icon.
+    let isLocked: Bool
 
     /// A non-file item (a network server): fixed name and icon, opened by URL.
     init(virtual name: String, url: URL, icon: NSImage, kind: String) {
@@ -196,6 +201,7 @@ final class FileItem {
         aliasTarget = nil
         hidesExtension = false
         isCloudOnly = false
+        isLocked = false
         self.icon = icon
     }
 
@@ -216,6 +222,7 @@ final class FileItem {
         size = isDirectory ? nil : values?.fileSize
         tagNames = values?.tagNames ?? []
         aliasTarget = values?.isAliasFile == true && values?.isSymbolicLink != true ? try? URL(resolvingAliasFileAt: url, options: [.withoutUI, .withoutMounting]) : nil
+        isLocked = values?.isUserImmutable == true
         // (Asked only in iCloud's folders. A folder always says it's downloaded: no cloud on folders)
         isCloudOnly = !isFolder && url.path.hasPrefix(CloudDrive.mobileDocumentsPath)
             && (try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey]))?.ubiquitousItemDownloadingStatus == .notDownloaded
@@ -236,7 +243,7 @@ final class FileItem {
     var icon: NSImage {
         get {
             if let iconStorage { return iconStorage }
-            let made = Self.makeIcon(url: url, isFolder: isFolder, aliasTarget: aliasTarget, tags: tags)
+            let made = Self.makeIcon(url: url, isFolder: isFolder, aliasTarget: aliasTarget, isLocked: isLocked, tags: tags)
             iconStorage = made
             return made
         }
@@ -246,9 +253,18 @@ final class FileItem {
     var hasIcon: Bool { iconStorage != nil }
 
     /// The icon, made from what it depends on (any thread).
-    static func makeIcon(url: URL, isFolder: Bool, aliasTarget: URL?, tags: [FileTags.Tag]) -> NSImage {
+    static func makeIcon(url: URL, isFolder: Bool, aliasTarget: URL?, isLocked: Bool, tags: [FileTags.Tag]) -> NSImage {
+        let icon = makeIcon(url: url, isFolder: isFolder, aliasTarget: aliasTarget, tags: tags)
+        return isLocked ? LockBadge.badged(icon) : icon
+    }
+
+    private static func makeIcon(url: URL, isFolder: Bool, aliasTarget: URL?, tags: [FileTags.Tag]) -> NSImage {
         // An alias: what it points to (a folder with its look, an app, the file's type), with the arrow
-        if let aliasTarget { return AliasIcon.badged(FileItem(url: aliasTarget).icon) }
+        // (The original's lock isn't the alias's: only the alias's own one is drawn)
+        if let aliasTarget {
+            let target = FileItem(url: aliasTarget)
+            return AliasIcon.badged(makeIcon(url: target.url, isFolder: target.isFolder, aliasTarget: target.aliasTarget, tags: target.tags))
+        }
         // The last tag put on it (with a color) colors it, as in Finder
         let tint = Settings.tintFoldersByTags ? tags.last(where: { FileTags.color(forIndex: $0.color) != nil })?.color : nil
         // An app's folder in iCloud Drive (Pages, Просмотр): the system's folder with the app on it
@@ -452,6 +468,8 @@ enum FileOps {
         #if DEBUG
         if let debugTrashed { return debugTrashed(urls) }
         #endif
+        // Locked items move nowhere (not even with a password): like Finder, asked first, then unlocked
+        guard unlockForTrash(urls) else { return }
         // Files may already be gone (e.g. the Dock trashed them after a drag)
         // A volume without a Trash (a NAS share, some USB disks): like Finder, those are deleted
         // right away — after saying so
@@ -476,6 +494,28 @@ enum FileOps {
         alert.addButton(withTitle: L("Отменить"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         FileOperations.start(.delete, noTrash)
+    }
+
+    /// Asks about the locked ones among `urls` and unlocks them; false if not to be deleted.
+    @MainActor
+    private static func unlockForTrash(_ urls: [URL]) -> Bool {
+        let locked = urls.filter { (try? $0.resourceValues(forKeys: [.isUserImmutableKey]))?.isUserImmutable == true }
+        guard !locked.isEmpty else { return true }
+        let alert = NSAlert()
+        alert.messageText = locked.count == 1
+            ? L("«%@» защищён от изменения и удаления.", locked[0].lastPathComponent)
+            : L("%@ объектов защищены от изменения и удаления.", locked.count)
+        alert.informativeText = L("Снять защиту и всё равно удалить?")
+        alert.addButton(withTitle: L("Удалить"))
+        alert.addButton(withTitle: L("Отменить"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        for url in locked {
+            var url = url
+            var values = URLResourceValues()
+            values.isUserImmutable = false
+            try? url.setResourceValues(values)
+        }
+        return true
     }
 
     /// Whether the volume of `url` has a Trash to move it into.
@@ -509,6 +549,30 @@ enum AliasIcon {
     static func isContainer(_ item: FileItem) -> Bool {
         guard let target = item.aliasTarget else { return false }
         return target.hasDirectoryPath || (try? target.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+    }
+}
+
+/// Finder's lock on a locked item: the system's grey badge at the icon's bottom-left corner.
+enum LockBadge {
+    private static let badge = UTType("com.apple.icon-decoration.badge.locked").map { NSWorkspace.shared.icon(for: $0) }
+
+    static func badged(_ image: NSImage) -> NSImage {
+        guard let badge else { return image }
+        let side = max(image.size.width, image.size.height, 32)
+        return NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            image.draw(in: DesktopView.aspectFit(image.size, in: rect))
+            // Where Finder puts it: a circle a quarter of the icon wide, its centre at 22% / 16% of
+            // the frame (the system's picture has a margin around the circle)
+            let size = rect.width * 0.25 / 0.86
+            badge.draw(in: NSRect(x: rect.width * 0.22 - size / 2, y: rect.height * 0.16 - size / 2, width: size, height: size))
+            return true
+        }
+    }
+
+    /// A preview (made without badges) as the item is shown: with its alias arrow and its lock.
+    static func preview(_ image: NSImage, alias: Bool, locked: Bool) -> NSImage {
+        let image = alias ? AliasIcon.badged(image) : image
+        return locked ? badged(image) : image
     }
 }
 

@@ -11,6 +11,7 @@ enum Scenarios {
         "batchrename": batchRename,
         "uninstall": uninstall,
         "grouping": grouping,
+        "locked": locked,
         "preview": previewPane,
         "device": devicePage,
         "propsedit": propertiesEditing,
@@ -707,6 +708,38 @@ enum Scenarios {
             (0.5, "", { s.note("  lit: \(s.window?.debugPreviewToggle.isSelected(forSegment: 0) == true)  expect true") }),
             (0.2, "⇧⌘P again", { s.key("P", code: 35, modifiers: [.command, .shift], viaMenu: true) }),
             (0.5, "", { report("expect hidden"); s.note("  \(widths()); default now \(PreviewPane.isShownByDefault)  expect false") }),
+        ])
+    }
+
+    /// Locked items (a FAT disk's read-only files, as on a micro:bit) get Finder's lock on their
+    /// icons and previews, in the list and in icons; an unlocked one loses it.
+    static func locked(_ s: Scenario) {
+        let base = s.makeFiles(["locked.txt", "plain.txt", "Locked folder/", "Plain folder/"], in: "locked")
+        func lock(_ name: String, _ on: Bool) {
+            var url = base.appendingPathComponent(name)
+            var values = URLResourceValues()
+            values.isUserImmutable = on
+            try? url.setResourceValues(values)
+        }
+        try? "Locked text\nline two\n".write(to: base.appendingPathComponent("locked.txt"), atomically: false, encoding: .utf8)
+        lock("locked.txt", true)
+        lock("Locked folder", true)
+        s.window?.navigate(to: base)
+        func snapshot(_ name: String) {
+            guard let view = s.window?.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
+        }
+        func lockedNames() -> [String] {
+            ((try? FileManager.default.contentsOfDirectory(at: base, includingPropertiesForKeys: nil)) ?? [])
+                .map(FileItem.init(url:)).filter(\.isLocked).map(\.name).sorted()
+        }
+        s.run([
+            (1.0, "large icons", { s.note("  locked \(lockedNames())  expect [Locked folder, locked.txt]"); s.setViewMode(.largeIcons) }),
+            (1.5, "", { snapshot("icons.png") }),
+            (0.2, "list", { s.setViewMode(.details) }),
+            (1.0, "", { snapshot("list.png") }),
+            (0.2, "unlock", { lock("locked.txt", false); lock("Locked folder", false); s.note("  locked \(lockedNames())  expect []") }),
         ])
     }
 

@@ -360,18 +360,18 @@ final class DockStackPanel: NSPanel {
     /// again when the preview arrives.
     func image(for item: FileItem, side: CGFloat, redraw: @escaping () -> Void) -> NSImage {
         guard !item.isFolder, item.url.pathExtension != "app", !AliasIcon.isContainer(item) else { return item.icon }
-        let key = "\(Int(side))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.url.path)"
+        let key = "\(Int(side))|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.isLocked ? "L|" : "")\(item.url.path)"
         if let cached = thumbnails[key] { return cached }
         if !requested.contains(key) {
             requested.insert(key)
             let request = QLThumbnailGenerator.Request(fileAt: AliasIcon.previewSource(item), size: CGSize(width: side, height: side),
                                                        scale: backingScaleFactor, representationTypes: .thumbnail)
             request.iconMode = true
-            let isAlias = item.aliasTarget != nil
+            let isAlias = item.aliasTarget != nil, isLocked = item.isLocked
             QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
                 guard let image = representation?.nsImage else { return }
                 DispatchQueue.main.async {
-                    self?.thumbnails[key] = isAlias ? AliasIcon.badged(image) : image
+                    self?.thumbnails[key] = LockBadge.preview(image, alias: isAlias, locked: isLocked)
                     redraw()
                 }
             }
