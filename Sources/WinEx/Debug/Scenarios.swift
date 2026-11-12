@@ -209,11 +209,24 @@ enum Scenarios {
         func report(_ expect: String) {
             guard let bar = bar() else { return s.note("  (no command bar)") }
             bar.layoutSubtreeIfNeeded()
-            let stack = bar.subviews.compactMap { $0 as? NSStackView }.first
-            let shown = (stack?.arrangedSubviews ?? []).filter { !$0.isHidden }.map { view in
+            // The commands' stack (in its clipping strip), then «…»'s
+            let stacks = s.findAll(NSStackView.self, in: bar).filter { $0.superview === bar || $0.superview?.superview === bar }
+                .sorted { $0.superview === bar ? false : $1.superview === bar }
+            let shown = stacks.flatMap(\.arrangedSubviews).filter { !$0.isHidden }.map { view in
                 (view as? CommandButton).map { $0.command?.rawValue ?? "…" } ?? "|"
             }
             s.note("  bar: \(shown.joined(separator: " "))  \(expect)")
+        }
+        /// The bar's layers drawn over the window's dark grey (a mask kept, unlike `cacheDisplay`).
+        func layerShot(_ view: NSView, _ name: String) {
+            guard let layer = view.layer, let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width * 2),
+                pixelsHigh: Int(view.bounds.height * 2), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0), let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return }
+            ctx.cgContext.setFillColor(NSColor(white: 0.17, alpha: 1).cgColor)
+            ctx.cgContext.fill(CGRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh))
+            ctx.cgContext.scaleBy(x: 2, y: 2)
+            layer.render(in: ctx.cgContext)
+            try? rep.representation(using: .png, properties: [:])?.write(to: s.output.appendingPathComponent(name))
         }
         func moreTitles() -> [String] {
             bar()?.moreMenuWithOverflow()?.items.map { $0.isSeparatorItem ? "—" : $0.title } ?? []
@@ -289,6 +302,24 @@ enum Scenarios {
             (0.5, "", { report("expect newFolder | compress hiddenFiles view | … (as before)") }),
             (0.2, "customize again", { s.window?.customizeCommandBar(nil) }),
             (0.6, "", { s.note("  first mouse on the bar: \(bar()?.acceptsFirstMouse(for: nil) == true)  expect true") }),
+            (0.2, "narrow while arranging", { CommandBarConfig.items = CommandBarConfig.defaultItems; width(800) }),
+            (0.6, "", {
+                guard let bar = bar() else { return }
+                let more = bar.convert(bar.moreButton.bounds, from: bar.moreButton)
+                s.note("  «…» shows inside the bar: \(!bar.moreButton.isHidden && bar.bounds.contains(more))  expect true")
+                let view = bar.buttons[.view].map { bar.convert($0.bounds, from: $0) } ?? .zero
+                s.note("  «Просмотреть» left of «…» (scrolled away): \(view.maxX > more.minX)  expect true")
+                layerShot(bar, "narrow-editing.png")
+                if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -2000, wheel3: 0),
+                   let event = NSEvent(cgEvent: cg) { bar.scrollWheel(with: event) }
+            }),
+            (0.4, "", {
+                guard let bar = bar(), let button = bar.buttons[.view] else { return }
+                let more = bar.convert(bar.moreButton.bounds, from: bar.moreButton)
+                let view = bar.convert(button.bounds, from: button)
+                s.note("  scrolled: «Просмотреть» just left of «…»: \(view.maxX <= more.minX && view.minX > 0)  expect true")
+                layerShot(bar, "narrow-scrolled.png")
+            }),
             (0.3, "done", { panel()?.close() }),
             (0.5, "", {
                 s.note("  editing: \(bar()?.isEditing == true), panel: \(panel() != nil)  expect false, false")

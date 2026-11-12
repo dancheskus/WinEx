@@ -39,6 +39,7 @@ final class CommandBar: NSView, NSDraggingSource {
         didSet {
             buttons.values.forEach { $0.isEditing = isEditing }
             if !isEditing { insertionMark.isHidden = true }
+            scrollOffset = 0
             needsLayout = true
         }
     }
@@ -61,13 +62,36 @@ final class CommandBar: NSView, NSDraggingSource {
         insertionMark.layer?.backgroundColor = NSColor.controlAccentColor.cgColor
         insertionMark.layer?.cornerRadius = 1
         insertionMark.isHidden = true
-        addSubview(stack)
+        moreStack.orientation = .horizontal
+        moreStack.spacing = stack.spacing
+        moreStack.alignment = .centerY
+        moreStack.detachesHiddenViews = true
+        moreStack.translatesAutoresizingMaskIntoConstraints = false
+        moreStack.setViews([moreDivider, moreButton], in: .leading)
+        strip.translatesAutoresizingMaskIntoConstraints = false
+        strip.wantsLayer = true
+        strip.clipsToBounds = true
+        strip.addSubview(stack)
+        addSubview(strip)
+        addSubview(moreStack)
         addSubview(line)
         addSubview(insertionMark)
+        // The commands sit in `strip`, as wide as they are while they fit; arranged in too narrow a
+        // window (every one shows then) it's narrower and scrolls, "…" stays at the right
+        let fullWidth = strip.widthAnchor.constraint(equalTo: stack.widthAnchor)
+        fullWidth.priority = .defaultHigh
+        stackLeading = stack.leadingAnchor.constraint(equalTo: strip.leadingAnchor)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+            strip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            strip.topAnchor.constraint(equalTo: topAnchor),
+            strip.bottomAnchor.constraint(equalTo: bottomAnchor),
+            strip.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
+            fullWidth,
+            stackLeading,
+            stack.centerYAnchor.constraint(equalTo: strip.centerYAnchor),
+            moreStack.leadingAnchor.constraint(equalTo: strip.trailingAnchor, constant: stack.spacing),
+            moreStack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            moreStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
             line.leadingAnchor.constraint(equalTo: leadingAnchor),
             line.trailingAnchor.constraint(equalTo: trailingAnchor),
             line.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -81,6 +105,14 @@ final class CommandBar: NSView, NSDraggingSource {
     required init?(coder: NSCoder) { fatalError() }
 
     private let stack = NSStackView()
+    /// Clips the commands (scrolled while arranging when they don't fit).
+    private let strip = NSView()
+    private let moreStack = NSStackView()
+    private var stackLeading = NSLayoutConstraint()
+    /// How far the commands are scrolled to the left while arranging.
+    private var scrollOffset: CGFloat = 0 {
+        didSet { stackLeading.constant = -scrollOffset }
+    }
     private let moreDivider = CommandBar.divider()
     private let insertionMark = NSView()
     private let observers = Observers()
@@ -104,7 +136,7 @@ final class CommandBar: NSView, NSDraggingSource {
             buttons[command] = button
             return button
         }
-        stack.setViews(itemViews + [moreDivider, moreButton], in: .leading)
+        stack.setViews(itemViews, in: .leading)
         updateState()
         needsLayout = true
     }
@@ -138,6 +170,51 @@ final class CommandBar: NSView, NSDraggingSource {
     override func layout() {
         super.layout()
         updateOverflow()
+        if clampScroll() { super.layout() }
+        updateFades()
+    }
+
+    // MARK: - Scrolling while arranging
+
+    private var maxScroll: CGFloat { isEditing ? max(0, stack.fittingSize.width - strip.bounds.width) : 0 }
+
+    /// Keeps the offset in range; whether it changed.
+    @discardableResult private func clampScroll() -> Bool {
+        let clamped = min(max(scrollOffset, 0), maxScroll)
+        guard clamped != scrollOffset else { return false }
+        scrollOffset = clamped
+        return true
+    }
+
+    private func scroll(by delta: CGFloat) {
+        let old = scrollOffset
+        scrollOffset += delta
+        clampScroll()
+        guard scrollOffset != old else { return }
+        layoutSubtreeIfNeeded()
+        updateFades()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard isEditing, maxScroll > 0 else { return super.scrollWheel(with: event) }
+        let delta = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
+        scroll(by: -delta * (event.hasPreciseScrollingDeltas ? 1 : 10))
+    }
+
+    /// A hidden part of the bar fades out at the strip's edge.
+    private func updateFades() {
+        guard let layer = strip.layer else { return }
+        let left = scrollOffset > 0.5, right = scrollOffset < maxScroll - 0.5
+        guard left || right, strip.bounds.width > 40 else { layer.mask = nil; return }
+        let mask = (layer.mask as? CAGradientLayer) ?? CAGradientLayer()
+        let fade = 24 / strip.bounds.width
+        mask.frame = strip.bounds
+        mask.startPoint = CGPoint(x: 0, y: 0.5)
+        mask.endPoint = CGPoint(x: 1, y: 0.5)
+        mask.colors = [left ? NSColor.clear.cgColor : NSColor.black.cgColor, NSColor.black.cgColor,
+                       NSColor.black.cgColor, right ? NSColor.clear.cgColor : NSColor.black.cgColor]
+        mask.locations = [0, NSNumber(value: Double(fade)), NSNumber(value: Double(1 - fade)), 1]
+        layer.mask = mask
     }
 
     /// Hides what doesn't fit, from the right (widths from each command's own size, so hiding
@@ -278,7 +355,8 @@ final class CommandBar: NSView, NSDraggingSource {
 
     /// The item under `point` (in the bar), if it shows.
     private func itemIndex(at point: NSPoint) -> Int? {
-        itemViews.firstIndex { !$0.isHidden && convert($0.bounds, from: $0).contains(point) }
+        guard strip.frame.contains(point) else { return nil }
+        return itemViews.firstIndex { !$0.isHidden && convert($0.bounds, from: $0).contains(point) }
     }
 
     /// While arranging, or with ⌘ held (as in any Mac toolbar), a press on a command picks it up.
@@ -355,7 +433,9 @@ final class CommandBar: NSView, NSDraggingSource {
 
     /// Where a drop at `point` goes: before the first shown item to its right.
     private func insertionIndex(at point: NSPoint) -> Int {
-        itemViews.indices.first { !itemViews[$0].isHidden && convert(itemViews[$0].bounds, from: itemViews[$0]).midX > point.x } ?? items.count
+        // (Past the strip, over "…": at the strip's end, not before a command scrolled under it)
+        let point = NSPoint(x: min(point.x, strip.frame.maxX), y: point.y)
+        return itemViews.indices.first { !itemViews[$0].isHidden && convert(itemViews[$0].bounds, from: itemViews[$0]).midX > point.x } ?? items.count
     }
 
     private func showInsertion(at index: Int) {
@@ -366,9 +446,9 @@ final class CommandBar: NSView, NSDraggingSource {
         } else if let last = shown.last {
             x = convert(last.bounds, from: last).maxX + stack.spacing / 2
         } else {
-            x = stack.frame.minX
+            x = strip.frame.minX
         }
-        insertionMark.frame = NSRect(x: x - 1, y: (bounds.height - 26) / 2, width: 2, height: 26)
+        insertionMark.frame = NSRect(x: min(max(x, strip.frame.minX + 1), strip.frame.maxX + 1) - 1, y: (bounds.height - 26) / 2, width: 2, height: 26)
         insertionMark.isHidden = false
     }
 
@@ -384,6 +464,9 @@ final class CommandBar: NSView, NSDraggingSource {
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard accepts(sender) else { return [] }
+        // Held near an edge of a bar that scrolls, it scrolls (called again and again while held)
+        let point = convert(sender.draggingLocation, from: nil)
+        if point.x < strip.frame.minX + 30 { scroll(by: -8) } else if point.x > strip.frame.maxX - 30 { scroll(by: 8) }
         showInsertion(at: insertionIndex(at: convert(sender.draggingLocation, from: nil)))
         return sender.draggingSourceOperationMask.contains(.move) ? .move : .copy
     }
