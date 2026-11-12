@@ -80,7 +80,14 @@ enum FolderIcon {
     /// `nil` when the system's own icon is right (a special folder, a folder with its own picture).
     static func icon(for url: URL, tagColor: Int?, customization: FolderCustomization?) -> NSImage? {
         guard tagColor != nil || customization != nil || isPlain(url) else { return nil }
-        return render(tagColor: tagColor, customization: customization, filled: hasContents(url))
+        return render(tagColor: tagColor, customization: customization, filled: showsSheet(url))
+    }
+
+    /// Whether the folder's icon shows the sheet. On a server Finder doesn't look inside: its
+    /// folders never show it (and listing each one would be a trip over the network).
+    static func showsSheet(_ url: URL) -> Bool {
+        let local = (try? url.resourceValues(forKeys: [.volumeIsLocalKey]).volumeIsLocal) ?? true
+        return local && hasContents(url)
     }
 
     /// The icon of a folder with this tag color (`FileTags` color index), customization and contents.

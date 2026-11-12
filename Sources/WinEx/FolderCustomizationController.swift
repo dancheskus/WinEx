@@ -271,7 +271,7 @@ final class FolderCustomizationController: NSViewController, NSTextFieldDelegate
 
     private func refresh() {
         let color = tags.last { FileTags.color(forIndex: $0.color) != nil }?.color
-        preview.image = FolderIcon.render(tagColor: color, customization: customization, filled: FolderIcon.hasContents(folder))
+        preview.image = FolderIcon.render(tagColor: color, customization: customization, filled: FolderIcon.showsSheet(folder))
         clearButton?.isEnabled = customization != nil
         // Highlight the chosen symbol
         for case let button as NSButton in (view.subviews.compactMap { $0 as? NSScrollView }.first?.documentView?.subviews ?? []) {
